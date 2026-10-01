@@ -280,11 +280,11 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
   // The film itself is H.264, which a plain Chromium can't decode, so a 1 s clip stands in for it; the real film's size and look are checked by hand
   {
     const clip = path.join(__dirname, 'fixtures', 'splash-test.webm');
-    const film = (ctx) => ctx.route(/\/splash\/minta-splash\.mp4$/, (route) => route.fulfill({ path: clip, contentType: 'video/webm' }));
+    const film = (ctx) => ctx.route(/\/splash\/minta-splash(-2)?\.mp4$/, (route) => route.fulfill({ path: clip, contentType: 'video/webm' }));
     const gone = (pg, ms = 4000) => pg.waitForSelector('.splash', { state: 'detached', timeout: ms }).then(() => true, () => false);
     const phone = { width: 390, height: 844 };
     // the first load already played (and recorded) it with the real, undecodable film: forget that and load again
-    const again = async (pg) => { await pg.evaluate(() => localStorage.removeItem('minta.splash')); await pg.reload(); };
+    const again = async (pg) => { await pg.evaluate(() => { localStorage.removeItem('minta.splash'); localStorage.removeItem('minta.splash.film'); }); await pg.reload(); };
 
     // first visit: it shows, the Pad underneath can't be reached, Skip is focused; Skip ends it, the Pad is usable and it doesn't come back on reload
     {
@@ -308,6 +308,32 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(await gone(pg), 'Esc ends it');
       ok(errs.length === 0, 'no page errors from the splash' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
+    }
+    // two films take turns, one each time it plays, and each is sized to its own shape without being cropped
+    {
+      const { pg, ctx } = await open('#/', phone, { splash: true });
+      await film(ctx); await again(pg); await pg.waitForSelector('.splash');
+      ok(await pg.locator('.splash video').getAttribute('src') === '/splash/minta-splash.mp4', 'the first play shows the first film');
+      let box = await pg.locator('.splash video').boundingBox();
+      ok(Math.abs(box.width - 390) <= 1 && Math.abs(box.height - 390) <= 1, 'which is square on a phone');
+      await pg.click('.splash-skip'); await pg.waitForSelector('.splash', { state: 'detached' });
+      await pg.evaluate(() => localStorage.removeItem('minta.splash')); await pg.reload(); await pg.waitForSelector('.splash');
+      ok(await pg.locator('.splash video').getAttribute('src') === '/splash/minta-splash-2.mp4', 'the next play shows the second film');
+      ok(/minta-splash-2-poster\.webp$/.test(await pg.locator('.splash video').getAttribute('poster')), 'with its own poster');
+      box = await pg.locator('.splash video').boundingBox();
+      ok(Math.abs(box.width - 390) <= 1 && Math.abs(box.height - 390 / (1072 / 720)) <= 1.5, 'which fills the width of a phone in its own wider shape, uncropped');
+      ok(await sideways(pg) <= 0, 'with no sideways scroll');
+      await pg.click('.splash-skip'); await pg.waitForSelector('.splash', { state: 'detached' });
+      await pg.evaluate(() => localStorage.removeItem('minta.splash')); await pg.reload(); await pg.waitForSelector('.splash');
+      ok(await pg.locator('.splash video').getAttribute('src') === '/splash/minta-splash.mp4', 'and then the first again');
+      await ctx.close();
+      const w = await open('#/', { width: 1440, height: 900 }, { splash: true });
+      await film(w.ctx); await again(w.pg); await w.pg.waitForSelector('.splash');
+      await w.pg.click('.splash-skip'); await w.pg.waitForSelector('.splash', { state: 'detached' });
+      await w.pg.evaluate(() => localStorage.removeItem('minta.splash')); await w.pg.reload(); await w.pg.waitForSelector('.splash');
+      box = await w.pg.locator('.splash video').boundingBox();
+      ok(Math.abs(box.height - 900) <= 1 && Math.abs(box.width - 900 * (1072 / 720)) <= 2, 'on a wide screen the second film is as tall as the screen, in its own shape');
+      await w.ctx.close();
     }
     // a tap anywhere ends it; playing through to the end holds the last frame a moment, then leaves by itself
     {
@@ -348,7 +374,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await old.pg.reload(); await old.pg.waitForSelector('.splash', { timeout: 5000 }).then(() => ok(true, 'it plays again after six hours'), () => ok(false, 'it plays again after six hours'));
       await old.ctx.close();
       const bad = await open('#/', phone, { splash: true });
-      await bad.ctx.route(/\/splash\/minta-splash\.mp4$/, (route) => route.abort());
+      await bad.ctx.route(/\/splash\/minta-splash(-2)?\.mp4$/, (route) => route.abort());
       await again(bad.pg);
       await bad.pg.waitForSelector('.top');
       ok(await gone(bad.pg, 5000), 'a film that can’t be loaded ends the splash by itself');

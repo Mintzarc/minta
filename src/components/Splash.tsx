@@ -6,7 +6,7 @@
 // that hasn't started in four seconds or stalls for four seconds, a storage that can't remember it played. The Pad loads
 // underneath all the while and is inert (no tabbing into it) until the splash leaves. `?splash` in the address plays it
 // regardless, to show it off. Assets: `brand/splash/make-assets.sh` (public/splash/).
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { parseRoute } from '../lib/router';
 import { FILMS, nextFilm } from '../lib/films';
@@ -104,7 +104,7 @@ export default function Splash() {
   if (phase === 'gone') return null;
   return createPortal(
     <div className={`splash${phase === 'out' ? ' out' : ''}`} role="dialog" aria-modal="true" aria-label="MINTA intro" onClick={leave}>
-      <video ref={video} src={FILMS[film].src} poster={FILMS[film].poster} muted playsInline preload="auto" aria-hidden="true" tabIndex={-1} disablePictureInPicture disableRemotePlayback controlsList="nodownload noremoteplayback" />
+      <video ref={video} src={FILMS[film].src} poster={FILMS[film].poster} style={{ '--r': FILMS[film].ratio } as CSSProperties} muted playsInline preload="auto" aria-hidden="true" tabIndex={-1} disablePictureInPicture disableRemotePlayback controlsList="nodownload noremoteplayback" />
       <button ref={skip} type="button" className="splash-skip" onClick={(e) => { e.stopPropagation(); leave(); }}>
         Skip<svg className="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
       </button>

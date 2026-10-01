@@ -613,12 +613,12 @@ a.tk-item:hover b { color: var(--accent); }
 @media (max-width: 480px) { .ticker { height: 34px; font-size: 12.5px; } .tk-live { padding-left: var(--gutter); } .tk-testnet { display: none; } .tk-item { padding: 0 16px; } }
 .picture-field .linkish { justify-self: start; }
 
-/* The splash (components/Splash.tsx): the film sits in a square as wide as the screen allows, its edges fading into the black, so
-   it works on a phone held upright and on a wide screen alike */
+/* The splash (components/Splash.tsx): the film sits in a box of its own shape (--r, width over height) as large as the screen allows
+   without cropping it, its edges fading into the black, so it works on a phone held upright and on a wide screen alike */
 html.splash-on { overflow: hidden; }
 .splash { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; overflow: hidden; background: #03070b; cursor: pointer; opacity: 1; transition: opacity 600ms ease; }
 .splash.out { opacity: 0; pointer-events: none; }
-.splash video { display: block; width: min(100vw, 100dvh); height: min(100vw, 100dvh); object-fit: cover; background: #03070b;
+.splash video { display: block; width: min(100vw, calc(100dvh * var(--r, 1))); aspect-ratio: var(--r, 1); height: auto; object-fit: cover; background: #03070b;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent), linear-gradient(180deg, transparent, #000 9%, #000 91%, transparent);
   -webkit-mask-composite: source-in; mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent), linear-gradient(180deg, transparent, #000 9%, #000 91%, transparent); mask-composite: intersect; }
 .splash-skip { position: absolute; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 4px; padding: 9px 18px 9px 20px; border: 1px solid rgba(38, 240, 242, 0.4); border-radius: 999px; background: rgba(2, 8, 13, 0.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; }
