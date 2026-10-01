@@ -36,11 +36,17 @@ export interface Concern {
 }
 
 const CODES: ReadonlySet<string> = new Set<ConcernCode>(['reverts', 'unlimited_approval', 'approval_to_unknown_spender', 'flagged_address']);
-const ROLES: ReadonlySet<string> = new Set<ConcernRole>(['to', 'spender', 'counterparty']);
 /** How many flags of an answer are read, and how many different concerns are kept (a hostile answer can't make the dialog long) */
 const READ_AT_MOST = 50;
 const KEEP_AT_MOST = 6;
 
+const ROLE_ORDER: readonly ConcernRole[] = ['to', 'spender', 'counterparty'];
+/** How a flagged address figures in the call, from the service's `roles` (an address can have several: the destination counts first) */
+const roleOf = (v: unknown): ConcernRole | undefined => {
+  if (!Array.isArray(v)) return undefined;
+  const have = v.slice(0, 10).filter((r): r is string => typeof r === 'string');
+  return ROLE_ORDER.find((r) => have.includes(r));
+};
 const addressOf = (v: unknown): Address | undefined => (typeof v === 'string' && isAddress(v, { strict: false }) ? (v as Address) : undefined);
 
 /**
@@ -61,10 +67,10 @@ export function concernsOf(answer: TxCheck | unknown): Concern[] {
     const flags = Array.isArray(a.flags) ? a.flags.slice(0, READ_AT_MOST) : [];
     for (const f of flags as unknown[]) {
       if (!f || typeof f !== 'object') continue;
-      const { code, spender, address, role } = f as Record<string, unknown>;
+      const { code, spender, address, roles } = f as Record<string, unknown>;
       if (typeof code !== 'string' || !CODES.has(code)) continue;
       if (code === 'reverts') add({ code });
-      else if (code === 'flagged_address') add({ code, address: addressOf(address), role: typeof role === 'string' && ROLES.has(role) ? (role as ConcernRole) : undefined });
+      else if (code === 'flagged_address') add({ code, address: addressOf(address), role: roleOf(roles) });
       else add({ code: code as ConcernCode, address: addressOf(spender) });
     }
     return out;
@@ -79,9 +85,9 @@ export function describe(c: Concern): { text: string; address?: Address; where?:
     case 'reverts':
       return { text: 'This transaction would most likely fail if it were sent now. You would still pay the network fee.' };
     case 'unlimited_approval':
-      return { text: 'It would let a contract spend an unlimited amount of a token from your wallet.', address: c.address };
+      return { text: 'It would let a contract spend an unlimited amount of a token from your wallet.', address: c.address, where: 'the contract that would get this permission' };
     case 'approval_to_unknown_spender':
-      return { text: 'It would let a contract that isn’t one of the launchpad’s own contracts spend a token from your wallet.', address: c.address };
+      return { text: 'It would let a contract that isn’t one of the launchpad’s own contracts spend a token from your wallet.', address: c.address, where: 'the contract that would get this permission' };
     case 'flagged_address':
       return {
         text: 'A security service has flagged an address involved in this transaction. That is information, not a verdict: look the address up before you go on.',

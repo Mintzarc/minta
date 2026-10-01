@@ -26,7 +26,7 @@ export default function TxCheckDialog() {
             return (
               <li key={`${c.code}-${c.address ?? ''}-${i}`}>
                 <span>{d.text}</span>
-                {d.where && <span className="muted small">{d.where[0].toUpperCase() + d.where.slice(1)}:</span>}
+                {d.where && d.address && <span className="muted small">{d.where[0].toUpperCase() + d.where.slice(1)}:</span>}
                 {d.address && <span className="mono break">{d.address}</span>}
               </li>
             );

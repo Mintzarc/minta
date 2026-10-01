@@ -9,6 +9,7 @@
 // `npm test` here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import http from 'node:http';
 import { createPublicClient, createWalletClient, custom, decodeFunctionData, encodeFunctionData, getAddress, maxUint256, parseUnits, encodeAbiParameters } from 'viem';
 import { buy, getAddresses, launch, sell, vyreAppRouterAbi, vyrePadAbi, vyreTestnet, vyreTokenAbi } from '@vyrechain/sdk';
@@ -107,9 +108,11 @@ test('a hostile answer is read safely: unknown codes dropped, bad addresses drop
     flags: [
       null, 5, 'reverts', [], { code: '__proto__' }, { code: 'constructor' }, { code: 'toString' }, { code: 'sanctioned' }, { code: 'REVERTS' },
       flag('unlimited_approval', { spender: evil }),
-      flag('flagged_address', { address: { toString: () => OTHER }, role: 'to' }),
-      flag('flagged_address', { address: `${OTHER}00`, role: '<b>' }),
-      flag('flagged_address', { address: FLAGGED, role: 'constructor' }),
+      flag('flagged_address', { address: { toString: () => OTHER }, roles: ['to'] }),
+      flag('flagged_address', { address: `${OTHER}00`, roles: ['<b>', 7, null] }),
+      flag('flagged_address', { address: FLAGGED, roles: ['constructor', {}, 'toString'] }),
+      flag('flagged_address', { address: OTHER, roles: 'to' }),
+      flag('flagged_address', { address: TOKEN, roles: ['counterparty', 'spender', 'to'] }),
     ],
   });
   assert.deepEqual(c.map((x) => [x.code, x.address, x.role]), [
@@ -117,6 +120,8 @@ test('a hostile answer is read safely: unknown codes dropped, bad addresses drop
     ['flagged_address', undefined, 'to'],
     ['flagged_address', undefined, undefined],
     ['flagged_address', FLAGGED, undefined],
+    ['flagged_address', OTHER, undefined],
+    ['flagged_address', TOKEN, 'to'],
   ]);
   // a flood of flags: read at most 50, show at most 6 different ones
   const flood = Array.from({ length: 100000 }, (_, i) => flag('flagged_address', { address: `0x${i.toString(16).padStart(40, '0')}` }));
@@ -136,7 +141,7 @@ test('the words are MINTA’s own: the service’s sentences never reach them, a
   // a flagged address is information, not a verdict
   assert.match(describe({ code: 'flagged_address', address: FLAGGED }).text, /A security service has flagged an address[^.]*\. That is information, not a verdict/);
   // whatever the service puts in its own fields, the concerns (all that is ever shown) hold none of it
-  const c = concernsOf({ available: true, ...ok, flags: [{ code: 'flagged_address', message: evil, address: evil, role: evil, categories: [evil], roles: [evil] }, { code: 'unlimited_approval', message: evil, spender: evil, token: evil }] });
+  const c = concernsOf({ available: true, ...ok, flags: [{ code: 'flagged_address', message: evil, address: evil, role: evil, categories: [evil], roles: [evil, evil] }, { code: 'unlimited_approval', message: evil, spender: evil, token: evil }] });
   assert.ok(!JSON.stringify([c, c.map(describe)]).includes('pwned'));
   assert.ok(!JSON.stringify([c, c.map(describe)]).includes('<'));
 });
@@ -527,4 +532,13 @@ test('a wallet client for another chain, made the way the app makes one, sends n
     assert.equal(w.calls, 1);
     assert.equal(api.hits.length, 0);
   } finally { await api.close(); }
+});
+
+test('the page’s security policy already lets it reach the check service, and still allows no inline script', () => {
+  const headers = JSON.parse(fs.readFileSync(new URL('../vercel.json', import.meta.url), 'utf8')).headers.flatMap((h) => h.headers);
+  const csp = headers.find((h) => h.key === 'Content-Security-Policy').value;
+  const directive = (name) => csp.split(';').map((x) => x.trim()).find((x) => x.startsWith(`${name} `))?.split(/\s+/).slice(1) ?? [];
+  const connect = directive('connect-src');
+  assert.ok(connect.includes('https:') || connect.includes('https://api.vyrechain.com'), `connect-src: ${connect.join(' ')}`);
+  assert.deepEqual(directive('script-src'), ["'self'"]);
 });
