@@ -12,11 +12,12 @@ const WEB = path.join(__dirname, '..');
 const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'minta-'));
 execFileSync('npx', ['vite', 'build', '--outDir', OUT, '--emptyOutDir'], { cwd: WEB, stdio: 'ignore' });
 const types = { js: 'text/javascript', css: 'text/css', html: 'text/html', svg: 'image/svg+xml', png: 'image/png', json: 'application/json', webmanifest: 'application/json', mp4: 'video/mp4', webp: 'image/webp' };
-const srv = http.createServer((q, r) => {
-  let f = path.join(OUT, q.url.split('?')[0]);
+const serveDir = (dir) => http.createServer((q, r) => {
+  let f = path.join(dir, q.url.split('?')[0]);
   if (f.endsWith('/')) f += 'index.html';
   fs.readFile(f, (e, d) => { if (e) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': types[f.split('.').pop()] || 'text/plain' }); r.end(d); });
 });
+const srv = serveDir(OUT);
 
 let failed = 0;
 const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what); } else console.log('ok  ', what); };
@@ -389,6 +390,152 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(await bp.locator('.splash').count() === 0 && berrs.length === 0, 'with storage blocked there is no splash (it could not remember it played) and no error');
       await blocked.close();
     }
+  }
+
+  // ---- the pre-sign check (lib/txcheck.ts): a small page (test/harness) uses the app's own wallet client, transaction button,
+  // dialog and stylesheet with a stand-in wallet; the check service's answers are stood in too. It must be advisory: silent on
+  // no flags and on every kind of no answer, within the 800 ms budget; a flag opens the dialog BEFORE the wallet is asked, with
+  // two buttons; the dialog shows only MINTA's own words; another chain is never checked.
+  {
+    const HOUT = fs.mkdtempSync(path.join(os.tmpdir(), 'minta-txc-'));
+    execFileSync('npx', ['vite', 'build', path.join(__dirname, 'harness'), '--config', path.join(WEB, 'vite.config.ts'), '--outDir', HOUT, '--emptyOutDir', '--base', './'], { cwd: WEB, stdio: 'ignore' });
+    const hsrv = serveDir(HOUT);
+    await new Promise((r) => hsrv.listen(0, '127.0.0.1', r));
+    const hbase = 'http://127.0.0.1:' + hsrv.address().port + '/';
+    const ME = '0x5899a0576A94327a6316E01190f951edf7645914', TO = '0x1111111111111111111111111111111111111111';
+    const base0 = { advisory: true, chainId: 7357, simulated: true, reverts: false, revertReason: null, nativeChange: '0', transfers: [], approvals: [], addressChecks: { source: 'goplus', available: true, checked: [] }, flags: [] };
+    const reply = (status, body) => async (route, cors) => { await route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) }).catch(() => {}); };
+    const wallet = () => {
+      window.__asked = [];
+      window.__chainHex = '0x1cbd';
+      window.__wallet = {
+        request: async ({ method, params }) => { window.__asked.push({ method, params }); if (method === 'eth_chainId') return window.__chainHex; if (method === 'eth_sendTransaction') return '0x' + 'ab'.repeat(32); return null; },
+        on() {}, removeListener() {},
+      };
+      window.__sawDialog = 0;
+      new MutationObserver(() => { if (document.querySelector('[role=alertdialog]')) window.__sawDialog++; }).observe(document, { childList: true, subtree: true });
+    };
+    const harness = async (answer, viewport = { width: 1280, height: 800 }) => {
+      const ctx = await b.newContext({ viewport });
+      await ctx.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
+      const hits = [];
+      // (registered after the catch-all above, so it takes precedence for the check's address)
+      await ctx.route('https://api.vyrechain.com/txcheck', async (route) => {
+        const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+        hits.push(JSON.parse(route.request().postData() || 'null'));
+        await answer(route, cors);
+      });
+      await ctx.addInitScript(wallet);
+      const pg = await ctx.newPage();
+      const errs = [];
+      pg.on('pageerror', (e) => errs.push(String(e)));
+      await pg.goto(hbase + 'index.html');
+      await pg.waitForSelector('#vyre button');
+      const asked = () => pg.evaluate(() => window.__asked.filter((x) => x.method === 'eth_sendTransaction'));
+      return { pg, ctx, hits, errs, asked };
+    };
+
+    // no flags: silent. The wallet is asked, no dialog ever showed, and the service was sent the transaction's own parts and nothing else
+    {
+      const { pg, ctx, hits, errs, asked } = await harness(reply(200, base0));
+      await pg.click('#vyre button');
+      await pg.waitForSelector('#vyre .status.ok');
+      ok((await asked()).length === 1 && await pg.evaluate(() => window.__sawDialog) === 0, 'no flags: the wallet is asked and no dialog ever showed');
+      ok(hits.length === 1 && JSON.stringify(Object.entries(hits[0]).sort()) === JSON.stringify(Object.entries({ from: ME, to: TO, data: '0xdeadbeef', value: '10000', chainId: 7357 }).sort()), 'the check was sent the transaction’s from, to, data, value and chain, and nothing else');
+      ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
+
+    // a flag: the dialog opens before the wallet is asked, shows only MINTA's own words, and Continue anyway sends
+    const evil = '<img src=x onerror="window.__pwned=1">';
+    const hostile = { ...base0, flags: [
+      { code: 'flagged_address', address: TO, roles: ['to'], categories: ['phishing_activities'], message: evil },
+      { code: 'unlimited_approval', token: evil, spender: '"><img src=x onerror=window.__pwned=1>', message: '<script>window.__pwned=1</script>' },
+    ] };
+    {
+      const { pg, ctx, asked, errs } = await harness(reply(200, hostile), { width: 1280, height: 800 });
+      await pg.click('#vyre button');
+      const dlg = pg.locator('[role=alertdialog]');
+      await dlg.waitFor();
+      ok((await asked()).length === 0, 'a flag: the dialog is up and the wallet has not been asked yet');
+      const text = await dlg.innerText();
+      ok(/Before you continue/.test(text) && /A security service has flagged an address involved in this transaction/.test(text) && /information, not a verdict/.test(text) && /unlimited amount of a token/.test(text), 'the dialog says what was found, in plain words (' + text.replace(/\s+/g, ' ').slice(0, 90) + '…)');
+      ok(text.includes(TO) && /the contract this transaction calls/i.test(text), 'a flagged address is shown with how it figures in the call');
+      ok(!/safe/i.test(text), 'and never calls the transaction safe');
+      ok(!/pwned|phishing|<|script/i.test(text) && await dlg.locator('img, script').count() === 0 && await pg.evaluate(() => window.__pwned) === undefined, 'nothing the service said (its sentences, its categories, markup) shows or runs');
+      ok(await dlg.locator('button').allInnerTexts().then((t) => t.join('|') === 'Continue anyway|Cancel'), 'with two buttons: Continue anyway and Cancel');
+      ok(await pg.evaluate(() => document.activeElement && document.activeElement.textContent === 'Cancel'), 'Cancel has the focus');
+      await pg.click('button:has-text("Continue anyway")');
+      await pg.waitForSelector('#vyre .status.ok');
+      ok((await asked()).length === 1 && await pg.locator('[role=alertdialog]').count() === 0, 'Continue anyway closes it and sends, once');
+      ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
+    // Cancel, Esc and a tap outside send nothing and say so
+    for (const how of ['Cancel', 'Esc', 'outside']) {
+      const { pg, ctx, asked } = await harness(reply(200, hostile));
+      await pg.click('#vyre button');
+      await pg.waitForSelector('[role=alertdialog]');
+      if (how === 'Cancel') await pg.click('[role=alertdialog] button:has-text("Cancel")');
+      else if (how === 'Esc') await pg.keyboard.press('Escape');
+      else await pg.mouse.click(5, 5);
+      await pg.waitForSelector('#vyre .status.err');
+      ok((await asked()).length === 0 && /Cancelled\. Nothing was sent\./.test(await pg.locator('#vyre .status').innerText()) && await pg.locator('[role=alertdialog]').count() === 0, `${how}: nothing is sent, and the page says so`);
+      await ctx.close();
+    }
+    // "would fail" alone opens it too
+    {
+      const { pg, ctx, asked } = await harness(reply(200, { ...base0, reverts: true, revertReason: 'x' }));
+      await pg.click('#vyre button');
+      await pg.waitForSelector('[role=alertdialog]');
+      ok(/would most likely fail/.test(await pg.locator('[role=alertdialog]').innerText()) && (await asked()).length === 0, 'an answer that says it would fail opens it');
+      await ctx.close();
+    }
+    // every kind of no answer is silent, and none costs more than the budget (800 ms) and the page's own work
+    {
+      const flagged = { ...base0, flags: [{ code: 'flagged_address', address: TO, roles: ['to'] }], reverts: true };
+      const cases = {
+        'a busy service (429)': reply(429, { error: 'busy: try again in a moment', busy: true, retryAfter: 1 }),
+        'an error (500)': reply(500, { error: 'boom' }),
+        'an error body that looks flagged (500)': reply(500, flagged),
+        'a page that is not JSON': reply(200, '<html><script>window.__pwned=1</script></html>'),
+        'truncated JSON': reply(200, '{"advisory":true,"simulated":true,"flags":[{"code":"rev'),
+        'an answer with no simulation': reply(200, { ...flagged, simulated: false, reason: 'trace_unavailable' }),
+        'a network error': async (route) => { await route.abort().catch(() => {}); },
+        'a service that takes 3 s': async (route, cors) => { await new Promise((r) => setTimeout(r, 3000)); await reply(200, flagged)(route, cors); },
+      };
+      for (const [name, answer] of Object.entries(cases)) {
+        const { pg, ctx, asked } = await harness(answer);
+        const t0 = Date.now();
+        await pg.click('#vyre button');
+        await pg.waitForSelector('#vyre .status.ok', { timeout: 6000 });
+        const ms = Date.now() - t0;
+        ok((await asked()).length === 1 && await pg.evaluate(() => window.__sawDialog) === 0 && await pg.evaluate(() => window.__pwned) === undefined && !(await pg.locator('#vyre .status').innerText()).match(/check|fail|error/i), `${name}: silent, the wallet is asked (${ms} ms)`);
+        ok(ms < 1800, `${name}: no more than the budget was added (${ms} ms)`);
+        await ctx.close();
+      }
+    }
+    // another chain is never checked
+    {
+      const { pg, ctx, hits, asked } = await harness(reply(200, hostile));
+      await pg.click('#arc button');
+      await pg.waitForSelector('#arc .status.ok');
+      ok(hits.length === 0 && (await asked()).length === 1 && await pg.evaluate(() => window.__sawDialog) === 0, 'a send on another chain (Arc) goes straight to the wallet: the check isn’t asked');
+      await ctx.close();
+    }
+    // the dialog on a phone
+    {
+      const { pg, ctx } = await harness(reply(200, hostile), { width: 360, height: 640 });
+      await pg.click('#vyre button');
+      await pg.waitForSelector('[role=alertdialog]');
+      const card = await pg.locator('[role=alertdialog] .modal-card').boundingBox();
+      const btns = await pg.locator('[role=alertdialog] button').evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight + 1 || e.closest('.modal-card').scrollHeight > e.closest('.modal-card').clientHeight; }));
+      ok(card.x >= 0 && card.x + card.width <= 360 && await sideways(pg) <= 0 && btns.every(Boolean), 'on a phone (360) the dialog fits and its buttons can be reached');
+      await ctx.close();
+    }
+    hsrv.close();
+    fs.rmSync(HOUT, { recursive: true, force: true });
   }
 
   await b.close();
