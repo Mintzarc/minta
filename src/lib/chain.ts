@@ -15,6 +15,8 @@ import {
 import { arcTestnet, cctpSource, vyreHttp, vyreTestnet } from '@vyrechain/sdk';
 import { tokenText } from './format';
 import { fetchSplit } from './fetchSplit';
+import { API_URL } from './api';
+import { guardProvider, wasCancelledByCheck } from './txcheck';
 
 export const EXPLORER = vyreTestnet.blockExplorers.default.url;
 export const ARC_EXPLORER = arcTestnet.blockExplorers.default.url;
@@ -138,9 +140,13 @@ export async function switchTo(provider: EIP1193Provider, chain: Chain): Promise
   if (!(await onChain(provider, chain.id))) throw new Error(`Your wallet is still on another network: switch it to ${chain.name}, then try again.`);
 }
 
-/** A wallet client for VYRE (or Arc, or a chain USDC comes from), for the connected account */
+/**
+ * A wallet client for VYRE (or Arc, or a chain USDC comes from), for the connected account. On VYRE every transaction it sends
+ * is first run through the advisory pre-sign check (lib/txcheck.ts: at most 0.8 s, silent unless it finds something); on any
+ * other chain the wallet's own provider is used as it is.
+ */
 export function walletOn(provider: EIP1193Provider, account: Address, chain: Chain = vyreTestnet): WalletClient {
-  return createWalletClient({ account, chain, transport: custom(provider) });
+  return createWalletClient({ account, chain, transport: custom(guardProvider(provider, { chainId: chain.id, url: `${API_URL}/txcheck` })) });
 }
 
 /** A readable reason from a wallet or node error */
@@ -166,6 +172,7 @@ export function reason(e: unknown): string {
   const face = faceIdReason(e);
   if (face) return face;
   const err = e as { code?: number; shortMessage?: string; message?: string; cause?: { code?: number } };
+  if (wasCancelledByCheck(e)) return 'Cancelled. Nothing was sent.';
   if (err?.code === 4001 || err?.cause?.code === 4001 || /user rejected|denied/i.test(err?.message || '')) return 'Cancelled in your wallet.';
   const m = err?.shortMessage || err?.message || String(e);
   return m.split('\n')[0].slice(0, 220);

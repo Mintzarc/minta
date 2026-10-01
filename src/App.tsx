@@ -12,6 +12,7 @@ import Docs from './pages/Docs';
 import { MintaLogo, VyreGlyph } from './components/Brand';
 import { EXPLORER } from './lib/chain';
 import Ticker from './components/Ticker';
+import TxCheckDialog from './components/TxCheckDialog';
 
 const NAV: { label: string; route: Route }[] = [
   { label: 'Launchpad', route: { page: 'explore' } },
@@ -64,6 +65,7 @@ export default function App() {
         {route.page === 'docs' && <Docs article={route.article} section={route.section} />}
       </main>
       <FaceIdConfirm />
+      <TxCheckDialog />
       <footer className="foot">
         <p>MINTA on the VYRE testnet: test USDC, no real money. Trading is risky and launch tokens can go to zero; nothing here is advice.
           USDC is issued by Circle, which isn’t affiliated with MINTA or VYRE. <a href={href({ page: 'docs' })}>Docs</a> · <a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="https://explorer.vyrechain.com" target="_blank" rel="noopener noreferrer">Explorer</a></p>

@@ -441,6 +441,10 @@ td.sell { color: var(--sell); font-weight: 700; }
 .review-list dd { margin: 0; text-align: right; font-size: 14px; overflow-wrap: anywhere; }
 .dialog > .small { margin-top: 12px; }
 .dialog-actions { justify-content: flex-end; margin-top: 16px; }
+/* The pre-sign check's dialog: what it found, in a list, above the wallet's own prompt */
+.txc-list { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.txc-list li { padding: 10px 12px; border: 1px solid rgba(255, 138, 122, 0.45); border-radius: 10px; background: rgba(255, 138, 122, 0.06); display: grid; gap: 4px; font-size: 14px; line-height: 1.45; }
+.txc-list .mono { font-size: 12.5px; }
 .progress { display: grid; gap: 10px; }
 
 /* Lists */
