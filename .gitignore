@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vercel/
+
+# keys and secrets never go in the repo
+.env
+.env.*
+*.key
+*keystore*
+secrets/
+

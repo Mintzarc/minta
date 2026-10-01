@@ -1,0 +1,373 @@
+// A browser check of MINTA's Create wizard and docs, on a fresh build, with every outside request cut off (the pages must
+// work from their own files): the wizard asks for each step's details before moving on, shows the problem in words, keeps
+// what was typed, ticks the checklist, and ends on a review with a wallet button; the docs open every article, search,
+// deep-link to a section and carry no wording we don't use; nothing throws and nothing scrolls sideways on a phone.
+//   node app/web/test/minta.browser.cjs
+// (needs Playwright with a Chromium: `npx playwright install chromium`; PLAYWRIGHT=<its directory> and CHROME=<a Chromium binary> override)
+const { chromium } = (() => { try { return require(process.env.PLAYWRIGHT || 'playwright'); } catch { return require('/opt/node22/lib/node_modules/playwright'); } })();
+const http = require('http'), fs = require('fs'), os = require('os'), path = require('path');
+const { execFileSync } = require('child_process');
+
+const WEB = path.join(__dirname, '..');
+const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'minta-'));
+execFileSync('npx', ['vite', 'build', '--outDir', OUT, '--emptyOutDir'], { cwd: WEB, stdio: 'ignore' });
+const types = { js: 'text/javascript', css: 'text/css', html: 'text/html', svg: 'image/svg+xml', png: 'image/png', json: 'application/json', webmanifest: 'application/json', mp4: 'video/mp4', webp: 'image/webp' };
+const srv = http.createServer((q, r) => {
+  let f = path.join(OUT, q.url.split('?')[0]);
+  if (f.endsWith('/')) f += 'index.html';
+  fs.readFile(f, (e, d) => { if (e) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': types[f.split('.').pop()] || 'text/plain' }); r.end(d); });
+});
+
+let failed = 0;
+const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what); } else console.log('ok  ', what); };
+
+(async () => {
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + srv.address().port + '/';
+  const b = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--no-sandbox'] }).catch(() => chromium.launch({ args: ['--no-sandbox'] }));
+  // the splash (components/Splash.tsx) covers the home page the first time; every other check starts as a visitor who saw it already
+  const open = async (hash, viewport, { splash = false, ...context } = {}) => {
+    const ctx = await b.newContext({ viewport, ...context });
+    if (!splash) await ctx.addInitScript(() => { try { window.localStorage.setItem('minta.splash', String(Date.now())); } catch { /* none */ } });
+    // nothing leaves the machine: the chain, the API and the fonts are all refused
+    await ctx.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
+    const pg = await ctx.newPage();
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(String(e)));
+    pg.on('console', (m) => m.type() === 'error' && !/Failed to load resource|net::ERR|CORS/.test(m.text()) && errs.push(m.text()));
+    await pg.goto(base + hash);
+    await pg.waitForSelector('.top');
+    return { pg, ctx, errs };
+  };
+  const sideways = (pg) => pg.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+  // ---- the Create wizard
+  {
+    const { pg, ctx, errs } = await open('#/launch', { width: 1440, height: 900 });
+    const stepTitle = () => pg.locator('.wz-step legend').first().innerText().then((t) => t.split('\n')[0].trim());
+    const next = () => pg.click('.wz-next');
+    ok(await stepTitle() === 'Token info', 'opens on step 1, Token info');
+    await next();
+    ok(await stepTitle() === 'Token info', 'Next with no name stays on step 1');
+    ok(/Give it a name/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'and says what is missing');
+    await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
+    await next();
+    ok(/Give it a ticker/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a name without a ticker is asked for the ticker');
+    await pg.fill('.wz-step input[placeholder="MYT"]', 'myt');
+    ok(await pg.inputValue('.wz-step input[placeholder="MYT"]') === 'MYT', 'the ticker is upper-cased');
+    ok(/My Token/.test(await pg.locator('.preview').innerText()) && /\bMYT\b/.test(await pg.locator('.preview .pv-sym').innerText()), 'the preview shows the name and ticker');
+    await pg.click('text=Have an image link instead?');
+    await pg.fill('.wz-step input[placeholder^="https://… or ipfs"]', 'ftp://nope');
+    await next();
+    ok(/picture must be an https/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a bad picture link is refused in words');
+    await pg.fill('.wz-step input[placeholder^="https://… or ipfs"]', '');
+    await pg.fill('.wz-step input[placeholder="https://…"]', 'ftp://x');
+    await next();
+    ok(/Website link must start with https/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a bad website link is refused in words (the links are on step 1, as in the design)');
+    await pg.fill('.wz-step input[placeholder="https://…"]', 'https://example.com');
+    await next();
+    ok(await stepTitle() === 'Launch settings', 'a good first step moves to Launch settings');
+    ok(/\$3K|\$3,000/.test(await pg.locator('.setting-cards').innerText()) && /Instant/.test(await pg.locator('.setting-cards').innerText()), 'the settings step shows the fixed $3,000 market cap and the instant launch');
+    await pg.fill('.wz-step input[placeholder="0"]', 'abc');
+    await next();
+    ok(/Dev buy/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a bad dev buy is refused');
+    await pg.fill('.wz-step input[placeholder="0"]', '');
+    await next();
+    ok(await stepTitle() === 'Tokenomics', 'then Tokenomics');
+    await pg.fill('.wz-step input[inputmode=decimal] >> nth=0', '10');
+    await next();
+    ok(/1,000 to 1,000,000,000,000,000/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a supply below 1,000 is refused in words');
+    await pg.fill('.wz-step input[inputmode=decimal] >> nth=0', '2000000');
+    await pg.click('button:has-text("Custom")');
+    await pg.fill('.wz-step input[placeholder="0 to 10"] >> nth=0', '11');
+    await next();
+    ok(/0 to 10%/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a tax over 10% is refused in words');
+    await pg.fill('.wz-step input[placeholder="0 to 10"] >> nth=0', '2');
+    await next();
+    ok(await stepTitle() === 'Media & links', 'then Media & links');
+    ok(/Links\s*1 of 4/.test(await pg.locator('.brand-summary').innerText()) && /Logo\s*Not added/.test(await pg.locator('.brand-summary').innerText()), 'which sums up the logo and links from step 1');
+    await next();
+    ok(await stepTitle() === 'Review & launch', 'then Review & launch');
+    const review = await pg.locator('.review-list').innerText();
+    ok(/MYT/.test(review) && /My Token/.test(review) && /2,000,000/.test(review) && /2% \/ 1%/.test(review), 'the review lists what was typed (supply, taxes)');
+    ok(await pg.locator('.wz-step button:has-text("Sign in")').isVisible(), 'the last step offers the wallet button (no wallet is connected)');
+    ok((await pg.locator('.checklist li.ok').count()) === 5 && !(await pg.locator('.checklist li.ok:has-text("Logo")').count()), 'the checklist ticks all but the logo, which was left empty');
+    await pg.click('.wz-steps li:nth-child(1) button');
+    ok(await stepTitle() === 'Token info' && await pg.inputValue('.wz-step input[placeholder="My Token"]') === 'My Token', 'going back keeps what was typed');
+    await pg.fill('.wz-step input[placeholder="My Token"]', '');
+    await pg.click('.wz-steps li:nth-child(4) button');
+    ok(await stepTitle() === 'Token info', 'a later step can’t be jumped to past a step with a problem');
+    ok(errs.length === 0, 'no page errors on the wizard' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+  {
+    const { pg, ctx } = await open('#/launch', { width: 390, height: 844 });
+    ok(await sideways(pg) <= 1, 'the wizard does not scroll sideways on a phone (390)');
+    await ctx.close();
+    const n = await open('#/launch', { width: 360, height: 740 });
+    ok(await sideways(n.pg) <= 1, 'nor at 360');
+    await n.ctx.close();
+  }
+
+  // ---- the docs
+  {
+    const { pg, ctx, errs } = await open('#/docs', { width: 1440, height: 900 });
+    const slugs = ['introduction', 'create-a-launch', 'launch-model', 'lifecycle', 'tokenomics', 'fees', 'contracts', 'sdk', 'integrations', 'guides', 'faq', 'support'];
+    const banned = /layer.?2|\bon Arc\b|settles on|trustless|fair launch|airdrop|\bAPY\b|staking|audited|independent(ly)? (chain|of)/i;
+    let all = '';
+    for (const s of slugs) {
+      await pg.goto(base + '#/docs/' + s);
+      await pg.waitForSelector('.docs-section');
+      const text = await pg.locator('.docs-main').innerText();
+      all += '\n' + text;
+      ok((await pg.locator('.docs-section').count()) >= 1 && text.length > 120, `article ${s} renders`);
+    }
+    ok(!banned.test(all), 'no wording we don’t use in the docs' + (banned.test(all) ? ': ' + all.match(banned)[0] : ''));
+    ok(!/@vyrechain\.com|mailto:/i.test(all) && !(await pg.locator('a[href^="mailto:"]').count()), 'the docs carry no email address or mailto link (MINTA is run by whoever hosts it, not by the chain team)');
+    ok(/outside audit/i.test(all), 'the docs say there has been no outside audit');
+    await pg.goto(base + '#/docs/fees');
+    ok(/Platform fee/.test(await pg.locator('.docs-main').innerText()) && /1% of every buy and sell/.test(await pg.locator('.docs-main').innerText()), 'the fees article has the platform fee');
+    await pg.goto(base + '#/docs/introduction?s=how-it-works');
+    await pg.waitForSelector('#how-it-works');
+    await pg.waitForTimeout(300);
+    ok(await pg.evaluate(() => document.getElementById('how-it-works').getBoundingClientRect().top < window.innerHeight * 0.6), 'a deep link scrolls to its section');
+    ok(await pg.locator('.docs-group a.on').innerText().then((t) => /How it works/.test(t)), 'and lights its entry in the sidebar');
+    await pg.fill('.docs-search input', 'promoter');
+    ok(await pg.locator('.docs-hits li').count() >= 1, 'search finds the promoter text');
+    await pg.fill('.docs-search input', 'zzzzqqq');
+    ok(/Nothing found/.test(await pg.locator('.docs-hits').innerText()), 'and says when there is nothing');
+    ok(errs.length === 0, 'no page errors in the docs' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+    const m = await open('#/docs', { width: 390, height: 844 });
+    ok(await sideways(m.pg) <= 1, 'the docs do not scroll sideways on a phone (390)');
+    ok(!(await m.pg.locator('.docs-nav-body').isVisible()), 'the docs menu starts closed on a phone');
+    await m.pg.click('.docs-nav-toggle');
+    ok(await m.pg.locator('.docs-nav-body').isVisible(), 'and opens');
+    await m.ctx.close();
+    const n = await open('#/docs/contracts', { width: 360, height: 740 });
+    ok(await sideways(n.pg) <= 1, 'the contracts article does not scroll sideways at 360');
+    await n.ctx.close();
+  }
+
+  // ---- the header at laptop and tablet widths (it once stepped over the edge between 861 and 1479 px and hid Connect Wallet)
+  {
+    for (const w of [721, 768, 861, 1000, 1100, 1280, 1366, 1440, 1672]) {
+      const { pg, ctx } = await open('#/docs', { width: w, height: 800 });
+      const m = await pg.evaluate(() => {
+        const de = document.documentElement;
+        // (the last action that is showing: the wallet button, or the menu button on a tablet)
+        const shown = [...document.querySelectorAll('.top-actions > *')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0);
+        const r = shown.length ? shown[shown.length - 1] : null;
+        return { over: de.scrollWidth - de.clientWidth, right: r ? Math.round(r.right) : -1, left: r ? Math.round(r.left) : -1 };
+      });
+      ok(m.over <= 1 && m.right > 0 && m.right <= w + 1 && m.left >= 0, `the header fits at ${w} px with the wallet button on screen (overflow ${m.over}, button ${m.left}-${m.right})`);
+      await ctx.close();
+    }
+  }
+
+  // ---- the shell
+  {
+    const { pg, ctx } = await open('#/', { width: 1440, height: 900 });
+    ok(/MINTA/.test(await pg.locator('.brand').getAttribute('aria-label')) && (await pg.locator('.brand .wordmark').getAttribute('alt')) === 'MINTA', 'the header says MINTA');
+    ok(await pg.evaluate(() => [...document.querySelectorAll('.brand img')].length === 2 && [...document.querySelectorAll('.brand img')].every((i) => i.complete && i.naturalWidth > 100)), 'and shows the owner’s logo pictures (the M and the wordmark both load)');
+    ok(/VYRE Testnet/.test(await pg.locator('.chain-pill').innerText()), 'and shows the chain it runs on');
+    ok(!/VYRE Pad/.test(await pg.locator('body').innerText()), 'nothing on the page still says VYRE Pad');
+    ok(!/@vyrechain\.com/i.test(await pg.locator('footer').innerText()) && !(await pg.locator('a[href^="mailto:"]').count()), 'the footer and header carry no email address');
+    ok((await pg.title()).startsWith('MINTA'), 'the tab is titled MINTA');
+    await ctx.close();
+  }
+
+  // ---- the logo is chosen from the device, not pasted as a link: it's cropped to a square, shrunk, shown, and refused in words when unusable
+  {
+    const { pg, ctx, errs } = await open('#/launch', { width: 1440, height: 900 });
+    const fixture = (n) => path.join(__dirname, 'fixtures', n);
+    const input = pg.locator('.picture-field input[type=file]');
+    const alertText = () => pg.locator('.picture-field [role=alert]').innerText();
+    const shown = () => pg.locator('.picture-field .pic-up-box img');
+    const dims = () => shown().evaluate((i) => [i.naturalWidth, i.naturalHeight]);
+    const png = (w, h) => pg.evaluate(async ([w, h]) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const g = c.getContext('2d'); g.fillStyle = '#26f0f2'; g.fillRect(0, 0, w, h); g.fillStyle = '#061018'; g.fillRect(w / 4, h / 4, w / 2, h / 2);
+      return c.toDataURL('image/png').split(',')[1];
+    }, [w, h]).then((b64) => Buffer.from(b64, 'base64'));
+    ok(await pg.locator('.picture-field .pic-up-box').count() === 1 && await pg.locator('.picture-field input[placeholder^="https://… or ipfs"]').count() === 0, 'the logo is a picture to choose, with no link box unless asked for');
+    ok(/Choose a picture/.test(await pg.locator('.picture-field').innerText()), 'and says what to do');
+    await input.setInputFiles(fixture('ok.png'));
+    await shown().waitFor();
+    ok(/^data:image\/(webp|png)/.test(await shown().getAttribute('src')), 'a chosen picture is shown (as a data: image, which the page’s security policy allows)');
+    ok((await dims()).join('x') === '64x64', 'a 64 px picture is not enlarged');
+    ok(await pg.locator('.preview img[src^="data:image"]').count() === 1, 'and shows in the preview card beside the form');
+    await input.setInputFiles({ name: 'wide.png', mimeType: 'image/png', buffer: await png(1600, 900) });
+    await pg.waitForFunction(() => document.querySelector('.picture-field .pic-up-box img')?.naturalWidth === 512);
+    ok((await dims()).join('x') === '512x512', 'a wide 1600 x 900 picture is cropped to a square and shrunk to 512');
+    await input.setInputFiles({ name: 'tall.png', mimeType: 'image/png', buffer: await png(600, 1200) });
+    await pg.waitForFunction(() => document.querySelector('.picture-field .pic-up-box img')?.naturalWidth === 512);
+    ok((await dims()).join('x') === '512x512', 'a tall one too');
+    await input.setInputFiles({ name: 'x.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><script>1</script></svg>') });
+    await pg.waitForSelector('.picture-field [role=alert]');
+    ok(/SVG pictures aren’t supported/.test(await alertText()), 'an SVG is refused in words');
+    await input.setInputFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: fs.readFileSync(fixture('tiny-dim.png')) });
+    await pg.waitForFunction(() => /too small/.test(document.querySelector('.picture-field [role=alert]')?.textContent || ''));
+    ok(/too small/.test(await alertText()), 'one that is too small is refused in words');
+    await input.setInputFiles({ name: 'notes.png', mimeType: 'image/png', buffer: Buffer.from('this is not a picture') });
+    await pg.waitForFunction(() => /couldn’t be opened/.test(document.querySelector('.picture-field [role=alert]')?.textContent || ''));
+    ok(/couldn’t be opened/.test(await alertText()), 'a file that is not a picture is refused in words');
+    ok((await dims()).join('x') === '512x512', 'and the last good picture stays');
+    await pg.click('.picture-field >> text=Remove');
+    ok(await shown().count() === 0 && await pg.locator('.preview img[src^="data:image"]').count() === 0, 'Remove clears it from the box and the preview');
+    await pg.click('.picture-field >> text=Have an image link instead?');
+    ok(await pg.locator('.picture-field input[placeholder^="https://… or ipfs"]').count() === 1, 'a link can still be given');
+    ok(await sideways(pg) <= 0, 'no sideways scroll');
+    await ctx.close();
+    const m = await open('#/launch', { width: 390, height: 844 });
+    ok((await m.pg.locator('.picture-field .pic-up-box').boundingBox()).width <= 90 && await sideways(m.pg) <= 0, 'on a phone the picture box fits');
+    ok(!m.errs.length && !errs.length, 'no page errors: ' + [...errs, ...m.errs].join(' | '));
+    await m.ctx.close();
+  }
+
+  // ---- the ticker across the top: it says what it is when there is nothing to show (this check has no chain), carries a Pause button only when it moves, and never overflows
+  {
+    const { pg, ctx } = await open('#/', { width: 1440, height: 900 });
+    ok(/live/i.test(await pg.locator('.ticker').innerText()) && /testnet/i.test(await pg.locator('.ticker').innerText()), 'the ticker says it is live and on the testnet');
+    ok(/Test USDC, no real money/.test(await pg.locator('.ticker').innerText()), 'with nothing to show it says what shows here, and that it is test money');
+    ok(await pg.locator('.tk-pause').count() === 0, 'and has no Pause button while nothing moves');
+    ok(await sideways(pg) <= 0, 'no sideways scroll at 1440');
+    await ctx.close();
+    const m = await open('#/', { width: 390, height: 844 });
+    ok(await sideways(m.pg) <= 0, 'no sideways scroll on a phone');
+    await m.ctx.close();
+  }
+
+  // ---- no Face ID wallets for now (they're on the roadmap): nothing in the Pad offers or mentions them, and with no wallet in the
+  // browser the connect menu says what to do; with one, it lists it
+  {
+    const { pg, ctx } = await open('#/', { width: 1440, height: 900 });
+    for (const h of ['#/', '#/launch', '#/wallet', '#/portfolio', '#/docs', '#/docs/faq', '#/docs/create-a-launch', '#/docs/introduction']) {
+      await pg.goto(base + h); await pg.waitForSelector('.top'); await pg.waitForTimeout(250);
+      ok(!/face id|passkey/i.test(await pg.locator('body').innerText()), `no Face ID or passkey wording on ${h}`);
+    }
+    await pg.goto(base + '#/launch'); await pg.waitForSelector('.top');
+    await pg.click('button[aria-label="Connect Wallet"]');
+    const menu = await pg.locator('.menu').innerText();
+    ok(/No wallet found in this browser/.test(menu) && /MetaMask/.test(menu) && /How to add VYRE Testnet/.test(menu) && !/face id/i.test(menu), 'with no wallet, the connect menu says what to do (and offers no Face ID)');
+    await ctx.close();
+    const w = await b.newContext({ viewport: { width: 1440, height: 900 } });
+    await w.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
+    const wp = await w.newPage();
+    await wp.addInitScript(() => {
+      window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 't', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test' }, provider: { request: async () => null, on() {}, removeListener() {} } } })));
+    });
+    await wp.goto(base + '#/launch'); await wp.waitForSelector('.top');
+    await wp.click('button[aria-label="Connect Wallet"]');
+    await wp.waitForSelector('button.wallet-choice:has-text("Test wallet")', { timeout: 5000 }).catch(() => {});
+    const m2 = await wp.locator('.menu').innerText();
+    ok(/Connect a wallet/.test(m2) && /Test wallet/.test(m2) && !/No wallet found/.test(m2) && !/face id/i.test(m2), 'with a wallet in the browser, the menu lists it (and still no Face ID)');
+    await w.close();
+    // a wallet that injects window.ethereum a moment after the page started, announcing nothing: opening the menu finds it
+    const l = await b.newContext({ viewport: { width: 1440, height: 900 } });
+    await l.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
+    const lp = await l.newPage();
+    await lp.goto(base + '#/launch'); await lp.waitForSelector('.top');
+    await lp.evaluate(() => { window.ethereum = { request: async () => null, on() {}, removeListener() {} }; });
+    await lp.click('button[aria-label="Connect Wallet"]');
+    await lp.waitForSelector('button.wallet-choice:has-text("Browser wallet")', { timeout: 5000 }).catch(() => {});
+    const m3 = await lp.locator('.menu').innerText();
+    ok(/Browser wallet/.test(m3) && !/No wallet found/.test(m3), 'a wallet injected late (no announcement) is found when the menu opens');
+    await l.close();
+  }
+
+  // ---- the splash: plays over the home page once in a while, can always be skipped, and stands down whenever it can't play well.
+  // The film itself is H.264, which a plain Chromium can't decode, so a 1 s clip stands in for it; the real film's size and look are checked by hand
+  {
+    const clip = path.join(__dirname, 'fixtures', 'splash-test.webm');
+    const film = (ctx) => ctx.route(/\/splash\/minta-splash\.mp4$/, (route) => route.fulfill({ path: clip, contentType: 'video/webm' }));
+    const gone = (pg, ms = 4000) => pg.waitForSelector('.splash', { state: 'detached', timeout: ms }).then(() => true, () => false);
+    const phone = { width: 390, height: 844 };
+    // the first load already played (and recorded) it with the real, undecodable film: forget that and load again
+    const again = async (pg) => { await pg.evaluate(() => localStorage.removeItem('minta.splash')); await pg.reload(); };
+
+    // first visit: it shows, the Pad underneath can't be reached, Skip is focused; Skip ends it, the Pad is usable and it doesn't come back on reload
+    {
+      const { pg, ctx, errs } = await open('#/', phone, { splash: true });
+      await film(ctx); await again(pg); await pg.waitForSelector('.splash');
+      ok(await pg.locator('.splash video').getAttribute('src') === '/splash/minta-splash.mp4' && /minta-splash-poster\.webp$/.test(await pg.locator('.splash video').getAttribute('poster')), 'the splash shows the film with its poster frame');
+      ok(await pg.evaluate(() => document.getElementById('root').hasAttribute('inert') && document.documentElement.classList.contains('splash-on')), 'the Pad underneath is inert and the page does not scroll while it plays');
+      ok(await pg.evaluate(() => document.activeElement && document.activeElement.classList.contains('splash-skip')), 'the Skip button has the focus');
+      const box = await pg.locator('.splash video').boundingBox();
+      ok(Math.abs(box.width - 390) <= 1 && Math.abs(box.height - 390) <= 1, 'on a phone the square film is as wide as the screen');
+      ok(await sideways(pg) <= 0, 'no sideways scroll under the splash');
+      await pg.click('.splash-skip');
+      ok(await gone(pg), 'Skip ends it');
+      ok(await pg.evaluate(() => !document.getElementById('root').hasAttribute('inert') && !document.documentElement.classList.contains('splash-on')), 'and the Pad is usable again');
+      ok(await pg.evaluate(() => Number(localStorage.getItem('minta.splash')) > Date.now() - 60_000), 'it remembers that it played');
+      await pg.reload(); await pg.waitForSelector('.top'); await pg.waitForTimeout(300);
+      ok(await pg.locator('.splash').count() === 0, 'a reload does not play it again');
+      await pg.goto(base + '?splash#/'); await pg.waitForSelector('.splash');
+      ok(true, '?splash plays it again whenever asked');
+      await pg.keyboard.press('Escape');
+      ok(await gone(pg), 'Esc ends it');
+      ok(errs.length === 0, 'no page errors from the splash' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
+    // a tap anywhere ends it; playing through to the end holds the last frame a moment, then leaves by itself
+    {
+      const { pg, ctx } = await open('#/', { width: 1440, height: 900 }, { splash: true });
+      await film(ctx); await again(pg); await pg.waitForSelector('.splash');
+      const box = await pg.locator('.splash video').boundingBox();
+      ok(Math.abs(box.height - 900) <= 1 && Math.abs(box.width - 900) <= 1, 'on a wide screen the film is a square as tall as the screen');
+      await pg.mouse.click(300, 300);
+      ok(await gone(pg), 'a tap anywhere ends it');
+      await ctx.close();
+      const t = await open('#/', { width: 1440, height: 900 }, { splash: true });
+      await film(t.ctx); await again(t.pg); await t.pg.waitForSelector('.splash');
+      const t0 = Date.now();
+      ok(await gone(t.pg, 7000), 'played to the end, it leaves by itself');
+      const took = Date.now() - t0;
+      ok(took > 900 && took < 5000, `after about the film's length plus the fade (${took} ms)`);
+      await t.ctx.close();
+    }
+    // when not to play: another page, a search link, reduced motion, a seen-it-lately device, a film that can't be loaded, a storage that can't remember
+    {
+      for (const [hash, what] of [['#/docs', 'the docs'], ['#/launch', 'Create'], ['#/token/0x0000000000000000000000000000000000000001', 'a shared token link'], ['#/?q=cat', 'a search link']]) {
+        const { pg, ctx } = await open(hash, phone, { splash: true });
+        await pg.waitForTimeout(400);
+        ok(await pg.locator('.splash').count() === 0, `no splash on ${what}`);
+        await ctx.close();
+      }
+      const r = await open('#/', phone, { splash: true, reducedMotion: 'reduce' });
+      await r.pg.waitForTimeout(400);
+      ok(await r.pg.locator('.splash').count() === 0, 'no splash with reduced motion');
+      await r.ctx.close();
+      const s = await open('#/', phone);
+      await s.pg.waitForTimeout(400);
+      ok(await s.pg.locator('.splash').count() === 0, 'no splash for a visitor who saw it in the last six hours');
+      await s.ctx.close();
+      const old = await open('#/', phone, { splash: true });
+      await film(old.ctx);
+      await old.pg.evaluate(() => localStorage.setItem('minta.splash', String(Date.now() - 7 * 3600_000)));
+      await old.pg.reload(); await old.pg.waitForSelector('.splash', { timeout: 5000 }).then(() => ok(true, 'it plays again after six hours'), () => ok(false, 'it plays again after six hours'));
+      await old.ctx.close();
+      const bad = await open('#/', phone, { splash: true });
+      await bad.ctx.route(/\/splash\/minta-splash\.mp4$/, (route) => route.abort());
+      await again(bad.pg);
+      await bad.pg.waitForSelector('.top');
+      ok(await gone(bad.pg, 5000), 'a film that can’t be loaded ends the splash by itself');
+      ok(await bad.pg.evaluate(() => !document.getElementById('root').hasAttribute('inert')), 'and leaves the Pad usable');
+      await bad.ctx.close();
+      const blocked = await b.newContext({ viewport: phone });
+      await blocked.addInitScript(() => { Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } }); });
+      await blocked.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
+      const bp = await blocked.newPage(); const berrs = [];
+      bp.on('pageerror', (e) => berrs.push(String(e)));
+      await bp.goto(base + '#/'); await bp.waitForSelector('.top'); await bp.waitForTimeout(400);
+      ok(await bp.locator('.splash').count() === 0 && berrs.length === 0, 'with storage blocked there is no splash (it could not remember it played) and no error');
+      await blocked.close();
+    }
+  }
+
+  await b.close();
+  srv.close();
+  fs.rmSync(OUT, { recursive: true, force: true });
+  console.log(failed ? `${failed} FAILED` : 'all passed');
+  process.exit(failed ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -1,0 +1,37 @@
+{
+  "name": "minta",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MINTA: launch, trade and explore tokens on VYRE (testnet). A static web app (React, Vite, viem); it keeps no server of its own.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/pending.test.mjs test/moves.test.mjs test/bundle.test.mjs test/feed.test.cjs test/memes.test.mjs test/films.test.mjs",
+    "test:browser": "node test/minta.browser.cjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@circle-fin/w3s-pw-web-sdk": "1.1.11",
+    "@vyrechain/sdk": "file:vendor/vyrechain-sdk-0.4.0.tgz",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "viem": "2.56.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "playwright": "1.56.1"
+  },
+  "overrides": {
+    "@types/node": "26.5.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

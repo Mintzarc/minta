@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy · MINTA</title>
+  <meta name="description" content="What MINTA, a launchpad app on the VYRE test network, collects, why, and for how long.">
+  <meta name="theme-color" content="#03070b">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="/" aria-label="MINTA home"><img src="/brand/minta-wordmark.webp" width="640" height="85" alt="MINTA"></a>
+      <nav aria-label="Site">
+        <a href="/#/docs">Docs</a>
+        <a class="hide-sm" href="/terms/">Terms</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <p class="eyebrow">Legal</p>
+    <h1>Privacy <em>Policy</em></h1>
+    <p class="lede">Effective October 1, 2026. This policy covers MINTA, the website at this address. It is a draft for the test network and will be reviewed and completed, with the operator’s name and a contact address, before MINTA offers anything but test money.</p>
+
+    <section>
+      <h2>The short version</h2>
+      <ul>
+        <li>There are no accounts, no ads, no analytics and no tracking. This site sets no cookies.</li>
+        <li>Blockchains are public: your wallet address and everything it does on VYRE can be seen by anyone, for good.</li>
+        <li>MINTA never holds your funds or your keys.</li>
+        <li>MINTA is a set of static pages with no server of its own. When it needs one (pictures, card checkout, email sign-in, promoter codes) it calls services run by others (a blockchain RPC, an image-and-checkout API, a promoter lookup), described below.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>1. The blockchain is public</h2>
+      <p>Wallet addresses, balances, transactions, tokens you create (name, ticker and the link to their picture and details), trades and which promoter you named are recorded on the VYRE network, and summaries of it are posted to the Arc network. This is visible to everyone, through the explorer and any other, and nobody can delete it.</p>
+    </section>
+
+    <section>
+      <h2>2. What is collected, and why</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>When you…</th><th>Who receives what</th></tr></thead>
+          <tbody>
+            <tr><td>Open any page</td><td>The host (Vercel) sees your IP address and browser as part of serving the files, under its own policy. Google Fonts, which the pages load their fonts from, sees your IP address too.</td></tr>
+            <tr><td>Browse tokens, trade, or read balances</td><td>The network’s public RPC (testnet-rpc.vyrechain.com) receives your requests, including the wallet address whose balance is read, and your IP address, to limit how often each caller can use it. Its operator’s privacy policy says how long that is kept.</td></tr>
+            <tr><td>Create a token with a picture, description and links</td><td>The picture you choose is shrunk and re-saved in your browser first (which drops anything but the image itself) and then sent to the picture service (api.vyrechain.com) together with the description and links you enter. They are public, and not stored with anything that identifies you; your IP address is used only to limit how many pictures one caller can send an hour. They are kept so the token’s page can show them.</td></tr>
+            <tr><td>Buy USDC with a card or Apple Pay</td><td>The checkout service (api.vyrechain.com) passes your wallet address, the amount you choose and your IP address to Transak to open its checkout; Transak then collects your payment and identity details itself.</td></tr>
+            <tr><td>Sign in with email (where offered)</td><td>Circle handles your email address and sign-in; the sign-in service (api.vyrechain.com) passes them to Circle without storing them.</td></tr>
+            <tr><td>Arrive by a promoter’s link</td><td>The promoter’s code is looked up at the promoter service (testnet-rpc.vyrechain.com), which receives the code and your IP address.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>MINTA doesn’t sell personal information and doesn’t use it for advertising. For how those services keep what they receive, see the <a href="https://vyrechain.com/privacy/" target="_blank" rel="noopener noreferrer">privacy policy of the services at vyrechain.com</a>.</p>
+    </section>
+
+    <section>
+      <h2>3. What’s kept in your browser</h2>
+      <p>MINTA keeps a few things in your browser’s storage, on your device only, so it works across visits: which wallet you connected, transactions still going through, the promoter who referred you, when its opening film last played, your display settings and, for email sign-in, your email address and Circle’s session. Signing out clears the sign-in; clearing your browser’s site data clears the rest. None of it is a cookie, and none of it is sent anywhere by MINTA itself.</p>
+    </section>
+
+    <section>
+      <h2>4. Other companies</h2>
+      <ul>
+        <li><b>Transak</b>: card and Apple Pay purchases of USDC, including its identity checks.</li>
+        <li><b>Circle</b>: email sign-in, and moving USDC between networks.</li>
+        <li><b>Vercel</b>: hosts MINTA’s pages.</li>
+        <li><b>Google Fonts</b>: the pages’ fonts.</li>
+        <li><b>Blockchain services</b>: for the features that move USDC between networks, MINTA reads balances from public nodes of other networks (Arc and test networks), sending your wallet address.</li>
+        <li><b>Where a token’s creator chose</b>: a token’s picture and details load from the address its creator gave (for example IPFS), which sees your IP address.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>5. Your choices</h2>
+      <p>You can read MINTA without giving anything beyond what any website sees. Nobody can change or delete anything on the blockchain. A contact address for questions and requests will be published here with the operator’s name before MINTA is offered with real money; until then, requests about data those services hold go through <a href="https://vyrechain.com/privacy/" target="_blank" rel="noopener noreferrer">VYRE’s privacy policy</a>.</p>
+    </section>
+
+    <section>
+      <h2>6. Children</h2>
+      <p>MINTA is for people 18 and older and doesn’t knowingly collect information from children.</p>
+    </section>
+
+    <section>
+      <h2>7. Changes</h2>
+      <p>This page is updated when what is collected changes; the date at the top shows the latest version. See also the <a href="/terms/">Terms of Service</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>MINTA runs on the VYRE test network: test USDC and test tokens have no value. USDC is issued by Circle; MINTA is not affiliated with or endorsed by Circle.</p>
+    <p><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/#/docs">Docs</a></p>
+  </footer>
+</body>
+</html>
