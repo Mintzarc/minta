@@ -214,18 +214,52 @@ function clientFor(chainId?: number): PublicClient {
 /** A transaction sent whose result couldn't be read yet; `looked`: a check has found no receipt for it since */
 type Held = { hash: Hash; chainId?: number; looked: boolean };
 
+/** Held transactions are kept for this tab under this prefix and the button's `keepAs`, so leaving the page or reloading it doesn't re-arm the button */
+const HELD_KEY = 'minta.held.';
+function readHeld(keepAs?: string): Held | null {
+  if (!keepAs) return null;
+  try {
+    const v = JSON.parse(sessionStorage.getItem(HELD_KEY + keepAs) || 'null') as Partial<Held> | null;
+    if (v && typeof v.hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v.hash) && (v.chainId === undefined || Number.isSafeInteger(v.chainId))) {
+      return { hash: v.hash as Hash, ...(v.chainId !== undefined ? { chainId: v.chainId } : {}), looked: v.looked === true };
+    }
+  } catch { /* storage blocked, or something unreadable kept: nothing held */ }
+  return null;
+}
+function writeHeld(keepAs: string | undefined, h: Held | null): void {
+  if (!keepAs) return;
+  try { if (h) sessionStorage.setItem(HELD_KEY + keepAs, JSON.stringify(h)); else sessionStorage.removeItem(HELD_KEY + keepAs); } catch { /* not kept: held while the page stays open */ }
+}
+/** What the button says when it comes back (a reload, or back to the page) with a transaction still held */
+const stillHeld = (h: Held | null): Status => (h
+  ? { kind: 'err', text: 'A transaction sent from here earlier couldn’t be confirmed yet. Check it before anything else: checking doesn’t send anything.', hash: h.hash, chainId: h.chainId }
+  : { kind: 'idle' });
+
 /**
  * A button that runs one transaction (which the SDK simulates before the wallet sees it) and shows how it went. A
  * transaction sent whose result couldn't be read (a busy RPC, say) turns it into Check it, which only reads the chain, so a
  * second press can't send the same thing twice; it sends again only once the chain shows that one failed, or after a check
- * found nothing and the user chooses to start over.
+ * found nothing and the user chooses to start over. With `keepAs` (a name for this action, unique on the page), a held
+ * transaction is kept for the tab, so leaving the page or reloading it still shows Check it. With `finalTo` (the address the
+ * action's own transaction is sent to), a held transaction that went anywhere else was only the approval before it: once it
+ * went through, the button says so and can be pressed again to finish.
  */
-export function TxButton({ label, run, disabled, className = 'btn btn-accent', onDone }: {
+export function TxButton({ label, run, disabled, className = 'btn btn-accent', onDone, keepAs, finalTo }: {
   label: string; run: (say: (t: string) => void) => Promise<{ hash?: string; text?: string; chainId?: number } | void>; disabled?: boolean;
-  className?: string; onDone?: () => void;
+  className?: string; onDone?: () => void; keepAs?: string; finalTo?: string;
 }) {
-  const [st, setSt] = useState<Status>({ kind: 'idle' });
-  const [held, setHeld] = useState<Held | null>(null);
+  const [held, keepHeld] = useState<Held | null>(() => readHeld(keepAs));
+  const [st, setSt] = useState<Status>(() => stillHeld(held));
+  const setHeld = (h: Held | null) => { keepHeld(h); writeHeld(keepAs, h); };
+  // another action under the same button (another account, say): what it holds, if anything
+  const keptAs = useRef(keepAs);
+  useEffect(() => {
+    if (keptAs.current === keepAs) return;
+    keptAs.current = keepAs;
+    const h = readHeld(keepAs);
+    keepHeld(h);
+    setSt(stillHeld(h));
+  }, [keepAs]);
   // one run at a time, even if a second click lands before the button shows it's busy
   const running = useRef(false);
   const go = async () => {
@@ -248,6 +282,10 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     setHeld(null);
     if (r.status !== 'success') {
       setSt({ kind: 'err', text: 'It failed on chain, so it did nothing (only its network fee was paid). You can send it again.', ...at });
+      return;
+    }
+    if (finalTo && r.to?.toLowerCase() !== finalTo.toLowerCase()) {
+      setSt({ kind: 'err', text: 'That was only the approval, and it went through: nothing else was sent yet. Press again to finish.', ...at });
       return;
     }
     setSt({ kind: 'ok', text: 'It went through.', ...at });

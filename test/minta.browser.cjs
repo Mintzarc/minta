@@ -645,6 +645,68 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
     }
+    // a sale whose held transaction was only the approval before it (a wallet that can't sign a permit): Check it says so, doesn't
+    // clear the form, and the button sells again; one whose held transaction was the sale itself (sent to the router) went through.
+    // And a held transaction kept for the tab: a reload still shows Check it, and pressing it only reads the chain
+    {
+      const RPC = 'https://testnet-rpc.vyrechain.com';
+      const ROUTER = '0x2222222222222222222222222222222222222222', TOKEN = '0x3333333333333333333333333333333333333333';
+      const H2 = '0x' + 'ce'.repeat(32), H3 = '0x' + 'cf'.repeat(32);
+      const receipts = {};
+      const rcpt = (hash, status, to) => ({ blockHash: '0x' + '11'.repeat(32), blockNumber: '0x10', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x989680', from: ME, gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256), status, to, transactionHash: hash, transactionIndex: '0x0', type: '0x2' });
+      const { pg, ctx, errs } = await harness(reply(200, base0));
+      await ctx.route((u) => u.href.startsWith(RPC), async (route) => {
+        const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+        const body = JSON.parse(route.request().postData() || 'null');
+        const one = (q) => ({ jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? receipts[String(q.params && q.params[0]).toLowerCase()] ?? null : null });
+        await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
+      });
+      const counter = (n) => pg.evaluate((k) => window[k] || 0, n);
+      const settleIn = (id, re) => pg.waitForFunction(([sel, src]) => new RegExp(src, 'i').test(document.querySelector(sel)?.textContent || ''), [`#${id} .status`, re.source], { timeout: 5000 }).catch(() => {});
+      const btnOf = (id) => pg.locator(`#${id} .tx > button`);
+      const statusOf = (id) => pg.locator(`#${id} .status`).innerText().catch(() => '');
+      // the approval
+      await btnOf('approval').click();
+      await settleIn('approval', /couldn’t be read/);
+      ok(/Check it/.test(await btnOf('approval').innerText()), 'a sale sent but unread: its button reads Check it');
+      receipts[H2] = rcpt(H2, '0x1', TOKEN);
+      await btnOf('approval').click();
+      await settleIn('approval', /only the approval/);
+      ok(/only the approval, and it went through: nothing else was sent yet/.test(await statusOf('approval')) && await counter('__done2') === 0 && /Sell 5 TOK/.test(await btnOf('approval').innerText()) && await counter('__runs2') === 1,
+        'what was held was only the approval (sent to the token, not the router): it says so, nothing is cleared as if the sale went through, and the button sells again');
+      // the sale itself, sent to the router
+      await btnOf('approval').click();
+      await settleIn('approval', /couldn’t be read/);
+      receipts[H2] = rcpt(H2, '0x1', ROUTER);
+      await btnOf('approval').click();
+      await settleIn('approval', /went through/);
+      ok(/It went through/.test(await statusOf('approval')) && await counter('__done2') === 1 && await counter('__runs2') === 2, 'what was held was the sale itself (sent to the router): it went through, as before');
+      // kept for the tab
+      await btnOf('kept').click();
+      await settleIn('kept', /couldn’t be read/);
+      ok(await counter('__runs3') === 1 && /Check it/.test(await btnOf('kept').innerText()), 'a send whose result couldn’t be read: Check it');
+      await pg.reload();
+      await pg.waitForSelector('#kept .tx > button');
+      ok(/Check it/.test(await btnOf('kept').innerText()) && /sent from here earlier couldn’t be confirmed yet/.test(await statusOf('kept')) && await pg.locator(`#kept a[href$="/tx/${H3}"]`).count() === 1,
+        'after a reload the button still reads Check it, says why, and links the transaction');
+      ok(/Sell 5 TOK/.test(await btnOf('approval').innerText()) && /Send on VYRE/.test(await btnOf('vyre').innerText()), 'buttons with nothing kept come back as they were');
+      await btnOf('kept').click();
+      await settleIn('kept', /isn’t confirmed yet/);
+      ok(await counter('__runs3') === 0 && /Check it/.test(await btnOf('kept').innerText()), 'pressing it after the reload only reads the chain: nothing is sent again');
+      await pg.reload();
+      await pg.waitForSelector('#kept .tx > button');
+      ok(/Check it/.test(await btnOf('kept').innerText()) && await pg.locator('#kept button:has-text("start over")').count() === 1, 'a check that found nothing is remembered too: after another reload, start over is offered');
+      receipts[H3] = rcpt(H3, '0x1', TO);
+      await btnOf('kept').click();
+      await settleIn('kept', /went through/);
+      ok(await counter('__done3') === 1, 'once it went through, the form is cleared as after any send');
+      await pg.reload();
+      await pg.waitForSelector('#kept .tx > button');
+      ok(/Send 1 USDC/.test(await btnOf('kept').innerText()) && await pg.locator('#kept .status').count() === 0 && await counter('__runs3') === 0, 'and after a reload nothing is held any more: the button sends again, and nothing was sent by itself');
+      ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
     // the dialog on a phone
     {
       const { pg, ctx } = await harness(reply(200, hostile), { width: 360, height: 640 });

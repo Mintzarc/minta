@@ -1,7 +1,9 @@
 // A small page for the browser check of the pre-sign check (test/minta.browser.cjs; not part of the app, never built into it).
 // It uses the app's own pieces as they are: the wallet client from `walletOn`, the transaction button, the dialog and the
 // stylesheet. The wallet is a stand-in the test defines before the page loads (window.__wallet); each button sends one
-// transaction through it, on VYRE or on another chain. A third button stands for a trade sent whose result couldn't be read.
+// transaction through it, on VYRE or on another chain. A third button stands for a trade sent whose result couldn't be read;
+// a fourth for a sale whose held transaction may be the approval before it (its trade goes to ROUTER); a fifth for a send
+// whose held transaction is kept for the tab.
 import '../../src/styles.css';
 import { createRoot } from 'react-dom/client';
 import { SentButUnconfirmedError, arcTestnet, vyreTestnet } from '@vyrechain/sdk';
@@ -12,8 +14,9 @@ import TxCheckDialog from '../../src/components/TxCheckDialog';
 
 const ME: Address = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const TO: Address = '0x1111111111111111111111111111111111111111';
+const ROUTER: Address = '0x2222222222222222222222222222222222222222';
 const wallet = () => (window as unknown as { __wallet: EIP1193Provider }).__wallet;
-const count = window as unknown as { __runs?: number; __done?: number };
+const count = window as unknown as { __runs?: number; __done?: number; __runs2?: number; __done2?: number; __runs3?: number; __done3?: number };
 const setChain = (id: number) => { (window as unknown as { __chainHex: string }).__chainHex = `0x${id.toString(16)}`; };
 
 function Page() {
@@ -39,6 +42,18 @@ function Page() {
         <TxButton label="Buy with 50 USDC" onDone={() => { count.__done = (count.__done || 0) + 1; }} run={async () => {
           count.__runs = (count.__runs || 0) + 1;
           throw new SentButUnconfirmedError(`0x${'cd'.repeat(32)}`, vyreTestnet.id, new Error('HTTP request failed: 429'));
+        }} />
+      </div>
+      <div id="approval">
+        <TxButton label="Sell 5 TOK" finalTo={ROUTER} onDone={() => { count.__done2 = (count.__done2 || 0) + 1; }} run={async () => {
+          count.__runs2 = (count.__runs2 || 0) + 1;
+          throw new SentButUnconfirmedError(`0x${'ce'.repeat(32)}`, vyreTestnet.id, new Error('HTTP request failed: 429'));
+        }} />
+      </div>
+      <div id="kept">
+        <TxButton label="Send 1 USDC" keepAs="test-kept" onDone={() => { count.__done3 = (count.__done3 || 0) + 1; }} run={async () => {
+          count.__runs3 = (count.__runs3 || 0) + 1;
+          throw new SentButUnconfirmedError(`0x${'cf'.repeat(32)}`, vyreTestnet.id, new Error('HTTP request failed: 429'));
         }} />
       </div>
       <TxCheckDialog />

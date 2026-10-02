@@ -3,7 +3,7 @@
 // "Move to VYRE" runs through Circle's window.
 import { useEffect, useRef, useState } from 'react';
 import {
-  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, SentButUnconfirmedError, TransactionReplacedError, arcTestnet, burnToArc, cctpSource, claimWithdrawal,
+  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, SentButUnconfirmedError, TransactionReplacedError, arcTestnet, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
   depositFromArc, getAddresses, getCctpFees, feeCapFor, getConfirmedCount, getFaucetStatus, getPromoter, getWithdrawals, isApprovedPromoter, maxFeeFor,
   mintOnArc, outboxAbi, requestTestUsdc, sendUsdc, toNativeUsdc, FAUCET_ADDRESS, vyreTestnet, waitForArcMint, waitForDeposit, withdrawToArc,
   type CctpFees, type CctpStatus, type FaucetStatus, type Withdrawal,
@@ -124,7 +124,7 @@ export default function Wallet() {
           <>
             <label className="field"><span>Amount (USDC)</span><input ref={fromArcInput} inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="5" aria-invalid={!!amountProblem(amountIn)} /></label>
             {amountProblem(amountIn) && <p className="err small" role="alert">{amountProblem(amountIn)}</p>}
-            <TxButton label={value ? `Move ${exact(value)} USDC to VYRE` : 'Move to VYRE'} disabled={!value || (onArc !== null && value >= onArc)} onDone={load}
+            <TxButton label={value ? `Move ${exact(value)} USDC to VYRE` : 'Move to VYRE'} disabled={!value || (onArc !== null && value >= onArc)} onDone={load} keepAs={`to-vyre:${account.toLowerCase()}`}
               run={async (say) => {
                 if (email) {
                   const before = await vyre.getBalance({ address: account });
@@ -170,6 +170,8 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
 }) {
   const [chainId, setChainId] = useState(CCTP_SOURCES[1]!.id); // Base Sepolia: Circle signs its transfers in about 8 s
   const src = cctpSource(chainId);
+  // the transfer is sent to Circle's contract: anything else held was the approval before it
+  const messenger = (() => { try { return cctpNetworkFor(src.arcChainId).tokenMessenger; } catch { return undefined; } })();
   const [amountIn, setAmountIn] = useState('');
   const [fees, setFees] = useState<CctpFees | null>(null);
   const [feeErr, setFeeErr] = useState('');
@@ -313,6 +315,7 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
           {tooSmall && <p className="err small">That doesn’t cover Circle’s fees (up to {usdc6(maxFee!)} USDC): send more.</p>}
           {tooMuch && <p className="err small">You have {usdc6(balance!)} USDC on {src.name}.</p>}
           <TxButton label={units !== null ? `Send ${usdc6(units)} USDC to Arc` : 'Send to Arc'} disabled={units === null || maxFee === null || tooSmall || tooMuch || !provider}
+            keepAs={`from-chain:${account.toLowerCase()}`} finalTo={messenger}
             onDone={() => { setAmountIn(''); setBalTick((n) => n + 1); }} run={send} />
           {unsaved && <p className="note small" role="note">This browser isn’t keeping a record of transfers (a private window, or blocked site data). If you leave this page before it arrives, keep the transfer’s hash (below) to check it later.</p>}
         </>
@@ -425,7 +428,7 @@ function Transfer({ t, account, provider, onLanded, onMove, onForget }: {
 
 /** Test USDC back to the faucet, from any wallet (a Face ID wallet's fee comes out of the same balance: some is left for it) */
 function SendBack({ faucet, held, onDone }: { faucet: FaucetStatus; held: bigint | null; onDone: () => void }) {
-  const { onVyre, confirmHint } = useWallet();
+  const { account, onVyre, confirmHint } = useWallet();
   const room = held !== null && held > FEE_ROOM ? held - FEE_ROOM : 0n;
   // one drip's worth by default, or all but the fee if that's less (a gift that close to a drip still qualifies)
   const drip = parse(faucet.drip) ?? 0n;
@@ -441,7 +444,7 @@ function SendBack({ faucet, held, onDone }: { faucet: FaucetStatus; held: bigint
       <p className="small">Done testing? Send it back: it goes to the next person{faucet.returnCooldownHours ? `, and about ${faucet.drip} or more gets you your next drip after ${faucet.returnCooldownHours} hours` : ''}. <a href="https://vyrechain.com/faucet/#givers-title" target="_blank" rel="noopener noreferrer">Top givers</a>.</p>
       <label className="field"><span>Amount to send back (USDC)</span><input inputMode="decimal" value={shown} onChange={(e) => setAmountIn(e.target.value)} aria-invalid={!!problem} /></label>
       <div className="row">
-        <TxButton className="btn btn-line" label={value ? `Send back ${exact(value)} USDC` : 'Send back'} disabled={!value || !!problem || held === null} onDone={onDone}
+        <TxButton className="btn btn-line" label={value ? `Send back ${exact(value)} USDC` : 'Send back'} disabled={!value || !!problem || held === null} onDone={onDone} keepAs={`send-back:${account?.toLowerCase() ?? ''}`}
           run={async (say) => {
             const w = await onVyre();
             say(confirmHint);
@@ -596,7 +599,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
         <>
           <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="1" aria-invalid={!!amountProblem(amountIn)} /></label>
           {amountProblem(amountIn) && <p className="err small" role="alert">{amountProblem(amountIn)}</p>}
-          <TxButton label={value ? `Move ${exact(value)} USDC to Arc` : 'Start the move'} disabled={!value}
+          <TxButton label={value ? `Move ${exact(value)} USDC to Arc` : 'Start the move'} disabled={!value} keepAs={`to-arc:${account.toLowerCase()}`}
             onDone={() => { setAmountIn(''); load(); onDone(); }}
             run={async (say) => {
               const w = await onVyre();
@@ -664,7 +667,7 @@ function SendUsdc({ account, held, faceId, onDone }: { account: Address; held: b
       <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="1" aria-invalid={!!amountProblem(amountIn)} /></label>
       {problem && <p className="err small" role="alert">{problem}</p>}
       {ready && <p className="small">Sends {exact(value!)} USDC to <span className="mono break">{getAddress(to.trim())}</span> on VYRE. It can’t be undone.</p>}
-      <TxButton label={ready ? `Send ${exact(value!)} USDC` : 'Send'} disabled={!ready}
+      <TxButton label={ready ? `Send ${exact(value!)} USDC` : 'Send'} disabled={!ready} keepAs={`send:${account.toLowerCase()}`}
         onDone={() => { setAmountIn(''); onDone(); }}
         run={async (say) => {
           const dest = getAddress(to.trim());

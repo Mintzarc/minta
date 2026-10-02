@@ -293,6 +293,10 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
         <TxButton
           label={label}
           disabled={!value || !shown || min <= 0n || tooMuch}
+          // a trade whose result couldn't be read is kept for this tab (leaving the page or reloading still shows Check it); a trade is
+          // sent to the router, so anything else held was the approval before a sale
+          keepAs={`trade:${launch.token.toLowerCase()}:${account.toLowerCase()}`}
+          finalTo={addresses().appRouter}
           onDone={() => { setInput(''); onDone(); }}
           run={async (say) => {
             if (email) {
