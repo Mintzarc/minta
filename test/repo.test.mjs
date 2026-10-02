@@ -28,3 +28,20 @@ test('the tests use stand-in addresses only (contracts come from the SDK, never 
   }
   assert.deepEqual(found, []);
 });
+
+test('no file points at paths this repository does not have (app/web/…, brand/minta/…)', () => {
+  const found = [];
+  for (const f of files.filter((f) => TEXT.test(f) && f !== 'test/repo.test.mjs')) {
+    text(f).split('\n').forEach((l, i) => { if (/\b(?:app\/web|brand\/minta)\//.test(l)) found.push(`${f}:${i + 1}`); });
+  }
+  assert.deepEqual(found, []);
+});
+
+test('the README’s brand/ line names only the tools that are there', () => {
+  const line = text('README.md').split('\n').find((l) => l.startsWith('brand/'));
+  assert.ok(line, 'the README describes brand/');
+  const tools = new Set(files.filter((f) => /^brand\/[^/]+\//.test(f)).map((f) => f.split('/')[1]));
+  for (const [word, dir] of [['logo', 'logo'], ['splash', 'splash'], ['mascots', 'memes'], ['art', 'art']]) {
+    assert.equal(new RegExp(`\\b${word}\\b`).test(line), tools.has(dir), `"${word}" in the README’s brand/ line, brand/${dir}/ ${tools.has(dir) ? 'there' : 'not there'}`);
+  }
+});

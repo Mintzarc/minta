@@ -1,6 +1,6 @@
-// The meme mascots MINTA shows for a token that has no picture of its own: public/memes/m01.webp ... (original cartoon characters made
-// with brand/minta/memes/generate.mjs). A token's address picks one, so the same token always gets the same mascot. Decoration only: the
-// creator's own picture replaces it as soon as there is one.
+// The meme mascots MINTA shows for a token that has no picture of its own: public/memes/m01.webp ... (50 original cartoon
+// characters). A token's address picks one, so the same token always gets the same mascot. Decoration only: the creator's own
+// picture replaces it as soon as there is one.
 export const MEME_COUNT = 50;
 
 /** The mascot number (1 to MEME_COUNT) for a token's address (or any text) */

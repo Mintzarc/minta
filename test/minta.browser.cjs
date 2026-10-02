@@ -2,7 +2,7 @@
 // work from their own files): the wizard asks for each step's details before moving on, shows the problem in words, keeps
 // what was typed, ticks the checklist, and ends on a review with a wallet button; the docs open every article, search,
 // deep-link to a section and carry no wording we don't use; nothing throws and nothing scrolls sideways on a phone.
-//   node app/web/test/minta.browser.cjs
+//   node test/minta.browser.cjs   (npm run test:browser)
 // (needs Playwright with a Chromium: `npx playwright install chromium`; PLAYWRIGHT=<its directory> and CHROME=<a Chromium binary> override)
 const { chromium } = (() => { try { return require(process.env.PLAYWRIGHT || 'playwright'); } catch { return require('/opt/node22/lib/node_modules/playwright'); } })();
 const http = require('http'), fs = require('fs'), os = require('os'), path = require('path');

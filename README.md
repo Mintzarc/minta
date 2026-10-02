@@ -59,7 +59,7 @@ src/pages/        Explore, Token, Launch (a five-step wizard), Manage, Portfolio
 src/components/   header, ticker, splash, token art, search, charts, shared UI
 src/lib/          chain and wallet plumbing, the app API client, the check before signing, the ticker's feed, picture preparation, routes
 public/           the logo, art, meme mascots for tokens with no picture, the splash film, manifest, terms and privacy pages
-brand/            tools that make those pictures (logo cuts, mascots, art, splash); see each folder
+brand/            the logo's source, and the tools that cut the logo pictures and the splash film; see each folder
 test/             unit tests (node --test) and a browser check (Playwright)
 vercel.json       the page's security headers (a strict content security policy) and the build settings
 ```
