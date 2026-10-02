@@ -5,8 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPublicClient, createWalletClient, custom, getAddress } from 'viem';
-import { getAddresses, setTaxWallets, vyreTestnet } from '@vyrechain/sdk';
-import { loweredTaxes, refusedTaxWallets, splitBps, taxSplitProblem } from '../src/lib/taxsplit.ts';
+import { getAddresses, getFaceIdAddresses, setTaxWallets, vyreTestnet } from '@vyrechain/sdk';
+import { loweredTaxes, refusedForSplit, refusedTaxWallets, splitBps, taxSplitProblem } from '../src/lib/taxsplit.ts';
 import { percentBps } from '../src/lib/format.ts';
 
 const A = getAddresses(vyreTestnet.id);
@@ -102,4 +102,15 @@ test('a share is read by the same rule as the Create page’s taxes (format.ts�
     assert.ok(Object.is(mine, theirs), `${JSON.stringify(t)}: ${mine} vs ${theirs}`);
     assert.ok(Object.is(loweredTaxes(t, '0', { buyTaxBps: 1e30, sellTaxBps: 1 }).buy, theirs), JSON.stringify(t));
   }
+});
+
+test('the chain’s Face ID wallet contracts the SDK lists (EntryPoint, wallet factory, implementation) are refused, as the Manage page builds the list', () => {
+  const f = getFaceIdAddresses(vyreTestnet.id);
+  const forSplit = refusedForSplit(A, f, [MULTICALL3, POOL, TOKEN]);
+  for (const k of ['entryPoint', 'factory', 'implementation']) {
+    for (const a of [f[k], f[k].toLowerCase()]) assert.match(taxSplitProblem([{ addr: a, share: '100' }], forSplit), /contracts/, `${k} (${a})`);
+  }
+  // and everything the plain list refuses is still refused
+  for (const a of refused) assert.ok(forSplit.has(a), a);
+  assert.equal(refusedForSplit(A, null, []).size, refusedTaxWallets(A, []).size, 'no Face ID list: just the contracts');
 });

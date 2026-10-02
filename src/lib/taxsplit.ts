@@ -38,6 +38,15 @@ export function refusedTaxWallets(contracts: object, more: readonly (string | nu
     .map((a) => a.toLowerCase()));
 }
 
+/**
+ * The addresses a launch's tax split must never name: `refusedTaxWallets` over the SDK's contracts for the chain and its Face ID
+ * wallet contracts (the EntryPoint, the wallet factory and its implementation: `getFaceIdAddresses`, passed in so this file still
+ * imports only viem), plus `more`
+ */
+export function refusedForSplit(contracts: object, faceIdContracts: object | null, more: readonly (string | null | undefined)[]): Set<string> {
+  return refusedTaxWallets(contracts, [...(faceIdContracts ? (Object.values(faceIdContracts) as (string | null | undefined)[]) : []), ...more]);
+}
+
 /** Whether a (valid) address is one of the chain's system addresses */
 export const isSystemAddress = (addr: string) => BigInt(addr) < SYSTEM_BELOW;
 

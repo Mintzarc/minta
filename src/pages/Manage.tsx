@@ -2,16 +2,21 @@
 // links, and hand the launch to someone else (who accepts it). Each transaction is simulated before the wallet sees it.
 import { useCallback, useEffect, useState } from 'react';
 import { getAddress, zeroAddress, type Address, type Hash } from 'viem';
-import { getLaunch, sendCall, vyrePadAbi, type Launch, type WalletLike } from '@vyrechain/sdk';
+import { getFaceIdAddresses, getLaunch, sendCall, vyrePadAbi, type Launch, type WalletLike } from '@vyrechain/sdk';
 import { vyre } from '../lib/chain';
 import { isAddr, pct, short, tokenText } from '../lib/format';
 import { addresses } from '../lib/market';
-import { loweredTaxes, refusedTaxWallets, splitBps, taxSplitProblem } from '../lib/taxsplit';
+import { loweredTaxes, refusedForSplit, splitBps, taxSplitProblem } from '../lib/taxsplit';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
 import { LaunchFileFields, emptyLaunchFile, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { API_URL, hasContent, saveLaunchFile, withUploadedPicture, type LaunchFile } from '../lib/api';
+
+/** The chain's Face ID wallet contracts the SDK lists (none when the SDK has no list for it) */
+function faceIdContracts(): object | null {
+  try { return vyre.chain ? getFaceIdAddresses(vyre.chain.id) : null; } catch { return null; }
+}
 
 type PadCall =
   | { functionName: 'collectCreatorFees'; args: readonly [Address] }
@@ -127,7 +132,7 @@ function TaxWallets({ launch, current, run }: { launch: Launch; current: { walle
     if (current) setRows(current.wallets.length ? current.wallets.map((w, i) => ({ addr: w, share: String(current.bps[i] / 100) })) : [{ addr: launch.creator, share: '100' }]);
   }, [current, launch.creator]);
   // (refused: every contract the SDK lists for the chain, the chain's Multicall3, this launch's pool and token, and the chain's system addresses)
-  const refused = refusedTaxWallets(addresses(), [vyre.chain?.contracts?.multicall3?.address, launch.pool, launch.token]);
+  const refused = refusedForSplit(addresses(), faceIdContracts(), [vyre.chain?.contracts?.multicall3?.address, launch.pool, launch.token]);
   const bps = splitBps(rows);
   const problem = taxSplitProblem(rows, refused);
   return (
