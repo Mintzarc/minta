@@ -21,7 +21,7 @@ function router() {
 }
 
 test('a plain search is shown back as typed', () => {
-  for (const q of ['pepe', '$PEPE', 'Pepe Coin', 'my_token-2', '0x33D945764d3De5AB0211455c13fC48490f7082DE', 'ДОГЕ', 'ドージ']) assert.equal(searchTerm(q), q);
+  for (const q of ['pepe', '$PEPE', 'Pepe Coin', 'my_token-2', '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', 'ДОГЕ', 'ドージ']) assert.equal(searchTerm(q), q);
 });
 
 test('a search that could pass for MINTA’s own words is not shown back', () => {
