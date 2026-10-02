@@ -1,7 +1,7 @@
 // The app's transport for VYRE (src/lib/transport.ts, with src/lib/fetchSplit.ts), against a stand-in public RPC on a local port.
-// What it must get right: an answer the RPC refuses as too large ("answer too large: narrow the filter", JSON-RPC -32005, sent with
-// HTTP 200) is final for that call, so a log read asks for less at once instead of asking the same range again for about 16 seconds;
-// the RPC's other refusals (busy, rate limited) are still retried.
+// What it must get right: a log read's answer the RPC refuses as too large ("answer too large: narrow the filter", JSON-RPC -32005,
+// sent with HTTP 200) is final for that read, so it asks for less at once instead of asking the same range again for about 16 seconds;
+// the other calls of a batch refused that way, and the RPC's other refusals (busy, rate limited), are still asked again.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -96,4 +96,67 @@ test('the transport is still viem’s http one, set up as the SDK sets it up', a
   assert.equal(made.config.retryCount, 6);
   assert.equal(made.config.retryDelay, 250);
   assert.equal(made.value.url, s.url);
+});
+
+/**
+ * A stand-in RPC that sizes answers as the public RPC does for a batch: when the answers of one request add up to more than `cap`,
+ * every call of that request gets the refusal as too large (a log read's answer counts one per block of its range, any other one).
+ */
+async function batchRpc(t, cap) {
+  const s = { calls: [], posts: [] };
+  const answer = (m) => {
+    s.calls.push(m.method);
+    if (m.method === 'eth_blockNumber') return { size: 1, out: { jsonrpc: '2.0', id: m.id, result: '0x10' } };
+    if (m.method === 'eth_call') return { size: 1, out: { jsonrpc: '2.0', id: m.id, result: '0x' } };
+    const { fromBlock, toBlock } = m.params[0];
+    return { size: Number(BigInt(toBlock) - BigInt(fromBlock) + 1n), out: { jsonrpc: '2.0', id: m.id, result: [] } };
+  };
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const j = JSON.parse(body);
+      const list = Array.isArray(j) ? j : [j];
+      s.posts.push(list.map((m) => m.method));
+      const got = list.map(answer);
+      const out = got.reduce((n, g) => n + g.size, 0) > cap
+        ? list.map((m) => ({ jsonrpc: '2.0', id: m.id, error: { code: -32005, message: 'answer too large: narrow the filter' } }))
+        : got.map((g) => g.out);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(Array.isArray(j) ? out : out[0]));
+    });
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  s.url = `http://127.0.0.1:${server.address().port}`;
+  return s;
+}
+
+test('calls that share a batch with a log read refused as too large are asked again and answered; the log read is halved', { timeout: 120_000 }, async (t) => {
+  const s = await batchRpc(t, 1500);
+  const client = clientFor(s.url);
+  const t0 = Date.now();
+  const [logs, block, call] = await Promise.allSettled([
+    readLogsSplitting((lo, hi) => client.getLogs({ fromBlock: lo, toBlock: hi }), 0n, 1999n),
+    client.request({ method: 'eth_blockNumber' }),
+    client.request({ method: 'eth_call', params: [{ to: '0x1111111111111111111111111111111111111111', data: '0x' }, 'latest'] }),
+  ]);
+  assert.deepEqual(s.posts[0].sort(), ['eth_blockNumber', 'eth_call', 'eth_getLogs'], 'the three went out as one batch, refused together');
+  assert.equal(block.status, 'fulfilled', block.reason?.shortMessage);
+  assert.equal(block.value, '0x10');
+  assert.equal(call.status, 'fulfilled', call.reason?.shortMessage);
+  assert.equal(call.value, '0x');
+  assert.equal(logs.status, 'fulfilled', logs.reason?.shortMessage);
+  assert.deepEqual(logs.value, []);
+  assert.equal(s.calls.filter((m) => m === 'eth_getLogs').length, 3, 'the log read asked once, then its two halves');
+  assert.equal(s.calls.filter((m) => m === 'eth_blockNumber').length, 2, 'the block number asked once more, not for 16 s');
+  assert.ok(Date.now() - t0 < 10_000, `answered on the first try again (${Date.now() - t0} ms)`);
+});
+
+test('two log reads refused together are each halved and each read whole', { timeout: 120_000 }, async (t) => {
+  const s = await batchRpc(t, 1500);
+  const client = clientFor(s.url);
+  const read = (lo, hi) => readLogsSplitting((a, b) => client.getLogs({ fromBlock: a, toBlock: b }), lo, hi);
+  assert.deepEqual(await Promise.all([read(0n, 1199n), read(5000n, 5099n)]), [[], []]);
+  assert.ok(s.calls.length <= 12, `${s.calls.length} reads`);
 });
