@@ -47,6 +47,18 @@ export const digitsFor = (v: number, step: number) => Math.min(8, Math.max(3, Ma
 
 export const pct = (bps: number) => `${(bps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
+// a percent as people type it: a plain number with at most two decimals (the pad counts taxes in 0.01% steps)
+const PERCENT = /^\d+(\.\d{0,2})?$/;
+
+/** A typed percent ("2.5") as basis points (250), or NaN if it isn't a plain number with at most two decimals ("0x5", "1e1"
+ * and "2.555" aren't: they'd be read, or rounded, into something other than what was typed) */
+export function percentBps(input: string): number {
+  const s = input.trim();
+  if (!PERCENT.test(s)) return NaN;
+  const [whole, frac = ''] = s.split('.');
+  return Number(whole) * 100 + Number(frac.padEnd(2, '0'));
+}
+
 // a plain number (1000.5), or one with commas between groups of three digits (1,000.5)
 const PLAIN = /^\d+(\.\d{0,18})?$/;
 const GROUPED = /^\d{1,3}(,\d{3})+(\.\d{0,18})?$/;

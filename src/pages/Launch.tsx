@@ -6,7 +6,7 @@ import type { Address } from 'viem';
 import { LAUNCH_LIMITS, SentButUnconfirmedError, checkLaunchParams, getLaunch, launch, operationIn, vyrePadAbi, type LaunchParams } from '@vyrechain/sdk';
 import { getAddress, isAddress, isAddressEqual, parseEventLogs, type Hash, type TransactionReceipt } from 'viem';
 import { EXPLORER, reason, vyre } from '../lib/chain';
-import { amount, amountProblem, exact, iso, parse, pct, plainText, price, short, tokenText, usd } from '../lib/format';
+import { amountProblem, exact, iso, parse, pct, percentBps, plainText, price, short, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { addresses } from '../lib/market';
@@ -31,6 +31,9 @@ function launchIn(receipt: TransactionReceipt, creator: Address | null, op?: Has
     .find((e) => isAddressEqual(e.address, addresses().pad) && (!creator || isAddressEqual(e.args.creator, creator)));
 }
 const bytes = (s: string) => new TextEncoder().encode(s).length;
+/** A typed tax as it will be sent ("2.5%"), or a dash while it isn't a plain percent with at most two decimals */
+const taxText = (s: string) => (Number.isInteger(percentBps(s)) ? pct(percentBps(s)) : '—');
+const TAX_PROBLEM = 'Set a tax on buys and on sells: 0 to 10%, with at most two decimals (like 2.5).';
 /** 1,000,000,000 as 1B (a whole-token count from an 18-decimal amount), for a small box */
 const compact = (v: bigint) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(Number(v / E18));
 const TOOK_PLACE = 'That launch didn’t run: another transaction from your wallet took its place, so nothing was created by it. Check Portfolio for your launches before creating it again.';
@@ -125,14 +128,13 @@ export default function Launch() {
     const p = PRESETS.find((x) => x.key === k)!;
     if (k !== 'custom') { setBuyTax(p.buy); setSellTax(p.sell); }
   };
-  const toBps = (s: string) => { const n = Number(s); return s.trim() !== '' && isFinite(n) ? Math.round(n * 100) : NaN; };
   const params: LaunchParams | null = useMemo(() => {
     const totalSupply = parse(supply), fb = firstBuy.trim() ? parse(firstBuy) : 0n;
     if (totalSupply === null || fb === null) return null;
     return {
       // without bidi controls or hidden characters (they'd only disguise it: every page shows it without them)
       name: tokenText(name), symbol: tokenText(symbol), totalSupply, startingMarketCap: OPENING_MARKET_CAP,
-      buyTaxBps: toBps(buyTax), sellTaxBps: toBps(sellTax),
+      buyTaxBps: percentBps(buyTax), sellTaxBps: percentBps(sellTax),
       firstBuyUsdc: fb || undefined,
     };
   }, [name, symbol, supply, buyTax, sellTax, firstBuy]);
@@ -146,7 +148,7 @@ export default function Launch() {
     if (!params.symbol) return 'Give it a ticker.';
     if (bytes(params.name) > LAUNCH_LIMITS.maxNameBytes) return `The name is too long (${LAUNCH_LIMITS.maxNameBytes} bytes at most).`;
     if (bytes(params.symbol) > LAUNCH_LIMITS.maxSymbolBytes) return `The ticker is too long (${LAUNCH_LIMITS.maxSymbolBytes} bytes at most).`;
-    if (!Number.isInteger(params.buyTaxBps) || !Number.isInteger(params.sellTaxBps)) return 'Set a tax on buys and on sells (0 to 10%).';
+    if (!Number.isInteger(params.buyTaxBps) || !Number.isInteger(params.sellTaxBps)) return TAX_PROBLEM;
     const fileProblem = launchFileProblem(meta);
     if (fileProblem) return fileProblem;
     try { checkLaunchParams(params); } catch (e) { return (e as Error).message; }
@@ -171,11 +173,11 @@ export default function Launch() {
     let s2 = '';
     const ts = parse(supply);
     if (ts === null) s2 = amountProblem(supply) ? `Supply: ${amountProblem(supply)}` : 'Fill in the supply.';
-    else if (!Number.isInteger(toBps(buyTax)) || !Number.isInteger(toBps(sellTax))) s2 = 'Set a tax on buys and on sells (0 to 10%).';
+    else if (!Number.isInteger(percentBps(buyTax)) || !Number.isInteger(percentBps(sellTax))) s2 = TAX_PROBLEM;
     else if (ts < LAUNCH_LIMITS.minSupply || ts > LAUNCH_LIMITS.maxSupply) s2 = 'The supply must be 1,000 to 1,000,000,000,000,000 tokens.';
-    else if (toBps(buyTax) < 0 || toBps(sellTax) < 0 || toBps(buyTax) > LAUNCH_LIMITS.maxTaxBps || toBps(sellTax) > LAUNCH_LIMITS.maxTaxBps) s2 = 'Taxes can be 0 to 10%.';
+    else if (percentBps(buyTax) < 0 || percentBps(sellTax) < 0 || percentBps(buyTax) > LAUNCH_LIMITS.maxTaxBps || percentBps(sellTax) > LAUNCH_LIMITS.maxTaxBps) s2 = 'Taxes can be 0 to 10%.';
     else {
-      try { checkLaunchParams({ name: 'x', symbol: 'x', totalSupply: ts, startingMarketCap: OPENING_MARKET_CAP, buyTaxBps: toBps(buyTax), sellTaxBps: toBps(sellTax) }); } catch (e) { s2 = (e as Error).message; }
+      try { checkLaunchParams({ name: 'x', symbol: 'x', totalSupply: ts, startingMarketCap: OPENING_MARKET_CAP, buyTaxBps: percentBps(buyTax), sellTaxBps: percentBps(sellTax) }); } catch (e) { s2 = (e as Error).message; }
     }
     return [s0, s1, s2, launchFileProblem(meta, 'own'), ''];
   }, [name, symbol, supply, buyTax, sellTax, firstBuy, meta]);
@@ -339,9 +341,9 @@ export default function Launch() {
                 <legend className="h3">Review &amp; launch <span className="muted small">Final check.</span></legend>
                 <dl className="review-list">
                   <div><dt>Token</dt><dd><b>$<bdi>{tokenText(symbol) || '—'}</bdi></b> <bdi>{tokenText(name)}</bdi></dd></div>
-                  <div><dt>Supply</dt><dd>{params ? `${amount(params.totalSupply, 0)} tokens` : '—'}</dd></div>
+                  <div><dt>Supply</dt><dd>{params ? `${exact(params.totalSupply)} tokens` : '—'}</dd></div>
                   <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))} ({price(openPrice)} a token)</dd></div>
-                  <div><dt>Buy / sell tax</dt><dd>{buyTax || '—'}% / {sellTax || '—'}%, plus the 1% platform fee each way</dd></div>
+                  <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, plus the 1% platform fee each way</dd></div>
                   <div><dt>Dev buy</dt><dd>{params?.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'}</dd></div>
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
                 </dl>
@@ -422,7 +424,7 @@ function Preview({ name, symbol, meta, params, buyTax, sellTax, openPrice, check
         </div>
       </div>
       <dl className="pv-stats">
-        <div><dt>Total supply</dt><dd title={params ? amount(params.totalSupply, 0) : undefined}>{params ? compact(params.totalSupply) : '—'}</dd><small>{tokenText(symbol) || 'MYT'}</small></div>
+        <div><dt>Total supply</dt><dd title={params ? exact(params.totalSupply) : undefined}>{params ? compact(params.totalSupply) : '—'}</dd><small>{tokenText(symbol) || 'MYT'}</small></div>
         <div><dt>Launch type</dt><dd>Instant</dd><small>MINTA</small></div>
         <div><dt>Chain</dt><dd className="pv-chain"><VyreGlyph size={22} />VYRE</dd></div>
       </dl>
@@ -432,7 +434,7 @@ function Preview({ name, symbol, meta, params, buyTax, sellTax, openPrice, check
         <dl className="facts">
           <div><dt>Price</dt><dd>{price(openPrice)}</dd></div>
           <div><dt>Market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))}</dd></div>
-          <div><dt>Buy / sell tax</dt><dd>{buyTax || '—'}% / {sellTax || '—'}%</dd></div>
+          <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}</dd></div>
           <div><dt>Liquidity</dt><dd>Locked</dd></div>
         </dl>
       </div>
@@ -680,7 +682,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
     ['Creator wallet', <span className="mono" title={creator}>{short(creator)}</span>],
     ['Network', 'VYRE Testnet'],
     ['Token', <><b>$<bdi>{params.symbol}</bdi></b> <bdi>{params.name}</bdi></>],
-    ['Supply', `${amount(params.totalSupply, 0)} tokens`],
+    ['Supply', `${exact(params.totalSupply)} tokens`],
     ['Opening market cap', `about ${usd(Number(OPENING_MARKET_CAP / E18))} (${price(openPrice)} a token; the pool opens within about 1% of it)`],
     ['Buy / sell tax', `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, plus the 1% platform fee each way`],
     ['Dev buy', params.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'],

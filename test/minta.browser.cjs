@@ -83,7 +83,19 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     await pg.fill('.wz-step input[placeholder="0 to 10"] >> nth=0', '11');
     await next();
     ok(/0 to 10%/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a tax over 10% is refused in words');
+    // a tax is a plain percent with at most two decimals: what Number() would also read (hex, exponents) or round is refused,
+    // and the preview never shows the typed text as the tax
+    for (const odd of ['0x5', '1e1', '2.555']) {
+      await pg.fill('.wz-step input[placeholder="0 to 10"] >> nth=0', odd);
+      await next();
+      const stayed = await stepTitle() === 'Tokenomics';
+      ok(stayed && /two decimals/.test(await pg.locator('.wz-step [role=alert]').innerText()), `a tax typed as ${odd} is refused in words`);
+      ok(!(await pg.locator('.preview .facts').innerText()).includes(odd), `and the preview doesn’t show ${odd}% as the tax`);
+      if (!stayed) await pg.click('.wz-steps li:nth-child(3) button');
+    }
+    await pg.fill('.wz-step input[inputmode=decimal] >> nth=0', '2000000.9');
     await pg.fill('.wz-step input[placeholder="0 to 10"] >> nth=0', '2');
+    ok(/2% \/ 1%/.test(await pg.locator('.preview .facts').innerText()), 'the preview shows the taxes as they will be sent');
     await next();
     ok(await stepTitle() === 'Media & links', 'then Media & links');
     ok(/Links\s*1 of 4/.test(await pg.locator('.brand-summary').innerText()) && /Logo\s*Not added/.test(await pg.locator('.brand-summary').innerText()), 'which sums up the logo and links from step 1');
@@ -91,6 +103,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     ok(await stepTitle() === 'Review & launch', 'then Review & launch');
     const review = await pg.locator('.review-list').innerText();
     ok(/MYT/.test(review) && /My Token/.test(review) && /2,000,000/.test(review) && /2% \/ 1%/.test(review), 'the review lists what was typed (supply, taxes)');
+    ok(/2,000,000\.9 tokens/.test(review), 'the supply is shown as it will be sent, its fraction too (' + (review.match(/[\d,.]+ tokens/) || [''])[0] + ')');
     ok(await pg.locator('.wz-step button:has-text("Sign in")').isVisible(), 'the last step offers the wallet button (no wallet is connected)');
     ok((await pg.locator('.checklist li.ok').count()) === 5 && !(await pg.locator('.checklist li.ok:has-text("Logo")').count()), 'the checklist ticks all but the logo, which was left empty');
     await pg.click('.wz-steps li:nth-child(1) button');
