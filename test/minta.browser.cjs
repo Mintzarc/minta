@@ -537,6 +537,62 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(hits.length === 0 && (await asked()).length === 1 && await pg.evaluate(() => window.__sawDialog) === 0, 'a send on another chain (Arc) goes straight to the wallet: the check isn’t asked');
       await ctx.close();
     }
+    // a trade sent whose result couldn't be read (the RPC busy, say): the same button never sends it again. It becomes Check it,
+    // which only reads the chain: no receipt yet keeps it so; a receipt that went through ends it (and clears the form, as a
+    // trade that confirmed at once would); one that failed on chain lets it be sent again; and after a check that found
+    // nothing it can be sent again, but only on purpose (start over)
+    {
+      const RPC = 'https://testnet-rpc.vyrechain.com';
+      const HASH = '0x' + 'cd'.repeat(32);
+      const receipt = (status) => ({ blockHash: '0x' + '11'.repeat(32), blockNumber: '0x10', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x989680', from: ME, gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256), status, to: TO, transactionHash: HASH, transactionIndex: '0x0', type: '0x2' });
+      let answer = null;
+      const { pg, ctx, errs } = await harness(reply(200, base0));
+      const asks = [];
+      await ctx.route((u) => u.href.startsWith(RPC), async (route) => {
+        const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+        const body = JSON.parse(route.request().postData() || 'null');
+        const one = (q) => { asks.push(q.method); return { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? answer : null }; };
+        await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
+      });
+      const btn = pg.locator('#unread .tx > button');
+      const status = () => pg.locator('#unread .status').innerText().catch(() => '');
+      const runs = () => pg.evaluate(() => window.__runs || 0);
+      const done = () => pg.evaluate(() => window.__done || 0);
+      const settle = (re) => pg.waitForFunction((src) => new RegExp(src, 'i').test(document.querySelector('#unread .status')?.textContent || ''), re.source, { timeout: 5000 }).catch(() => {});
+      await btn.click();
+      await settle(/couldn’t be read/);
+      ok(await runs() === 1 && /Check it/.test(await btn.innerText()) && await btn.isEnabled(), 'sent but unread: the trade ran once, and its button now reads Check it');
+      ok(/couldn’t be read/.test(await status()) && await pg.locator(`#unread a[href$="/tx/${HASH}"]`).count() === 1, 'the status says so and links the transaction that was sent');
+      await btn.click();
+      await settle(/isn’t confirmed yet/);
+      ok(await runs() === 1 && asks.includes('eth_getTransactionReceipt'), 'pressing it again only reads the chain: nothing is sent twice');
+      ok(/isn’t confirmed yet/i.test(await status()) && /Check it/.test(await btn.innerText()), 'no receipt yet: it says so, and stays Check it');
+      answer = receipt('0x1');
+      await btn.click();
+      await settle(/went through/);
+      ok(/went through/i.test(await status()) && await done() === 1 && await runs() === 1, 'a receipt that went through: it says so, and the form is cleared as after any trade');
+      ok(/Buy with 50 USDC/.test(await btn.innerText()), 'and the button is a buy button again');
+      // one that failed on chain: it can be sent again
+      answer = null;
+      await btn.click();
+      await settle(/couldn’t be read/);
+      answer = receipt('0x0');
+      await btn.click();
+      await settle(/failed/);
+      ok(await runs() === 2 && /failed/i.test(await status()) && /Buy with 50 USDC/.test(await btn.innerText()) && await done() === 1, 'a receipt that failed on chain: it says so and the button can send again');
+      // never found: sent again only on purpose
+      answer = null;
+      await btn.click();
+      await settle(/couldn’t be read/);
+      ok(await pg.locator('#unread button:has-text("start over")').count() === 0, 'before any check there is no way to start over');
+      await btn.click();
+      await settle(/isn’t confirmed yet/);
+      await pg.locator('#unread button:has-text("start over")').click().catch(() => {});
+      ok(await runs() === 3 && /Buy with 50 USDC/.test(await btn.innerText()), 'after a check found nothing, “start over” only re-arms the button (it sends nothing by itself)');
+      ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
     // the dialog on a phone
     {
       const { pg, ctx } = await harness(reply(200, hostile), { width: 360, height: 640 });

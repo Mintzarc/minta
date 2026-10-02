@@ -2,9 +2,9 @@
 // and the launch's picture.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { Address } from 'viem';
-import { CCTP_SOURCES, arcTestnet } from '@vyrechain/sdk';
-import { ARC_EXPLORER, EXPLORER, reason, refreshWallets } from '../lib/chain';
+import type { Address, Hash, PublicClient, TransactionReceipt } from 'viem';
+import { CCTP_SOURCES, SentButUnconfirmedError, arcTestnet } from '@vyrechain/sdk';
+import { ARC_EXPLORER, EXPLORER, arc, reason, refreshWallets, sourceClient, vyre } from '../lib/chain';
 import { EMAIL_TRADE_NOTE } from '../lib/circle';
 import { amount, short } from '../lib/format';
 import { href } from '../lib/router';
@@ -204,18 +204,54 @@ function chainName(chainId?: number): [string, string] {
   return src ? [src.name, src.explorer] : ['', EXPLORER];
 }
 
-/** A button that runs one transaction (which the SDK simulates before the wallet sees it) and shows how it went */
+/** The chain a transaction was sent on, to read its receipt from: Arc testnet, a chain USDC comes from, or VYRE */
+function clientFor(chainId?: number): PublicClient {
+  if (chainId === arcTestnet.id) return arc;
+  if (chainId !== undefined && CCTP_SOURCES.some((s) => s.id === chainId)) return sourceClient(chainId);
+  return vyre;
+}
+
+/** A transaction sent whose result couldn't be read yet; `looked`: a check has found no receipt for it since */
+type Held = { hash: Hash; chainId?: number; looked: boolean };
+
+/**
+ * A button that runs one transaction (which the SDK simulates before the wallet sees it) and shows how it went. A
+ * transaction sent whose result couldn't be read (a busy RPC, say) turns it into Check it, which only reads the chain, so a
+ * second press can't send the same thing twice; it sends again only once the chain shows that one failed, or after a check
+ * found nothing and the user chooses to start over.
+ */
 export function TxButton({ label, run, disabled, className = 'btn btn-accent', onDone }: {
   label: string; run: (say: (t: string) => void) => Promise<{ hash?: string; text?: string; chainId?: number } | void>; disabled?: boolean;
   className?: string; onDone?: () => void;
 }) {
   const [st, setSt] = useState<Status>({ kind: 'idle' });
+  const [held, setHeld] = useState<Held | null>(null);
   // one run at a time, even if a second click lands before the button shows it's busy
   const running = useRef(false);
   const go = async () => {
     if (running.current) return;
     running.current = true;
-    try { await attempt(); } finally { running.current = false; }
+    try { await (held ? check(held) : attempt()); } finally { running.current = false; }
+  };
+  const done = () => { try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
+  const check = async (h: Held) => {
+    const at = { hash: h.hash, chainId: h.chainId };
+    setSt({ kind: 'busy', text: 'Checking…', ...at });
+    let r: TransactionReceipt;
+    try {
+      r = await clientFor(h.chainId).getTransactionReceipt({ hash: h.hash });
+    } catch {
+      setHeld({ ...h, looked: true });
+      setSt({ kind: 'err', text: 'It isn’t confirmed yet. Check again in a moment: checking doesn’t send anything.', ...at });
+      return;
+    }
+    setHeld(null);
+    if (r.status !== 'success') {
+      setSt({ kind: 'err', text: 'It failed on chain, so it did nothing (only its network fee was paid). You can send it again.', ...at });
+      return;
+    }
+    setSt({ kind: 'ok', text: 'It went through.', ...at });
+    done();
   };
   const attempt = async () => {
     setSt({ kind: 'busy', text: 'Checking…' });
@@ -223,7 +259,13 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     try {
       r = await run((t) => setSt({ kind: 'busy', text: t }));
     } catch (e) {
-      // a transaction sent but not confirmed yet (the SDK's SentButUnconfirmedError, or a deposit still on its way)
+      // sent, but its result couldn't be read: from now on the button checks it, and never sends it again by itself
+      if (e instanceof SentButUnconfirmedError && !e.userOperation) {
+        setHeld({ hash: e.hash, chainId: e.chainId, looked: false });
+        setSt({ kind: 'err', text: 'Sent, but its result couldn’t be read yet. Check it before anything else: checking doesn’t send anything.', hash: e.hash, chainId: e.chainId });
+        return;
+      }
+      // a transaction sent but not confirmed yet (a deposit still on its way, say)
       // carries its hash and chain: link it, so it's checked rather than sent again. Anything can be thrown, null too.
       const x = e !== null && typeof e === 'object' ? (e as { hash?: unknown; chainId?: unknown; userOperation?: unknown; operation?: { sender?: unknown; nonce?: unknown } }) : {};
       // a Face ID wallet's operation has no transaction to link until it's mined; its next operation looks for it first
@@ -243,16 +285,19 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
       return;
     }
     setSt({ kind: 'ok', text: r?.text || 'Done.', hash: r?.hash, chainId: r?.chainId });
-    try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ }
+    done();
   };
   return (
     <div className="tx">
-      <button className={className} type="button" onClick={go} disabled={disabled || st.kind === 'busy'}>{st.kind === 'busy' ? 'Working…' : label}</button>
+      <button className={className} type="button" onClick={go} disabled={(!held && disabled) || st.kind === 'busy'}>{st.kind === 'busy' ? 'Working…' : held ? 'Check it' : label}</button>
       {st.kind !== 'idle' && (
         <p className={`status ${st.kind}`} role="status" aria-live="polite">
           {st.text}{' '}
           {st.hash && /^0x[0-9a-fA-F]{64}$/.test(st.hash) && <a href={txUrl(st.hash, st.chainId)} target="_blank" rel="noopener noreferrer">{chainName(st.chainId)[0] ? `See it on ${chainName(st.chainId)[0]}` : 'See it'}</a>}
         </p>
+      )}
+      {held?.looked && st.kind === 'err' && (
+        <p className="small muted">Not on the explorer after a few minutes? It never reached the chain: <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
       )}
     </div>
   );
