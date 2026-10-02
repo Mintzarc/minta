@@ -1,11 +1,12 @@
 // A creator's controls for their launch: collect the tax, lower it, split it between wallets, change the picture and
 // links, and hand the launch to someone else (who accepts it). Each transaction is simulated before the wallet sees it.
 import { useCallback, useEffect, useState } from 'react';
-import { getAddress, isAddress, zeroAddress, type Address, type Hash } from 'viem';
+import { getAddress, zeroAddress, type Address, type Hash } from 'viem';
 import { getLaunch, sendCall, vyrePadAbi, type Launch, type WalletLike } from '@vyrechain/sdk';
 import { vyre } from '../lib/chain';
 import { isAddr, pct, short, tokenText } from '../lib/format';
 import { addresses } from '../lib/market';
+import { refusedTaxWallets, splitBps, taxSplitProblem } from '../lib/taxsplit';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
@@ -125,14 +126,10 @@ function TaxWallets({ launch, current, run }: { launch: Launch; current: { walle
   useEffect(() => {
     if (current) setRows(current.wallets.length ? current.wallets.map((w, i) => ({ addr: w, share: String(current.bps[i] / 100) })) : [{ addr: launch.creator, share: '100' }]);
   }, [current, launch.creator]);
-  const { pad, swapRouter, appRouter, poolFactory, feeSplitter, wusdc } = addresses();
-  const bad = new Set([pad, swapRouter, appRouter, poolFactory, feeSplitter, wusdc, launch.pool, launch.token].map((a) => a.toLowerCase()));
-  const bps = rows.map((r) => Math.round(Number(r.share) * 100));
-  const problem = rows.length === 0 || rows.length > 4 ? 'One to four wallets.'
-    : rows.some((r) => !isAddress(r.addr, { strict: true })) ? 'Every wallet needs a full address, typed exactly (a mistyped letter in a mixed-case address fails its checksum).'
-    : rows.some((r) => bad.has(r.addr.toLowerCase())) ? 'That’s one of the launchpad’s contracts: tax sent there would be lost.'
-    : bps.some((x) => !isFinite(x) || x <= 0) ? 'Every share must be above 0%.'
-    : bps.reduce((a, x) => a + x, 0) !== 10_000 ? 'The shares must add up to 100%.' : '';
+  // (refused: every contract the SDK lists for the chain, the chain's Multicall3, this launch's pool and token, and the chain's system addresses)
+  const refused = refusedTaxWallets(addresses(), [vyre.chain?.contracts?.multicall3?.address, launch.pool, launch.token]);
+  const bps = splitBps(rows);
+  const problem = taxSplitProblem(rows, refused);
   return (
     <div className="card">
       <h2 className="h3">Split the tax</h2>
