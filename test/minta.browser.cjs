@@ -118,6 +118,49 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     ok(await sideways(n.pg) <= 1, 'nor at 360');
     await n.ctx.close();
   }
+  // the launch review is for the wallet it was opened with: if the wallet switches to another account while it's open, it says
+  // so and Create is off (it stays on that wallet's row); switching back turns it on again
+  {
+    const A = '0x' + '3c'.repeat(20), B = '0x' + '5d'.repeat(20);
+    const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
+    await ctx.addInitScript((who) => {
+      try { localStorage.setItem('minta.splash', String(Date.now())); localStorage.setItem('vyre.wallet', 'rdns:test.wallet'); } catch { /* none */ }
+      let now = who;
+      const heard = [];
+      window.__switchTo = (a) => { now = a; for (const f of heard) f([a]); };
+      const provider = {
+        request: async ({ method }) => (method === 'eth_accounts' || method === 'eth_requestAccounts' ? [now] : method === 'eth_chainId' ? '0x1cbd' : null),
+        on(e, f) { if (e === 'accountsChanged') heard.push(f); },
+        removeListener(e, f) { const i = heard.indexOf(f); if (i >= 0) heard.splice(i, 1); },
+      };
+      window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'w', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test.wallet' }, provider } })));
+    }, A);
+    const pg = await ctx.newPage();
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(String(e)));
+    await pg.goto(base + '#/launch');
+    await pg.waitForSelector('.top');
+    await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
+    await pg.fill('.wz-step input[placeholder="MYT"]', 'MYT');
+    for (let i = 0; i < 4; i++) await pg.click('.wz-next');
+    await pg.click('.wz-step button[type=submit]:has-text("Review")', { timeout: 5000 }).catch(() => {});
+    await pg.waitForSelector('[role=dialog][aria-labelledby=review-title]', { timeout: 5000 }).catch(() => {});
+    const dlg = pg.locator('[role=dialog][aria-labelledby=review-title]');
+    const create = dlg.locator('button:has-text("Create token")');
+    const creatorRow = () => dlg.locator('.review-list div:has(dt:text("Creator wallet")) dd span').getAttribute('title').catch(() => '');
+    const warned = () => dlg.locator('[role=alert]:has-text("Your wallet changed")').count();
+    ok(await dlg.count() === 1 && (await creatorRow() || '').toLowerCase() === A && await create.isEnabled() && await warned() === 0, 'the review opens for the connected wallet, with Create on');
+    await pg.evaluate((a) => window.__switchTo(a), B);
+    await pg.waitForFunction(() => /Your wallet changed/.test(document.querySelector('[aria-labelledby=review-title]')?.textContent || ''), null, { timeout: 3000 }).catch(() => {});
+    ok(await warned() === 1 && await create.isDisabled(), 'the wallet switched to another account while it was open: it says so, and Create is off');
+    ok((await creatorRow() || '').toLowerCase() === A, 'and the creator shown is still the wallet it was opened with');
+    await pg.evaluate((a) => window.__switchTo(a), A);
+    await pg.waitForFunction(() => !/Your wallet changed/.test(document.querySelector('[aria-labelledby=review-title]')?.textContent || ''), null, { timeout: 3000 }).catch(() => {});
+    ok(await warned() === 0 && await create.isEnabled(), 'switched back: the warning goes and Create is on again');
+    ok(errs.length === 0, 'no page errors on the review' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
 
   // ---- the docs
   {

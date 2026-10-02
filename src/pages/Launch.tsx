@@ -102,7 +102,8 @@ export default function Launch() {
   const [sellTax, setSellTax] = useState('1');
   const [firstBuy, setFirstBuy] = useState('');
   const [meta, setMeta] = useState<LaunchFileState>(emptyLaunchFile);
-  const [reviewing, setReviewing] = useState(false);
+  // the wallet the review was opened with (null: closed); the review warns and won't create if the wallet changes while it's open
+  const [reviewing, setReviewing] = useState<Address | null>(null);
   const [touched, setTouched] = useState(false);
   const [sent, setSentState] = useState<Sent | null>(unconfirmed);
   const setSent = (s: Sent | null) => { unconfirmed = s; keep(); setSentState(s); };
@@ -202,7 +203,7 @@ export default function Launch() {
     if (step < STEP_LABELS.length - 1) { next(); return; }
     // a launch already sent and not confirmed: the dialog checks it, never sends another
     setNotice('');
-    if (sent) { if (account) setReviewing(true); return; }
+    if (sent) { if (account) setReviewing(account); return; }
     if (waiting) return;
     // after a launch (or one put aside), "Launch another" first clears it: the same details are never sent twice by a
     // stray click
@@ -211,7 +212,7 @@ export default function Launch() {
     }
     setTouched(true);
     if (firstBad >= 0) { setTried((t) => (t.includes(firstBad) ? t : [...t, firstBad])); return; }
-    if (!problem && account) setReviewing(true);
+    if (!problem && account) setReviewing(account);
   };
   const showProblem = (i: number) => (tried.includes(i) && stepProblems[i] ? <p className="err small" role="alert">{stepProblems[i]}</p> : null);
 
@@ -371,8 +372,8 @@ export default function Launch() {
 
       {/* (once open, it stays up until closed, even if the details change or a sent launch is confirmed meanwhile) */}
       {reviewing && account && (
-        <Review params={problem ? null : params} meta={meta} creator={account} openPrice={openPrice} sent={sent} onSent={setSent}
-          onClose={(why) => { setReviewing(false); sync(); setNotice(why || ''); if (why) setTouched(true); }} />
+        <Review params={problem ? null : params} meta={meta} creator={reviewing} openPrice={openPrice} sent={sent} onSent={setSent}
+          onClose={(why) => { setReviewing(null); sync(); setNotice(why || ''); if (why) setTouched(true); }} />
       )}
     </section>
   );
@@ -460,6 +461,7 @@ const UNREAD = 'The launch was sent; its result isn’t readable yet. Check agai
 /**
  * The launch dialog. `sent` is a launch already sent and not confirmed (kept by the page): then the dialog only checks
  * it, and it can't be dismissed by Escape or a click outside, so the hash is never lost and nothing is sent twice.
+ * `creator` is the wallet it was opened with: if the connected wallet changes while it's open, it says so and won't create.
  */
 function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   params: LaunchParams | null; meta: LaunchFileState; creator: Address; openPrice: number;
