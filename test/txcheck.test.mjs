@@ -17,7 +17,7 @@ import {
   CHECK_BUDGET_MS, CheckCancelled, askToContinue, concernsOf, currentRequest, describe, guardProvider, reviewBeforeSend, wasCancelledByCheck,
 } from '../src/lib/txcheck.ts';
 
-const ME = '0x5899a0576A94327a6316E01190f951edf7645914';
+const ME = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const OTHER = '0x1111111111111111111111111111111111111111';
 const FLAGGED = '0x2222222222222222222222222222222222222222';
 const TOKEN = '0x3333333333333333333333333333333333333333';
@@ -383,10 +383,9 @@ const ABIS = [vyreAppRouterAbi, vyrePadAbi, vyreTokenAbi];
 const decode = (data) => { for (const abi of ABIS) { try { return decodeFunctionData({ abi, data }); } catch { /* the next */ } } return null; };
 
 /**
- * The service's flag rules (deploy/api/txcheck.js, as documented in the API reference), applied to what a call does to the sender's
- * allowances: an allowance of at least 2^255 is unlimited; an allowance given to anyone but this deployment's own pad, router and fee
+ * The service's flag rules, as its API reference documents them, applied to what a call does to the sender's allowances: an allowance of at least 2^255 is unlimited; an allowance given to anyone but this deployment's own pad, router and fee
  * splitter is to an unknown spender; and any address that isn't one of those (the destination first) goes to the address check,
- * which here flags only `FLAGGED`. Only the calls that give an allowance are modelled with one: an approve, and a sale with a permit.
+ * which here flags only `FLAGGED`. Only the calls that give an allowance are given one here: an approve, and a sale with a permit.
  */
 function rules(tx) {
   const flags = [];

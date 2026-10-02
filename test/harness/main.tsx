@@ -10,7 +10,7 @@ import { walletOn } from '../../src/lib/chain';
 import { TxButton } from '../../src/components/ui';
 import TxCheckDialog from '../../src/components/TxCheckDialog';
 
-const ME: Address = '0x5899a0576A94327a6316E01190f951edf7645914';
+const ME: Address = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const TO: Address = '0x1111111111111111111111111111111111111111';
 const wallet = () => (window as unknown as { __wallet: EIP1193Provider }).__wallet;
 const setChain = (id: number) => { (window as unknown as { __chainHex: string }).__chainHex = `0x${id.toString(16)}`; };
