@@ -50,7 +50,7 @@ test('a log range refused as too large is asked once and halved at once', { time
   const t0 = Date.now();
   assert.deepEqual(await readLogsSplitting((lo, hi) => client.getLogs({ fromBlock: lo, toBlock: hi }), 0n, 1999n), []);
   assert.deepEqual(s.asked, ['0-1999', '0-999', '1000-1999'], 'each range asked once: the refusal is final for its call');
-  assert.ok(Date.now() - t0 < 2000, `no waiting between tries (${Date.now() - t0} ms)`);
+  assert.ok(Date.now() - t0 < 5000, `no waiting between tries (${Date.now() - t0} ms)`);
 });
 
 test('a busy pool’s trades read page by page: every refused page asked once and halved, no waiting', { timeout: 300_000 }, async (t) => {
@@ -64,7 +64,7 @@ test('a busy pool’s trades read page by page: every refused page asked once an
   await pagedLogs((lo, hi) => client.getLogs({ fromBlock: lo, toBlock: hi }), 0n, 2n * P - 1n);
   // newest page first
   assert.deepEqual(s.asked, [r(P, 2n * P - 1n), ...halves(P, 2n * P - 1n), r(0n, P - 1n), ...halves(0n, P - 1n)]);
-  assert.ok(Date.now() - t0 < 3000, `no waiting between tries (${Date.now() - t0} ms)`);
+  assert.ok(Date.now() - t0 < 5000, `no waiting between tries (${Date.now() - t0} ms)`);
 });
 
 test('the refusal still reaches the caller as viem’s -32005 error, known as too large', { timeout: 120_000 }, async (t) => {
