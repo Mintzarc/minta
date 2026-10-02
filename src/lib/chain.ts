@@ -12,9 +12,10 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
-import { arcTestnet, cctpSource, vyreHttp, vyreTestnet } from '@vyrechain/sdk';
+import { arcTestnet, cctpSource, vyreTestnet } from '@vyrechain/sdk';
 import { tokenText } from './format';
 import { fetchSplit } from './fetchSplit';
+import { vyreTransport } from './transport';
 import { API_URL } from './api';
 import { guardProvider, wasCancelledByCheck } from './txcheck';
 
@@ -26,8 +27,9 @@ export const vyre: PublicClient = createPublicClient({
   // Requests made together travel as one JSON-RPC batch, at most 5 to a request: the public RPC charges an eth_call 10
   // of a visitor's 60-point burst, so a batch of 7 or more is refused however long it waits. Reads made together go
   // through Multicall3 in chunks of 4 KB of calls (about a hundred balance reads), which keeps each eth_call's gas far
-  // under the 10M cap; `fetchSplit` keeps each request under the RPC's body limit. (No `gas` is passed on these reads.)
-  transport: vyreHttp(undefined, { batch: { batchSize: 5, wait: 16 }, fetchFn: fetchSplit }),
+  // under the 10M cap; `fetchSplit` keeps each request under the RPC's body limit. (No `gas` is passed on these reads.) A log
+  // read the RPC refuses as too large comes back at once, so the range is halved without waiting (`vyreTransport`).
+  transport: vyreTransport(fetchSplit),
   batch: { multicall: { wait: 16, batchSize: 4_096 } },
 }) as PublicClient;
 

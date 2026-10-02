@@ -46,8 +46,10 @@ Each endpoint can be pointed elsewhere at build time (the `VITE_…` settings ab
 gets a domain of its own or moves to another network.
 
 **The SDK is vendored** so the build doesn't depend on another site being up. To update it, take the new
-`vyrechain-sdk-<version>.tgz` from <https://vyrechain.com/sdk/>, put it in `vendor/`, change the path in
-`package.json`, run `npm install`, then the tests. The SDK carries the contract addresses: after VYRE redeploys its contracts,
+`vyrechain-sdk-<version>.tgz` from <https://vyrechain.com/sdk/>, put it in `vendor/`, record its SHA-256 in
+`vendor/SHA256SUMS` (`cd vendor && sha256sum *.tgz > SHA256SUMS`; remove the old file first), change the path in
+`package.json`, run `npm install`, then the tests (`test/vendor.test.mjs` checks that the file, its recorded hash and the
+lockfile agree). A new SDK always comes as a new version: never replace a vendored file with different contents under the same name. The SDK carries the contract addresses: after VYRE redeploys its contracts,
 MINTA needs the SDK released after that.
 
 ## Layout
