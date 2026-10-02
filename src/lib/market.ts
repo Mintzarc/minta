@@ -1,7 +1,7 @@
 // What the app shows about launches: prices, market caps, balances, recent trades and each launch's picture and links.
 // Prices are the pool's own mid price (before fees); trades quote through the SDK, which includes every fee.
 import { getAddress, parseAbi, parseAbiItem, type Address, type Hash } from 'viem';
-import { getAddresses, getLaunches, vyreTestnet, vyreTokenAbi, type Launch } from '@vyrechain/sdk';
+import { getAddresses, getLaunches, readLogsSplitting, vyreTestnet, vyreTokenAbi, type Launch } from '@vyrechain/sdk';
 import { vyre } from './chain';
 
 const poolAbi = parseAbi([
@@ -91,7 +91,7 @@ const blockTimes = new Map<bigint, number>();
 export async function recentTrades(launch: Launch, quoteIsToken0: boolean, blocksBack = 200_000n, max = 25): Promise<Trade[]> {
   const latest = await vyre.getBlockNumber();
   const fromBlock = latest > blocksBack ? latest - blocksBack : 0n;
-  const logs = await vyre.getLogs({ address: launch.pool, event: swapEvent, fromBlock, toBlock: latest });
+  const logs = await readLogsSplitting((lo, hi) => vyre.getLogs({ address: launch.pool, event: swapEvent, fromBlock: lo, toBlock: hi }), fromBlock, latest);
   const trades = logs.slice(-max).reverse().map((l) => {
     const a0 = l.args.amount0 ?? 0n, a1 = l.args.amount1 ?? 0n;
     const quote = quoteIsToken0 ? a0 : a1, token = quoteIsToken0 ? a1 : a0;

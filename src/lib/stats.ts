@@ -3,8 +3,8 @@
 // it, and its last trade; plus holder counts from the explorer. Read in the visitor's browser from the public RPC (a few log queries for every
 // listed launch at once) and the explorer's API. That's fine at testnet scale; a busy mainnet needs an indexer.
 import { getAddress, parseAbiItem, type Address } from 'viem';
-import { inPieces, LOG_LIST_MAX } from './pieces';
-import { isQuoteToken0, LOG_PAGE_BLOCKS, vyreTokenAbi } from '@vyrechain/sdk';
+import { inPieces, LOG_LIST_MAX, pagedLogs } from './pieces';
+import { isQuoteToken0, vyreTokenAbi } from '@vyrechain/sdk';
 import { EXPLORER, vyre } from './chain';
 import { addresses, priceFrom, swapEvent, type Listed } from './market';
 
@@ -61,16 +61,7 @@ export async function blockBefore(unix: number): Promise<bigint | null> {
   }
 }
 
-/** Every log between two blocks, a page of blocks at a time (newest first), until `stop` says there's enough */
-export async function pagedLogs<T>(read: (from: bigint, to: bigint) => Promise<T[]>, from: bigint, to: bigint, stop?: (got: T[]) => boolean): Promise<T[]> {
-  const out: T[] = [];
-  for (let hi = to; hi >= from; hi -= LOG_PAGE_BLOCKS) {
-    const lo = hi - LOG_PAGE_BLOCKS + 1n > from ? hi - LOG_PAGE_BLOCKS + 1n : from;
-    out.push(...(await read(lo, hi)));
-    if (stop?.(out)) break;
-  }
-  return out;
-}
+export { pagedLogs } from './pieces';
 
 const thin = (xs: number[], max = 32) => (xs.length <= max ? xs : Array.from({ length: max }, (_, i) => xs[Math.round((i * (xs.length - 1)) / (max - 1))]));
 const whole = (v: bigint) => Number(v / 10n ** 12n) / 1e6;
