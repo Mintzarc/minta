@@ -37,7 +37,7 @@ export default function Manage({ token }: { token: Address }) {
   const { account, onVyre, confirmHint } = useWallet();
   const emailCantTrade = useEmailCantTrade();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
-  const [wallets, setWallets] = useState<{ wallets: readonly Address[]; bps: readonly number[] } | null>(null);
+  const [wallets, setWallets] = useState<Split | null>(null);
   const [pending, setPending] = useState<Address | null>(null);
   // a read that failed (the RPC busy or unreachable) isn't "not a launch": what was read stays, with a way to try again
   const [readErr, setReadErr] = useState(false);
@@ -107,14 +107,14 @@ export default function Manage({ token }: { token: Address }) {
 
       <div className="card">
         <h2 className="h3">Collect the tax</h2>
-        <p className="small">Sends the tax collected so far, in USDC, to {wallets && wallets.wallets.length ? 'the tax wallets below' : 'the creator'}. Anyone can press it; the money only goes there.</p>
+        <p className="small">Sends the tax collected so far, in USDC, to {!wallets ? 'the wallets its tax goes to (the creator, unless the tax is split)' : wallets.wallets.length ? 'the tax wallets below' : 'the creator'}. Anyone can press it; the money only goes there.</p>
         {account && <TxButton className="btn btn-line" label="Collect" run={run({ functionName: 'collectCreatorFees', args: [token] }, 'Collected.')} />}
       </div>
 
       {isCreator && (
         <>
           <LowerTaxes launch={launch} run={run} />
-          <TaxWallets launch={launch} current={wallets} run={run} />
+          <TaxWallets launch={launch} current={wallets} failed={readErr} retry={() => { setReadErr(false); load(); }} run={run} />
           <Metadata launch={launch} run={run} />
           <Handover launch={launch} pending={pending} run={run} />
         </>
@@ -144,19 +144,40 @@ function LowerTaxes({ launch, run }: { launch: Launch; run: Runner }) {
   );
 }
 
-function TaxWallets({ launch, current, run }: { launch: Launch; current: { wallets: readonly Address[]; bps: readonly number[] } | null; run: Runner }) {
-  const [rows, setRows] = useState<{ addr: string; share: string }[]>([]);
-  useEffect(() => {
-    if (current) setRows(current.wallets.length ? current.wallets.map((w, i) => ({ addr: w, share: String(current.bps[i] / 100) })) : [{ addr: launch.creator, share: '100' }]);
-  }, [current, launch.creator]);
+type Split = { wallets: readonly Address[]; bps: readonly number[] };
+
+/** The tax split's card. Saving replaces the whole split, so the editor is shown only once the current split has been read: an
+ * editor that started empty because the read failed would let the creator save over a split they never saw. */
+function TaxWallets({ launch, current, failed, retry, run }: { launch: Launch; current: Split | null; failed: boolean; retry: () => void; run: Runner }) {
+  return (
+    <div className="card">
+      <h2 className="h3">Split the tax</h2>
+      <p className="small">Up to four wallets, each with a share. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
+      {current ? <SplitEditor launch={launch} current={current} run={run} />
+        : failed ? (
+          <div className="split-failed" role="alert">
+            <p className="err small">The launch’s current split couldn’t be read just now, so it can’t be changed yet: saving would replace it.</p>
+            <p className="small"><button type="button" className="btn btn-line btn-sm" onClick={retry}>Try again</button></p>
+          </div>
+        ) : <Loading what="Reading the launch’s current split" />}
+    </div>
+  );
+}
+
+/** The editor's rows for a split read from the chain (no split: all of it to the creator) */
+const rowsOf = (current: Split, creator: Address): { addr: string; share: string }[] =>
+  current.wallets.length ? current.wallets.map((w, i) => ({ addr: w, share: String(current.bps[i] / 100) })) : [{ addr: creator, share: '100' }];
+
+function SplitEditor({ launch, current, run }: { launch: Launch; current: Split; run: Runner }) {
+  const [rows, setRows] = useState(() => rowsOf(current, launch.creator));
+  // a new read (after a save, or Try again) starts the editor again from what is on the chain
+  useEffect(() => { setRows(rowsOf(current, launch.creator)); }, [current, launch.creator]);
   // (refused: every contract the SDK lists for the chain, the chain's Multicall3, this launch's pool and token, and the chain's system addresses)
   const refused = refusedForSplit(addresses(), faceIdContracts(), [vyre.chain?.contracts?.multicall3?.address, launch.pool, launch.token]);
   const bps = splitBps(rows);
   const problem = taxSplitProblem(rows, refused);
   return (
-    <div className="card">
-      <h2 className="h3">Split the tax</h2>
-      <p className="small">Up to four wallets, each with a share. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
+    <>
       {rows.map((r, i) => (
         <div className="split-row" key={i}>
           <input aria-label={`Wallet ${i + 1}`} className="mono" value={r.addr} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, addr: e.target.value.trim() } : x)))} placeholder="0x…" />
@@ -169,7 +190,7 @@ function TaxWallets({ launch, current, run }: { launch: Launch; current: { walle
       {problem && <p className="err small">{problem}</p>}
       <TxButton className="btn btn-line" label={problem ? 'Save the split' : `Save the split: ${bps.map(pct).join(' / ')}`} disabled={!!problem}
         run={(say) => run({ functionName: 'setTaxWallets', args: [launch.token, rows.map((r) => getAddress(r.addr as Address)), bps] }, 'Saved.')(say)} />
-    </div>
+    </>
   );
 }
 

@@ -22,7 +22,7 @@ img { display: block; }
 .err { color: var(--bad); }
 .big { font-size: 22px; font-weight: 800; }
 .right { text-align: right; }
-.grow { flex: 1; min-width: 0; }
+.grow { flex: 1; min-width: 0; overflow-wrap: anywhere; } /* creator-chosen words in rows: a long one breaks instead of pushing the page sideways */
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
 
@@ -166,7 +166,7 @@ table.tokens td.down { color: var(--sell); font-weight: 700; }
 /* Home: King of the Hill and top by market cap, then the feed */
 .block { display: block; }
 .home-top { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 28px; align-items: start; padding-bottom: 28px; border-bottom: 1px solid var(--line-2); }
-.home-left { display: grid; gap: 26px; min-width: 0; }
+.home-left { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; min-width: 0; } /* one column no wider than the page, whatever a ticker's length */
 .koth { border: 1px solid var(--line-2); border-radius: 20px; background: linear-gradient(180deg, var(--panel-2), #08131c); padding: 22px 24px; }
 .recent { display: block; width: 100%; height: 130px; }
 .recent .grid { stroke: #12303a; stroke-width: 1; }
@@ -179,7 +179,7 @@ table.tokens td.down { color: var(--sell); font-weight: 700; }
 .crown { stroke: var(--accent); }
 .koth-king { display: block; color: var(--text); text-decoration: none !important; margin-top: 14px; }
 .koth-id { display: flex; align-items: center; gap: 14px; }
-.koth-sym { font-size: clamp(24px, 3.2vw, 30px); font-weight: 900; line-height: 1.1; }
+.koth-sym { font-size: clamp(24px, 3.2vw, 30px); font-weight: 900; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .koth-cap { font-size: clamp(22px, 3vw, 28px); font-weight: 900; line-height: 1.1; }
 .koth-label { margin: 18px 0 8px; font-size: 14px; }
 .koth-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 0; }
@@ -196,10 +196,10 @@ table.tokens td.down { color: var(--sell); font-weight: 700; }
 .up { color: var(--good); }
 .down { color: var(--sell); }
 .topcap .eyebrow { margin: 4px 0 14px; letter-spacing: 0.3em; }
-.topcap ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.topcap ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .topcap a { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 16px; background: #08131c; color: var(--text); text-decoration: none !important; }
 .topcap a:hover { border-color: rgba(38,240,242,0.5); }
-.topcap-sym { font-size: 18px; }
+.topcap-sym { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed-tabs { display: flex; gap: 8px; margin-top: 30px; }
 .feed-tabs button { display: inline-flex; align-items: center; gap: 8px; appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 10px 12px; color: var(--muted); font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; }
 .feed-tabs button .ic { width: 19px; height: 19px; }
@@ -251,8 +251,10 @@ table.tokens td.down { color: var(--sell); font-weight: 700; }
 /* Token */
 .token-head { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .token-head > div { flex: 1; min-width: 200px; }
-.token-title { font-size: clamp(24px, 4vw, 34px); font-weight: 900; font-stretch: 112%; }
+.token-title { font-size: clamp(24px, 4vw, 34px); font-weight: 900; font-stretch: 112%; overflow-wrap: anywhere; }
 .links { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 14px; text-transform: capitalize; }
+/* a link's host is shown whole (cutting it short could hide the part that says whose site it is), so a long one wraps */
+.links a { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .links .host { text-transform: none; color: var(--soft); font-size: 12.5px; }
 /* creator-chosen names and tickers: isolated, so right-to-left text in them can't reorder what's around them */
 bdi { unicode-bidi: isolate; }

@@ -348,7 +348,9 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
   // is never even asked for: the token's mascot is drawn instead, on the home page's cards and lists and on the token's page.
   // A stand-in chain lists two launches: one whose file names a kept picture, one whose file names a picture on another site.
   // Then the creator's Manage page: its editor starts from the launch's current file, so while that file can't be read (the
-  // service busy) it isn't shown empty (saving would wipe the file): it says so, with the file's link and Try again.
+  // service busy) it isn't shown empty (saving would wipe the file): it says so, with the file's link and Try again. The same
+  // for the tax split: while the current split can't be read, there is no editor to save a new one over it.
+  // Last, a launch with the widest ticker and name a creator may pick and a link to a very long host name: no page scrolls sideways.
   {
     const { decodeFunctionData, encodeFunctionResult, multicall3Abi, parseAbi } = require('viem');
     const sdk = await import('@vyrechain/sdk');
@@ -371,12 +373,12 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       if (fn === 'tokens') return r(L[Number(args[0])].token);
       if (fn === 'launches') { const l = byToken(args[0]); return r([l.pool, 100, 100, -887200, 887200, '0x' + '3c'.repeat(20), 1_700_000_000n, 0, '0x' + '00'.repeat(20)]); }
       if (fn === 'metadataOf') return r(byToken(args[0]).uri);
-      if (fn === 'name') return r(`${byToken(to).symbol} Token`);
+      if (fn === 'name') return r(byToken(to).name ?? `${byToken(to).symbol} Token`);
       if (fn === 'symbol') return r(byToken(to).symbol);
       if (fn === 'totalSupply') return r(10n ** 27n);
       if (fn === 'slot0' && byPool(to)) return r([2n ** 96n, 0, 0, 1, 1, 0, true]);
       if (fn === 'token0' && byPool(to)) return r(A.wusdc);
-      if (fn === 'taxWalletsOf') return r([[], []]);
+      if (fn === 'taxWalletsOf') { if (splitBusy) throw new Error('busy'); const l = byToken(args[0]); return r(l.split ? [l.split.wallets, l.split.bps] : [[], []]); }
       if (fn === 'pendingCreator') return r('0x' + '00'.repeat(20));
       throw new Error(`no stand-in for ${fn}`);
     };
@@ -396,6 +398,9 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     };
     const asked = [];
     const CREATOR = '0x' + '3c'.repeat(20);
+    // the first launch's tax is split between two team wallets, half each
+    L[0].split = { wallets: ['0x' + '4d'.repeat(20), '0x' + '4e'.repeat(20)], bps: [5000, 5000] };
+    let splitBusy = false; // the RPC refuses every read of a launch's tax split
     let busyFor = 0; // how many more reads of the first launch's file are answered "busy"
     const visit = async (hash, wait, { creator = false } = {}) => {
       const { pg, ctx, errs } = await open('#/docs', { width: 1440, height: 900 });
@@ -412,7 +417,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       });
       for (const l of L) await ctx.route(l.uri, (route) => (l === L[0] && busyFor-- > 0
         ? route.fulfill({ status: 429, headers: cors, body: 'busy' })
-        : route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ image: l.image, description: `about ${l.symbol}`, links: { website: 'https://example.com' } }) })));
+        : route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ image: l.image, description: `about ${l.symbol}`, links: l.links ?? { website: 'https://example.com' } }) })));
       await ctx.route(KEPT, (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, path: path.join(__dirname, 'fixtures', 'ok.png') }));
       await ctx.route('https://pictures.example/**', (route) => { asked.push(route.request().url()); return route.abort(); });
       await pg.goto(base + hash);
@@ -450,6 +455,43 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(await card.locator(`.pic-up-box img[src="${KEPT}"]`).count() === 1, 'its picture included');
       ok(errs.length === 0, 'no page errors on Manage' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
+    }
+    {
+      splitBusy = true;
+      const { pg, ctx, errs } = await visit(`#/manage/${L[0].token}`, '.split-failed', { creator: true });
+      const card = pg.locator('.card', { hasText: 'Split the tax' });
+      const collect = () => pg.locator('.card', { hasText: 'Collect the tax' }).locator('p.small').innerText();
+      ok(/couldn’t be read just now/.test(await card.innerText().catch(() => '')), 'Manage, the tax split busy: the split card says the current split couldn’t be read');
+      ok(await card.locator('.split-row').count() === 0 && await card.locator('button:has-text("Save the split")').count() === 0 && await card.locator('button:has-text("Add a wallet")').count() === 0,
+        'and offers no editor to save a new split over the one it couldn’t show');
+      ok(!/to the creator\b/.test(await collect()), `the Collect card doesn’t say the tax goes to the creator while the split is unknown (${JSON.stringify(await collect())})`);
+      splitBusy = false;
+      await card.locator('button:has-text("Try again")').click({ timeout: 5000 }).catch(() => {});
+      await card.locator('.split-row').first().waitFor({ timeout: 10000 }).catch(() => {});
+      const rows = await card.locator('.split-row').evaluateAll((els) => els.map((e) => [...e.querySelectorAll('input')].map((i) => i.value.toLowerCase()).join(' ')));
+      ok(JSON.stringify(rows) === JSON.stringify(L[0].split.wallets.map((w) => `${w} 50`)), `Try again reads it, and the editor starts from the split that is there (${JSON.stringify(rows)})`);
+      ok(/the tax wallets below/.test(await collect()), 'and the Collect card names the split’s wallets');
+      ok(errs.length === 0, 'no page errors on Manage with the split busy' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
+    {
+      // the widest ticker (16 capital Ws) and name (64) the launchpad takes, and a website whose host name is 3 labels of 60 letters
+      const HOST = ['a', 'b', 'c'].map((c) => c.repeat(60)).join('.') + '.example';
+      const WIDE = { token: '0x' + '1c'.repeat(20), pool: '0x' + '2c'.repeat(20), uri: 'https://files.example/wide.json', symbol: 'W'.repeat(16), name: 'W'.repeat(64), links: { website: `https://${HOST}/` } };
+      L.push(WIDE);
+      for (const [hash, wait, widths] of [['#/', '.topcap a', [360, 390, 1280]], [`#/token/${WIDE.token}`, '.links .host', [360, 390, 1280]], [`#/manage/${WIDE.token}`, '.token-title', [360, 390]]]) {
+        const { pg, ctx, errs } = await visit(hash, wait);
+        ok(await pg.locator(wait).count() > 0, `${hash}: the wide launch is shown (${wait})`);
+        for (const width of widths) {
+          await pg.setViewportSize({ width, height: 844 });
+          await pg.waitForTimeout(300);
+          const over = await sideways(pg);
+          ok(over <= 0, `${hash} at ${width} px with the widest ticker, name and link host: nothing scrolls sideways (${over} px)`);
+        }
+        ok(errs.length === 0, `no page errors on ${hash} with the wide launch` + (errs.length ? ': ' + errs.join(' | ') : ''));
+        await ctx.close();
+      }
+      L.pop();
     }
   }
 
