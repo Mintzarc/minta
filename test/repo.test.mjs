@@ -45,3 +45,23 @@ test('the README’s brand/ line names only the tools that are there', () => {
     assert.equal(new RegExp(`\\b${word}\\b`).test(line), tools.has(dir), `"${word}" in the README’s brand/ line, brand/${dir}/ ${tools.has(dir) ? 'there' : 'not there'}`);
   }
 });
+
+test('the logo tool writes into this repository’s public/ (run up to its first write, with its picture libraries stubbed)', (t) => {
+  const py = (() => { try { execFileSync('python3', ['--version'], { stdio: 'ignore' }); return 'python3'; } catch { return null; } })();
+  if (!py) return t.skip('no python3 here');
+  // the tool's first act is to make its output folder: report that folder and stop there, so nothing is written
+  const probe = [
+    'import os, runpy, sys, types',
+    "for n in ('cv2', 'numpy', 'PIL', 'PIL.Image'): sys.modules[n] = types.ModuleType(n)",
+    "sys.modules['PIL'].Image = sys.modules['PIL.Image']",
+    'class Stop(Exception): pass',
+    'def first_folder(p, *a, **k):',
+    '    print(os.path.normpath(p))',
+    '    raise Stop()',
+    'os.makedirs = first_folder',
+    'try: runpy.run_path(sys.argv[1])',
+    'except Stop: pass',
+  ].join('\n');
+  const out = execFileSync(py, ['-c', probe, path.join(ROOT, 'brand/logo/make-assets.py')], { encoding: 'utf8' }).trim();
+  assert.equal(out, path.join(ROOT, 'public', 'brand'));
+});

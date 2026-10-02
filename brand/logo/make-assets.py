@@ -15,7 +15,7 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, '..', 'logo-source.jpg')
-OUT = os.path.join(HERE, '..', '..', '..', 'app', 'web', 'public')
+OUT = os.path.join(HERE, '..', '..', 'public')
 os.makedirs(os.path.join(OUT, 'brand'), exist_ok=True)
 
 src = cv2.imread(SRC)
