@@ -27,7 +27,10 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
 - **Pictures** are uploaded to the API's `POST /image` and served from its `/i/` path. To host them yourself you need a small service
   with the same contract (a still PNG, JPEG or WebP up to 400 KB, 16 to 1,024 px, structure-checked, stored by hash and served as an
   image only), plus the legal side: a takedown contact and a designated agent for copyright notices. Then build with `VITE_API_URL`
-  pointing at it. The terms and privacy pages say where pictures live today; change them if that changes.
+  pointing at it. The terms and privacy pages say where pictures live today; change them if that changes. **The app draws only those
+  pictures** (`<VITE_API_URL>/i/<sha256>.<webp|png|jpg>`, `shownPicture` in `src/lib/picture.ts`): a picture link to any other site or
+  to IPFS is never drawn (the token's mascot is), because such a file can be any size and a small one can decode to gigabytes in every
+  visitor's browser. A replacement service must keep the 1,024 px limit for the same reason.
 - **The check before signing** (`src/lib/txcheck.ts`, `src/components/TxCheckDialog.tsx`): before a browser wallet is asked to send a
   transaction on VYRE, `walletOn` (`src/lib/chain.ts`) runs it past the API's `POST /txcheck`, which simulates it on the network
   without sending it and looks up the addresses in it with a third-party security service. It is advisory and fails open: it waits at

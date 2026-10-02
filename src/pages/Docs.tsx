@@ -129,7 +129,7 @@ const ARTICLES: Article[] = [
                 <tr><td><b>Supply</b></td><td>1,000 to 10<sup>15</sup> tokens</td><td className="wrap">All of it goes into the pool: there is no team allocation held outside it.</td></tr>
                 <tr><td><b>Buy and sell tax</b></td><td>0–10% each</td><td className="wrap">Paid to you in USDC. You can lower it later, never raise it.</td></tr>
                 <tr><td><b>First buy</b></td><td>Optional</td><td className="wrap">USDC you spend in the launch transaction itself, before anyone else can trade.</td></tr>
-                <tr><td><b>Picture, description, links</b></td><td>Optional</td><td className="wrap">A link to your picture, a short description and website, X, Telegram and Discord links. You can change them later.</td></tr>
+                <tr><td><b>Picture, description, links</b></td><td>Optional</td><td className="wrap">A picture from your device, a short description and website, X, Telegram and Discord links. You can change them later.</td></tr>
               </tbody>
             </table>
           </div>

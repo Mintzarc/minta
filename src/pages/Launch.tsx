@@ -13,7 +13,7 @@ import { addresses } from '../lib/market';
 import { forgetLaunch, kept, mayTakePlace, onLaunchMemory, placeOf, recentLaunch, resolveEarlier, type Place } from '../lib/faceid';
 import { ConnectButton, EmailTradeNote } from '../components/ui';
 import { MintaMark, VyreGlyph } from '../components/Brand';
-import { LaunchFileFields, emptyLaunchFile, hasPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
+import { LaunchFileFields, emptyLaunchFile, hasPicture, keptPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
 
 /** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself */
@@ -397,7 +397,8 @@ function Preview({ name, symbol, meta, params, buyTax, sellTax, openPrice, check
   name: string; symbol: string; meta: LaunchFileState; params: LaunchParams | null; buyTax: string; sellTax: string; openPrice: number;
   checks: [string, boolean][];
 }) {
-  const img = meta.useOwn ? '' : meta.picture?.preview || (/^(https:\/\/|ipfs:\/\/)\S+$/.test(meta.file.image?.trim() || '') ? meta.file.image!.trim().replace(/^ipfs:\/\//, 'https://ipfs.io/ipfs/') : '');
+  // what the token's pages will show: a picture chosen here, or one the picture service keeps (never a link to another site)
+  const img = meta.useOwn ? '' : meta.picture?.preview || keptPicture(meta.file.image);
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [img]);
   const links = meta.useOwn ? {} : meta.file.links || {};

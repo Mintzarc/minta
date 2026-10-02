@@ -57,11 +57,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     await pg.fill('.wz-step input[placeholder="MYT"]', 'myt');
     ok(await pg.inputValue('.wz-step input[placeholder="MYT"]') === 'MYT', 'the ticker is upper-cased');
     ok(/My Token/.test(await pg.locator('.preview').innerText()) && /\bMYT\b/.test(await pg.locator('.preview .pv-sym').innerText()), 'the preview shows the name and ticker');
-    await pg.click('text=Have an image link instead?');
-    await pg.fill('.wz-step input[placeholder^="https://… or ipfs"]', 'ftp://nope');
-    await next();
-    ok(/picture must be an https/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a bad picture link is refused in words');
-    await pg.fill('.wz-step input[placeholder^="https://… or ipfs"]', '');
+    ok(await pg.locator('text=Have an image link instead?').count() === 0 && await pg.locator('.wz-step input[placeholder^="https://… or ipfs"]').count() === 0, 'the logo takes no link to another site’s picture (MINTA never draws one)');
     await pg.fill('.wz-step input[placeholder="https://…"]', 'ftp://x');
     await next();
     ok(/Website link must start with https/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a bad website link is refused in words (the links are on step 1, as in the design)');
@@ -204,7 +200,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       const g = c.getContext('2d'); g.fillStyle = '#26f0f2'; g.fillRect(0, 0, w, h); g.fillStyle = '#061018'; g.fillRect(w / 4, h / 4, w / 2, h / 2);
       return c.toDataURL('image/png').split(',')[1];
     }, [w, h]).then((b64) => Buffer.from(b64, 'base64'));
-    ok(await pg.locator('.picture-field .pic-up-box').count() === 1 && await pg.locator('.picture-field input[placeholder^="https://… or ipfs"]').count() === 0, 'the logo is a picture to choose, with no link box unless asked for');
+    ok(await pg.locator('.picture-field .pic-up-box').count() === 1 && await pg.locator('.picture-field input[placeholder^="https://… or ipfs"]').count() === 0, 'the logo is a picture to choose, with no link box');
     ok(/Choose a picture/.test(await pg.locator('.picture-field').innerText()), 'and says what to do');
     await input.setInputFiles(fixture('ok.png'));
     await shown().waitFor();
@@ -229,8 +225,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     ok((await dims()).join('x') === '512x512', 'and the last good picture stays');
     await pg.click('.picture-field >> text=Remove');
     ok(await shown().count() === 0 && await pg.locator('.preview img[src^="data:image"]').count() === 0, 'Remove clears it from the box and the preview');
-    await pg.click('.picture-field >> text=Have an image link instead?');
-    ok(await pg.locator('.picture-field input[placeholder^="https://… or ipfs"]').count() === 1, 'a link can still be given');
+    ok(await pg.locator('.picture-field >> text=Have an image link instead?').count() === 0, 'and no link to another site’s picture can be given instead');
     ok(await sideways(pg) <= 0, 'no sideways scroll');
     await ctx.close();
     const m = await open('#/launch', { width: 390, height: 844 });
@@ -289,6 +284,87 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     ok(n.text === 'Showing tokens matching your search. Clear' && n.bdi === 0, `a link’s own sentence is not shown (${n.text})`);
     n = await note(encodeURIComponent('‮epep​'));
     ok(n.text === 'Showing tokens matching “epep”. Clear', `hidden and direction-changing characters are taken out (${JSON.stringify(n.text)})`);
+  }
+
+  // ---- a launch's picture: MINTA draws only a picture the picture service keeps (its /i/ addresses, checked there at 1,024 px a
+  // side at most). A picture link to another site can be a small file that decodes to gigabytes in every visitor's browser, so it
+  // is never even asked for: the token's mascot is drawn instead, on the home page's cards and lists and on the token's page.
+  // A stand-in chain lists two launches: one whose file names a kept picture, one whose file names a picture on another site.
+  {
+    const { decodeFunctionData, encodeFunctionResult, multicall3Abi, parseAbi } = require('viem');
+    const sdk = await import('@vyrechain/sdk');
+    const A = sdk.getAddresses(sdk.vyreTestnet.id);
+    const poolAbi = parseAbi(['function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)', 'function token0() view returns (address)']);
+    const abi = [...sdk.vyrePadAbi, ...sdk.vyreTokenAbi, ...poolAbi];
+    const HASH = 'cd'.repeat(32);
+    const KEPT = `https://api.vyrechain.com/i/${HASH}.png`;
+    const OUTSIDE = 'https://pictures.example/bomb.png';
+    const L = [
+      { token: '0x' + '1a'.repeat(20), pool: '0x' + '2a'.repeat(20), uri: 'https://api.vyrechain.com/m/' + 'a1'.repeat(32) + '.json', image: KEPT, symbol: 'KEPT' },
+      { token: '0x' + '1b'.repeat(20), pool: '0x' + '2b'.repeat(20), uri: 'https://files.example/token.json', image: OUTSIDE, symbol: 'LINK' },
+    ];
+    const byToken = (a) => L.find((l) => l.token.toLowerCase() === a.toLowerCase());
+    const byPool = (a) => L.find((l) => l.pool.toLowerCase() === a.toLowerCase());
+    const call = (to, data) => {
+      const { functionName: fn, args } = decodeFunctionData({ abi, data });
+      const r = (result) => encodeFunctionResult({ abi, functionName: fn, result });
+      if (fn === 'launchCount') return r(BigInt(L.length));
+      if (fn === 'tokens') return r(L[Number(args[0])].token);
+      if (fn === 'launches') { const l = byToken(args[0]); return r([l.pool, 100, 100, -887200, 887200, '0x' + '3c'.repeat(20), 1_700_000_000n, 0, '0x' + '00'.repeat(20)]); }
+      if (fn === 'metadataOf') return r(byToken(args[0]).uri);
+      if (fn === 'name') return r(`${byToken(to).symbol} Token`);
+      if (fn === 'symbol') return r(byToken(to).symbol);
+      if (fn === 'totalSupply') return r(10n ** 27n);
+      if (fn === 'slot0' && byPool(to)) return r([2n ** 96n, 0, 0, 1, 1, 0, true]);
+      if (fn === 'token0' && byPool(to)) return r(A.wusdc);
+      throw new Error(`no stand-in for ${fn}`);
+    };
+    const answer = ({ id, method, params }) => {
+      let result = null;
+      if (method === 'eth_chainId') result = '0x1cbd';
+      else if (method === 'eth_blockNumber') result = '0x100';
+      else if (method === 'eth_getLogs') result = [];
+      else if (method === 'eth_call') {
+        const { to, data } = params[0];
+        try {
+          const d = decodeFunctionData({ abi: multicall3Abi, data });
+          result = encodeFunctionResult({ abi: multicall3Abi, functionName: 'aggregate3', result: d.args[0].map((c) => { try { return { success: true, returnData: call(c.target, c.callData) }; } catch { return { success: false, returnData: '0x' }; } }) });
+        } catch { try { result = call(to, data); } catch { result = '0x'; } }
+      }
+      return { jsonrpc: '2.0', id, result };
+    };
+    const asked = [];
+    const visit = async (hash, wait) => {
+      const { pg, ctx, errs } = await open('#/docs', { width: 1440, height: 900 });
+      const cors = { 'access-control-allow-origin': '*' };
+      await ctx.route(/testnet-rpc\.vyrechain\.com/, async (route) => {
+        const body = JSON.parse(route.request().postData() || 'null');
+        await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(answer) : answer(body)) }).catch(() => {});
+      });
+      for (const l of L) await ctx.route(l.uri, (route) => route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ image: l.image, description: `about ${l.symbol}` }) }));
+      await ctx.route(KEPT, (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, path: path.join(__dirname, 'fixtures', 'ok.png') }));
+      await ctx.route('https://pictures.example/**', (route) => { asked.push(route.request().url()); return route.abort(); });
+      await pg.goto(base + hash);
+      await pg.waitForSelector(wait, { timeout: 15000 }).catch(() => {});
+      await pg.waitForTimeout(1500);
+      return { pg, ctx, errs };
+    };
+    {
+      const { pg, ctx, errs } = await visit('#/', `.tcard img.tok-img[src="${KEPT}"]`);
+      ok(await pg.locator('.tcard').count() === 2, 'the stand-in chain’s two launches are listed');
+      ok(await pg.locator(`.tcard img.tok-img[src="${KEPT}"]`).count() === 1, 'a picture the picture service keeps is drawn on its card');
+      const link = pg.locator('.tcard', { hasText: '$LINK' });
+      ok(await link.locator('.token-art').count() === 1 && await link.locator('img.tok-img:not(.token-art)').count() === 0, 'a picture link to another site is not: the card shows the token’s mascot');
+      ok(await pg.locator(`img[src="${OUTSIDE}"]`).count() === 0, 'and nothing on the page draws that link');
+      ok(errs.length === 0, 'no page errors on the home page with the stand-in chain' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
+    {
+      const { pg, ctx } = await visit(`#/token/${L[1].token}`, '.token-head');
+      ok(/\$LINK|LINK Token/.test(await pg.locator('main, body').first().innerText()) && await pg.locator(`img[src="${OUTSIDE}"]`).count() === 0, 'its token page doesn’t draw it either');
+      await ctx.close();
+    }
+    ok(asked.length === 0, `the picture on another site was never asked for (${asked.length} requests)`);
   }
 
   // ---- no Face ID wallets for now (they're on the roadmap): nothing in the Pad offers or mentions them, and with no wallet in the

@@ -1,9 +1,11 @@
 // The picture, description and links of a launch, as form fields; or, for those who host their own file, its link.
 // The picture is chosen from the device (nobody should have to find an image link): it is made ready here and uploaded when the
-// launch is sent (lib/api.ts withUploadedPicture); a link is still possible for those who have one.
+// launch is sent (lib/api.ts withUploadedPicture). A picture link to another site isn't taken: MINTA's pages draw only pictures
+// the picture service keeps (lib/picture.ts shownPicture), so one would never show. A launch file that already has one (from
+// before, or the creator's own) keeps it when edited, and the field says it isn't shown.
 import { useRef, useState } from 'react';
-import type { LaunchFile } from '../lib/api';
-import { preparePicture, type Picture } from '../lib/picture';
+import { API_URL, type LaunchFile } from '../lib/api';
+import { preparePicture, shownPicture, type Picture } from '../lib/picture';
 
 export interface LaunchFileState {
   file: LaunchFile;
@@ -12,9 +14,10 @@ export interface LaunchFileState {
   /** A picture chosen from the device, ready to upload; sent when the launch is, and replacing file.image */
   picture?: Picture | null;
 }
-/** Whether the launch has a picture of its own to show: one chosen here, or a link */
-export const hasPicture = (s: LaunchFileState) => !!(s.picture || s.file.image?.trim());
-const showable = (u?: string) => (u && /^https:\/\/\S+$/.test(u.trim()) ? u.trim() : u && /^ipfs:\/\/[A-Za-z0-9._/-]+$/.test(u.trim()) ? u.trim().replace(/^ipfs:\/\//, 'https://ipfs.io/ipfs/') : '');
+/** A launch file's picture link when MINTA draws it (one the picture service keeps), else '' */
+export const keptPicture = (u?: string) => shownPicture(u?.trim(), API_URL) || '';
+/** Whether the launch has a picture of its own that MINTA shows: one chosen here, or one the picture service already keeps */
+export const hasPicture = (s: LaunchFileState) => !!(s.picture || keptPicture(s.file.image));
 
 export const emptyLaunchFile = (): LaunchFileState => ({ file: { links: {} }, own: '', useOwn: false });
 
@@ -84,6 +87,7 @@ export function LaunchFileFields({ value, onChange, part = 'all' }: { value: Lau
         <label className="field"><span>Your own file’s link</span>
           <input value={value.own} onChange={(e) => onChange({ ...value, own: e.target.value.trim() })} placeholder="https://… or ipfs://… (a JSON file)" />
           <small className="muted">{'{"image": "https://…", "description": "…", "links": {"website": "https://…"}}'}</small>
+          <small className="muted">MINTA shows only pictures uploaded through it: a picture link to another site in your file isn’t shown (the token’s mascot is).</small>
         </label>
       )}
       {own && (
@@ -100,8 +104,9 @@ function PictureField({ value, onChange }: { value: LaunchFileState; onChange: (
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [byLink, setByLink] = useState(false);
-  const shown = value.picture?.preview || showable(f.image);
+  const shown = value.picture?.preview || keptPicture(f.image);
+  // a link to another site's picture (an older file's, or the creator's own): kept in the file, never drawn
+  const outside = !value.picture && !!f.image?.trim() && !shown;
   const choose = async (file?: File | null) => {
     if (!file) return;
     setErr(''); setBusy(true);
@@ -126,20 +131,14 @@ function PictureField({ value, onChange }: { value: LaunchFileState; onChange: (
         <div className="pic-up-side">
           <div className="pic-up-actions">
             <button type="button" className="btn btn-line btn-sm" onClick={() => input.current?.click()} disabled={busy}>{busy ? 'Getting it ready…' : shown ? 'Choose another' : 'Choose a picture'}</button>
-            {shown && !busy && <button type="button" className="linkish small" onClick={() => { setErr(''); onChange({ ...value, picture: null, file: { ...f, image: '' } }); }}>Remove</button>}
+            {(shown || outside) && !busy && <button type="button" className="linkish small" onClick={() => { setErr(''); onChange({ ...value, picture: null, file: { ...f, image: '' } }); }}>Remove</button>}
           </div>
           <small className="muted">A PNG, JPEG or WebP from your phone or computer. It’s cropped to a square and shrunk for you; 300 × 300 or larger looks best.</small>
         </div>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/*" hidden onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
+      {outside && <small className="muted pic-outside">This launch’s picture is a link to another site, which MINTA doesn’t show: its pages show only pictures uploaded through it, so they show the token’s mascot. Choose the picture from your device to show it.</small>}
       {err && <small className="err" role="alert">{err}</small>}
-      <button type="button" className="linkish small" onClick={() => setByLink(!byLink)} aria-expanded={byLink}>{byLink ? 'Hide the link box' : 'Have an image link instead?'}</button>
-      {byLink && (
-        <label className="field">
-          <span className="sr">Logo link</span>
-          <input value={f.image || ''} onChange={(e) => onChange({ ...value, picture: null, file: { ...f, image: e.target.value.trim() } })} placeholder="https://… or ipfs://…" />
-        </label>
-      )}
     </div>
   );
 }

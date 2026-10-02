@@ -7,6 +7,19 @@ export const MIN_SIDE = 64;
 const MAX_INPUT_BYTES = 25 * 1024 * 1024;
 export const MAX_UPLOAD_BYTES = 380 * 1024; // the API takes 400 KB
 
+// Which pictures MINTA's pages draw: only one the picture service keeps (`api`/i/<sha256>.<webp|png|jpg>, named by the hash of a
+// file that service checked: a still PNG, JPEG or WebP of 16 to 1,024 px a side). Any other picture link (another site, IPFS) is
+// a file of any size, which every visitor's browser would decode at full size, however small it is drawn: one that says it is
+// 20,000 x 20,000 pixels takes gigabytes and stops the page. So such a link is never drawn (the token's mascot is, instead).
+const KEPT = /^\/i\/[0-9a-f]{64}\.(?:webp|png|jpg)$/;
+
+/** `u` when it is the exact address of a picture kept by the picture service at `api`, else undefined */
+export function shownPicture(u: unknown, api: string): string | undefined {
+  const base = api.replace(/\/+$/, '');
+  if (typeof u !== 'string' || !base || !u.startsWith(`${base}/i/`)) return undefined;
+  return KEPT.test(u.slice(base.length)) ? u : undefined;
+}
+
 export interface Picture {
   blob: Blob;
   /** A data: address showing the result (the page's security policy allows data: images, not blob: ones) */

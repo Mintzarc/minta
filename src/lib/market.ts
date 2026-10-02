@@ -3,6 +3,8 @@
 import { getAddress, parseAbi, parseAbiItem, type Address, type Hash } from 'viem';
 import { getAddresses, getLaunches, readLogsSplitting, vyreTestnet, vyreTokenAbi, type Launch } from '@vyrechain/sdk';
 import { vyre } from './chain';
+import { API_URL } from './api';
+import { shownPicture } from './picture';
 
 const poolAbi = parseAbi([
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
@@ -114,14 +116,19 @@ export async function recentTrades(launch: Launch, quoteIsToken0: boolean, block
 
 // ---------------------------------------------------------------------------------------------------------------
 // A launch's picture, description and links: a small JSON file its creator points to. Only what's safe to show is
-// kept: an https or ipfs picture, the known links (http or https) under fixed labels with their sites' names, and
-// plain text (React escapes it). The file is read for 8 seconds at most, and 64 KB at most.
+// kept: a picture the picture service keeps (any other picture link could decode to gigabytes in every visitor's browser:
+// lib/picture.ts shownPicture), the known links (http or https) under fixed labels with their sites' names, and plain text
+// (React escapes it). The file is read for 8 seconds at most, and 64 KB at most.
 // ---------------------------------------------------------------------------------------------------------------
 
 export type LinkKey = 'website' | 'x' | 'telegram' | 'discord';
 
 export interface Meta {
+  /** The picture to draw: only one the picture service keeps (checked there at 1,024 px a side at most) */
   image?: string;
+  /** The file's picture link as written (https, or IPFS through its gateway), whatever it points to: never drawn, only carried
+   * over when the creator edits the file */
+  imageLink?: string;
   description?: string;
   /** In a fixed order, each with its fixed label and the site it really goes to (so "X" can't hide another site) */
   links: { key: LinkKey; label: string; url: string; host: string }[];
@@ -190,7 +197,8 @@ export function metaOf(uri: string): Promise<Meta | null> {
         if (u) links.push({ key: l.key, label: l.label, url: u.toString(), host: u.hostname });
       }
       return {
-        image: safeUrl(j.image),
+        image: shownPicture(j.image, API_URL),
+        imageLink: safeUrl(j.image),
         description: typeof j.description === 'string' ? j.description.slice(0, 600) : undefined,
         links,
       };

@@ -167,7 +167,8 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
     if (current) {
       const links: LaunchFile['links'] = {};
       for (const l of current.links) links[l.key] = l.url;
-      setState({ file: { description: current.description, image: current.image, links }, own: '', useOwn: false });
+      // the picture link as written, so saving other changes keeps it (a link to another site is kept, though never drawn)
+      setState({ file: { description: current.description, image: current.imageLink, links }, own: '', useOwn: false });
     }
   }, [current, launch.metadataURI, touched]);
   const problem = launchFileProblem(state);
