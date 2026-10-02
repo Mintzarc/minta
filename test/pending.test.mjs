@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_PENDING, PENDING_KEY, addPending, loadPending, parsePending, removePending, serializePending } from '../src/lib/pending.ts';
 
-const A = '0x5899a0576A94327a6316E01190f951edf7645914';
+const A = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
 const hash = (n) => `0x${n.toString(16).padStart(64, '0')}`;
 const good = { hash: hash(1), chainId: 84_532, account: A, amount: '10000000', maxFee: '21204', at: 1_790_000_000_000 };
 const memory = () => {

@@ -7,7 +7,7 @@ import { MEME_COUNT, memeFile, memeNumber } from '../src/lib/memes.ts';
 const addr = (i) => `0x${'ab'.repeat(18)}${i.toString(16).padStart(4, '0')}`;
 
 test('the same address always gets the same mascot, whatever its letter case', () => {
-  const a = '0x33D945764d3De5AB0211455c13fC48490f7082DE';
+  const a = '0x90F79bf6EB2c4f870365E785982E1f101E93b906';
   assert.equal(memeNumber(a), memeNumber(a));
   assert.equal(memeNumber(a), memeNumber(a.toLowerCase()));
   assert.equal(memeFile(a), memeFile(a.toLowerCase()));

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { LOOK_BACK_BLOCKS, MAX_MOVES, fromBlockOf, keepMove, loadMoves, movesKey, parseMoves, serializeMoves, withMove } from '../src/lib/moves.ts';
 
 const ME = '0x1111111111111111111111111111111111111111';
-const A = '0x5899a0576A94327a6316E01190f951edf7645914';
+const A = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
 const B = '0x2222222222222222222222222222222222222222';
 const memory = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v), m }; };
 

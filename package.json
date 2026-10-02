@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/pending.test.mjs test/moves.test.mjs test/bundle.test.mjs test/feed.test.cjs test/memes.test.mjs test/films.test.mjs test/txcheck.test.mjs test/pieces.test.mjs test/taxsplit.test.mjs test/format.test.mjs test/content.test.mjs test/search.test.mjs test/transport.test.mjs test/vendor.test.mjs",
+    "test": "node --test test/pending.test.mjs test/moves.test.mjs test/bundle.test.mjs test/feed.test.cjs test/memes.test.mjs test/films.test.mjs test/txcheck.test.mjs test/pieces.test.mjs test/taxsplit.test.mjs test/format.test.mjs test/content.test.mjs test/search.test.mjs test/transport.test.mjs test/vendor.test.mjs test/repo.test.mjs",
     "test:browser": "node test/minta.browser.cjs",
     "preview": "vite preview"
   },
