@@ -27,7 +27,7 @@
   <main>
     <p class="eyebrow">Legal</p>
     <h1>Privacy <em>Policy</em></h1>
-    <p class="lede">Effective October 1, 2026. This policy covers MINTA, the website at this address. It is a draft for the test network and will be reviewed and completed, with the operator’s name and a contact address, before MINTA offers anything but test money.</p>
+    <p class="lede">Effective October 1, 2026; updated October 2, 2026 (a check of each transaction before you sign it, below). This policy covers MINTA, the website at this address. It is a draft for the test network and will be reviewed and completed, with the operator’s name and a contact address, before MINTA offers anything but test money.</p>
 
     <section>
       <h2>The short version</h2>
@@ -35,7 +35,7 @@
         <li>There are no accounts, no ads, no analytics and no tracking. This site sets no cookies.</li>
         <li>Blockchains are public: your wallet address and everything it does on VYRE can be seen by anyone, for good.</li>
         <li>MINTA never holds your funds or your keys.</li>
-        <li>MINTA is a set of static pages with no server of its own. When it needs one (pictures, card checkout, email sign-in, promoter codes) it calls services run by others (a blockchain RPC, an image-and-checkout API, a promoter lookup), described below.</li>
+        <li>MINTA is a set of static pages with no server of its own. When it needs one (pictures, card checkout, email sign-in, promoter codes, a check of each transaction before you sign it) it calls services run by others (a blockchain RPC, an image-and-checkout API, a promoter lookup, a transaction check), described below.</li>
       </ul>
     </section>
 
@@ -55,6 +55,7 @@
             <tr><td>Create a token with a picture, description and links</td><td>The picture you choose is shrunk and re-saved in your browser first (which drops anything but the image itself) and then sent to the picture service (api.vyrechain.com) together with the description and links you enter. They are public, and not stored with anything that identifies you; your IP address is used only to limit how many pictures one caller can send an hour. They are kept so the token’s page can show them.</td></tr>
             <tr><td>Buy USDC with a card or Apple Pay</td><td>The checkout service (api.vyrechain.com) passes your wallet address, the amount you choose and your IP address to Transak to open its checkout; Transak then collects your payment and identity details itself.</td></tr>
             <tr><td>Sign in with email (where offered)</td><td>Circle handles your email address and sign-in; the sign-in service (api.vyrechain.com) passes them to Circle without storing them.</td></tr>
+            <tr><td>Send a transaction on VYRE (a launch, a trade, an approval, a payment)</td><td>Just before your wallet asks you to confirm, MINTA sends the transaction’s details (your wallet address, the address or contract it goes to, its call data and the USDC amount) to a check service (api.vyrechain.com). The service runs the transaction on the network without sending it, to see what it would do, and looks up the addresses it involves with a third-party security service (see section 4; it never asks about your own address, and sends no amounts or call data). It also uses your IP address to limit how often each caller can ask. The check is advisory and optional: MINTA waits less than a second for it, and if it is slow, busy or unavailable, or finds nothing, it goes on without saying anything. When it does find something, MINTA tells you before your wallet asks you to sign. It is only a hint and can miss things. Its operator’s privacy policy says what it keeps.</td></tr>
             <tr><td>Arrive by a promoter’s link</td><td>The promoter’s code is looked up at the promoter service (testnet-rpc.vyrechain.com), which receives the code and your IP address.</td></tr>
           </tbody>
         </table>
@@ -72,6 +73,7 @@
       <ul>
         <li><b>Transak</b>: card and Apple Pay purchases of USDC, including its identity checks.</li>
         <li><b>Circle</b>: email sign-in, and moving USDC between networks.</li>
+        <li><b>GoPlus</b> (a public address-security service): the transaction check asks it about the addresses in a transaction you are about to sign, never your own address, amounts or call data. It receives those addresses and the check service’s server address, and its own privacy policy applies to what it keeps.</li>
         <li><b>Vercel</b>: hosts MINTA’s pages.</li>
         <li><b>Google Fonts</b>: the pages’ fonts.</li>
         <li><b>Blockchain services</b>: for the features that move USDC between networks, MINTA reads balances from public nodes of other networks (Arc and test networks), sending your wallet address.</li>

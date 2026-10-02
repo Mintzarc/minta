@@ -14,7 +14,7 @@ npm ci               # exactly what package-lock.json says; no install scripts r
 npm run dev          # http://localhost:5173
 npm run build        # typecheck, then the site into dist/
 npm run typecheck && npm test
-npm run test:browser # a real-browser check of the wizard, docs, ticker, splash; needs `npx playwright install chromium`
+npm run test:browser # a real-browser check of the wizard, docs, ticker, splash, the check before signing; needs `npx playwright install chromium`
 ```
 
 Node 22 or newer. Routes live after a `#` (`/#/token/0x…`), so any static host works with no rewrite rules.
@@ -36,7 +36,7 @@ Set these when building (`VITE_…` values are public: they end up in the page):
 | VYRE Testnet (chain ID 7357) | `https://testnet-rpc.vyrechain.com` | every read and every transaction |
 | The contracts (launchpad, fee splitter, app router, …) | addresses and ABIs inside the SDK | launching, trading, promoters |
 | `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.5.0.tgz` | chain definition, addresses, typed calls |
-| The VYRE app API | `https://api.vyrechain.com` | token pictures (`POST /image`), details files, card checkout links, email sign-in |
+| The VYRE app API | `https://api.vyrechain.com` | token pictures (`POST /image`), details files, card checkout links, email sign-in, and the advisory check before a wallet signs (`POST /txcheck`) |
 | The explorer | `https://explorer.vyrechain.com` | links, holder counts |
 | The faucet | `https://vyrechain.com/faucet` | test USDC |
 | Circle, Transak | their own services | email sign-in; card purchases of USDC (testnet staging) |
@@ -54,7 +54,7 @@ MINTA needs the SDK released after that.
 ```
 src/pages/        Explore, Token, Launch (a five-step wizard), Manage, Portfolio, Wallet, Docs (MINTA's in-app docs)
 src/components/   header, ticker, splash, token art, search, charts, shared UI
-src/lib/          chain and wallet plumbing, the app API client, the ticker's feed, picture preparation, routes
+src/lib/          chain and wallet plumbing, the app API client, the check before signing, the ticker's feed, picture preparation, routes
 public/           the logo, art, meme mascots for tokens with no picture, the splash film, manifest, terms and privacy pages
 brand/            tools that make those pictures (logo cuts, mascots, art, splash); see each folder
 test/             unit tests (node --test) and a browser check (Playwright)

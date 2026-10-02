@@ -13,7 +13,8 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
 4. **The services MINTA calls only answer pages they know.** Picture upload, card checkout links and email sign-in are served by the
    app API (`api.vyrechain.com` unless you set `VITE_API_URL`), which accepts requests from a list of page addresses. Ask whoever
    operates that API to add your domain, or host your own (section 2) and point `VITE_API_URL` at it. Card checkout also returns the
-   buyer to a fixed address and is registered with the card provider per domain: both are set up with the API's operator.
+   buyer to a fixed address and is registered with the card provider per domain: both are set up with the API's operator. The same
+   goes for the check before signing (section 2): until the API lists your domain, the check gets no answer and stays silent.
 5. Promoter links: MINTA remembers a promoter from `?ref=<code or wallet address>` in the address, and shows each approved
    promoter their own link in the Wallet page.
 
@@ -25,6 +26,15 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
   with the same contract (a still PNG, JPEG or WebP up to 400 KB, 16 to 1,024 px, structure-checked, stored by hash and served as an
   image only), plus the legal side: a takedown contact and a designated agent for copyright notices. Then build with `VITE_API_URL`
   pointing at it. The terms and privacy pages say where pictures live today; change them if that changes.
+- **The check before signing** (`src/lib/txcheck.ts`, `src/components/TxCheckDialog.tsx`): before a browser wallet is asked to send a
+  transaction on VYRE, `walletOn` (`src/lib/chain.ts`) runs it past the API's `POST /txcheck`, which simulates it on the network
+  without sending it and looks up the addresses in it with a third-party security service. It is advisory and fails open: it waits at
+  most 800 ms, and any error, timeout, busy answer or answer without a simulation lets the transaction go on without a word. Only
+  when the answer carries flags (an unlimited approval, an approval to a contract that isn't one of the launchpad's own, a flagged
+  address, or a transaction that would fail) does a dialog open before the wallet's prompt, with Continue anyway and Cancel; its words
+  are MINTA's own and nothing from the service's text is shown. It checks VYRE only. Point `VITE_API_URL` at your own service with the
+  same route to move it, or take `txcheck.ts` out of `walletOn` to turn it off. The privacy page and the FAQ say what it sends. Not
+  covered: Face ID wallets (parked, section 5), which send through a bundler rather than the wallet's own provider.
 - **Fees:** the 1% platform fee and the promoters' share are set in the launchpad contracts and paid by the fee splitter contract.
   A launchpad fee on top (0 to 1%) is possible for a partner launchpad registered with the splitter, which the contracts' owner does.
   The app shows every fee before a trade is confirmed.
@@ -64,5 +74,5 @@ moving USDC out, and a decision about the passkeys' domain.
 ## 7. Review status
 
 Reviewed in internal rounds (no critical or high findings open; the medium findings found were fixed and tested). **No outside
-audit.** The browser check (`npm run test:browser`) covers the wizard's messages, the docs, the ticker, picture
+audit.** The browser check (`npm run test:browser`) covers the wizard's messages, the docs, the ticker, the check before signing, picture
 preparation, the splash and the wallet menu; the on-chain behaviour (launch, buy, sell) was checked by hand against the test network.

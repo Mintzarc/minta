@@ -402,7 +402,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     const hsrv = serveDir(HOUT);
     await new Promise((r) => hsrv.listen(0, '127.0.0.1', r));
     const hbase = 'http://127.0.0.1:' + hsrv.address().port + '/';
-    const ME = '0x5899a0576A94327a6316E01190f951edf7645914', TO = '0x1111111111111111111111111111111111111111';
+    const ME = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', TO = '0x1111111111111111111111111111111111111111';
     const base0 = { advisory: true, chainId: 7357, simulated: true, reverts: false, revertReason: null, nativeChange: '0', transfers: [], approvals: [], addressChecks: { source: 'goplus', available: true, checked: [] }, flags: [] };
     const reply = (status, body) => async (route, cors) => { await route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) }).catch(() => {}); };
     const wallet = () => {
@@ -532,6 +532,17 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       const card = await pg.locator('[role=alertdialog] .modal-card').boundingBox();
       const btns = await pg.locator('[role=alertdialog] button').evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight + 1 || e.closest('.modal-card').scrollHeight > e.closest('.modal-card').clientHeight; }));
       ok(card.x >= 0 && card.x + card.width <= 360 && await sideways(pg) <= 0 && btns.every(Boolean), 'on a phone (360) the dialog fits and its buttons can be reached');
+      await ctx.close();
+    }
+    // the privacy page and the FAQ say plainly what the check sends and to whom, and that it is advisory
+    {
+      const { pg, ctx } = await open('#/docs/faq', { width: 1280, height: 800 });
+      const faq = await pg.locator('.faq').textContent();
+      ok(/Does MINTA check a transaction before I sign it\?/.test(faq) && /api\.vyrechain\.com/.test(faq) && /third-party security service/.test(faq) && /goes on without saying anything/.test(faq) && /Continue anyway and Cancel/.test(faq), 'the FAQ explains the check, who it asks, and that MINTA goes on without it');
+      ok(!/\bsafe\b/i.test(faq.slice(faq.indexOf('Does MINTA check'), faq.indexOf('Has it had an outside audit'))), 'and never calls a checked transaction safe');
+      await pg.goto(base + 'privacy/');
+      const privacy = await pg.locator('main').textContent();
+      ok(/Send a transaction on VYRE/.test(privacy) && /api\.vyrechain\.com/.test(privacy) && /third-party security service/.test(privacy) && /advisory and optional/.test(privacy) && /GoPlus/.test(privacy), 'the privacy page lists what the check sends, to which service, and that it is advisory and optional');
       await ctx.close();
     }
     hsrv.close();
