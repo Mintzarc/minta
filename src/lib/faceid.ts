@@ -26,7 +26,7 @@ export interface FaceIdSession {
 
 export const FACEID_KEY = 'vyre.faceid';
 /**
- * Face ID wallets are on the roadmap, not in MINTA, for now (the project's call, 2026-10-01): a card purchase can't be delivered to a smart
+ * Face ID wallets are on the roadmap, not in MINTA, for now: a card purchase can't be delivered to a smart
  * wallet, so MINTA uses plain EVM wallets (a browser wallet) like other chains until the card top-up is sorted out. All the code
  * stays; turning this on again brings back "Create a wallet with Face ID", "Sign in with Face ID" and the confirm dialog, and
  * a session kept in this browser is restored. (The SDK, the bundler and the contracts are untouched.)

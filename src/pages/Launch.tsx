@@ -16,7 +16,7 @@ import { MintaMark, VyreGlyph } from '../components/Brand';
 import { LaunchFileFields, emptyLaunchFile, hasPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
 
-/** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself (the project's call, 2026-09-30) */
+/** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself */
 const OPENING_MARKET_CAP = LAUNCH_LIMITS.openingMarketCap;
 
 const E18 = 10n ** 18n;

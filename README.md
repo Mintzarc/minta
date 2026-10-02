@@ -28,6 +28,7 @@ Set these when building (`VITE_…` values are public: they end up in the page):
 | `VITE_SITE_URL` | the site's own address, for the link-preview image (`https://example.com`, no slash at the end). On Vercel its production domain is used when this isn't set | none: the preview image address stays relative |
 | `VITE_API_URL` | the app API: picture upload, token details files, card checkout links, email sign-in | `https://api.vyrechain.com` |
 | `VITE_PROMOTERS_URL` | the promoter-code lookup | `https://testnet-rpc.vyrechain.com/promoters` |
+| `VITE_CARD_TOPUP` | `1` shows the card checkout on the Wallet page, `0` hides it. Turn it on for a network other than the testnet only once a live checkout works for your site | shown on the test network only |
 
 ## What it depends on
 
@@ -37,7 +38,7 @@ Set these when building (`VITE_…` values are public: they end up in the page):
 | The contracts (launchpad, fee splitter, app router, …) | addresses and ABIs inside the SDK | launching, trading, promoters |
 | `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.5.0.tgz` | chain definition, addresses, typed calls |
 | The VYRE app API | `https://api.vyrechain.com` | token pictures (`POST /image`), details files, card checkout links, email sign-in, and the advisory check before a wallet signs (`POST /txcheck`) |
-| The explorer | `https://explorer.vyrechain.com` | links, holder counts |
+| The explorer | `https://explorer.vyrechain.com` | links, holder counts, the block at a given time (called from the visitor’s browser) |
 | The faucet | `https://vyrechain.com/faucet` | test USDC |
 | Circle, Transak | their own services | email sign-in; card purchases of USDC (testnet staging) |
 

@@ -219,7 +219,7 @@ const ARTICLES: Article[] = [
       { id: 'addresses', title: 'Testnet addresses', body: <><p>These are the testnet deployment’s contracts (VYRE Testnet, chain 7357). Click an address to read the verified source on the explorer. Mainnet gets its own deployment.</p><ContractTable /></> },
       {
         id: 'review-status', title: 'Review status',
-        body: <p>The contracts have a large test suite (including trade-by-trade comparisons with Uniswap’s own v3 contracts) and have been through our own review rounds. They have <b>not</b> had an outside audit yet. Treat the testnet accordingly.</p>,
+        body: <p>The contracts have a large test suite (including trade-by-trade comparisons with Uniswap’s own v3 contracts) and have been through review rounds by the network’s operator, who deployed them. They have <b>not</b> had an outside audit yet. Treat the testnet accordingly.</p>,
       },
     ],
   },
@@ -260,7 +260,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
     sections: [
       { id: 'apps', title: 'Apps and bots', body: <p>Trade through the app router with native USDC (no wrapping, no approval to buy), and be your users’ promoter. The router can charge an app fee on top; it is 0 today, and any change is announced on chain 7 days ahead.</p> },
       { id: 'partners', title: 'Partner launchpads', body: <p>Other launchpads can run on the same contracts under their own brand: launch with your payout address as the partner and a fee of up to 1%. It’s added on top of the creator’s tax and the platform fee (it never comes out of either) and paid to you in USDC. No sign-up or approval is needed.</p> },
-      { id: 'own', title: 'Your own launchpad', body: <p>VYRE is an open EVM chain: anyone can deploy anything, including their own launchpad on a standard, unmodified Uniswap v3 (the standard contracts are being deployed on VYRE for every other token).</p> },
+      { id: 'own', title: 'Your own launchpad', body: <p>VYRE is an open EVM chain: anyone can deploy anything, including their own launchpad on a standard, unmodified Uniswap v3.</p> },
     ],
   },
   {
@@ -293,7 +293,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
             <details><summary>Can a creator raise the tax?</summary><p>No. A creator can lower either tax at any time and can never raise it.</p></details>
             <details><summary>What does a trade cost in gas?</summary><p>On the testnet, a buy has cost about six millionths of a dollar. <Ext to="https://vyrechain.com/gas">Every number links to a real transaction.</Ext></p></details>
             <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service (api.vyrechain.com) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href="/privacy/">privacy policy</a>.</p></details>
-            <details><summary>Has it had an outside audit?</summary><p>Not yet. The contracts have been through our own tests and review rounds, and this is a testnet.</p></details>
+            <details><summary>Has it had an outside audit?</summary><p>Not yet. The contracts have been through tests and review rounds by the network’s operator, who deployed them, and this is a testnet.</p></details>
             <details><summary>Can I lose money?</summary><p>On the testnet there is no real money. On any chain, launch tokens can go to zero and nothing here is financial advice.</p></details>
           </div>
         ),

@@ -1,6 +1,6 @@
-// Getting USDC onto VYRE (the faucet, a card, USDC from another chain through Arc, or a deposit from Arc testnet) and
-// the visitor's promoter link. With an email wallet (Circle's), the card delivers to it on Arc and "Move to VYRE" runs
-// through Circle's window.
+// Getting USDC onto VYRE (the faucet, a card where this build offers it, USDC from another chain through Arc, or a deposit
+// from Arc testnet) and the visitor's promoter link. With an email wallet (Circle's), the card delivers to it on Arc and
+// "Move to VYRE" runs through Circle's window.
 import { useEffect, useRef, useState } from 'react';
 import {
   CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, SentButUnconfirmedError, TransactionReplacedError, arcTestnet, burnToArc, cctpSource, claimWithdrawal,
@@ -18,7 +18,10 @@ import { useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
 import { promoterStatus, topupLink } from '../lib/api';
 import { moveToVyre } from '../lib/circle';
+import { cardTopupOffered } from '../lib/features';
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC kept for the network fee
+/** Whether this build offers the card checkout: on the test network unless VITE_CARD_TOPUP=0, elsewhere only with VITE_CARD_TOPUP=1 */
+const CARD_TOPUP = cardTopupOffered(import.meta.env.VITE_CARD_TOPUP, vyre.chain?.testnet === true);
 
 // the SDK refuses a deposit from an address with code on Arc (VYRE would credit it to an aliased address); the app
 // says so plainly and never offers the SDK's override
@@ -97,7 +100,7 @@ export default function Wallet() {
       {email && account && <EmailWalletCard account={account} emailAddress={email.email} />}
       {faceId && account && <FaceIdWalletCard account={account} />}
 
-      {account && !faceId && <CardTopup account={account} onArc={onArc} />}
+      {CARD_TOPUP && account && !faceId && <CardTopup account={account} onArc={onArc} />}
 
       <div className="card">
         <h2 className="h3">The faucet</h2>
@@ -628,7 +631,6 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
           ))}
         </ul>
       )}
-      <p className="small muted">Selling USDC for dollars to a bank account comes once our card partner supports USDC on Arc.</p>
     </div>
   );
 }
@@ -675,8 +677,7 @@ function SendUsdc({ account, held, faceId, onDone }: { account: Address; held: b
   );
 }
 
-/** VYRE's claimer claims moves of at least this on Arc (a claimer service), to an address with no code there, up to
- * 3 a day to one address (docs/face-id-wallets.md) */
+/** The smallest move to Arc that is paid out there for you (to an address with no code there; the page says the rest) */
 const CLAIMED_FOR_YOU = 10n ** 18n;
 /** Solady's ERC-1967 proxy: a VYRE Face ID wallet's code on VYRE (as the claimer and the bundler check it) */
 const FACE_ID_PROXY = '0x363d3d373d3d363d7f360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc545af43d6000803e6038573d6000fd5b3d6000f3';

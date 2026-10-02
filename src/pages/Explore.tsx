@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
 import { getLaunchCount } from '@vyrechain/sdk';
 import { oneAtATime, vyre } from '../lib/chain';
-import { ago, change, price, tokenText, usd, usdOf } from '../lib/format';
+import { ago, change, price, searchTerm, tokenText, usd, usdOf } from '../lib/format';
 import { listLaunches, marketOf, type Listed } from '../lib/market';
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { href } from '../lib/router';
@@ -34,6 +34,8 @@ const VIEW = 'vyre.view';
 const savedView = (): 'grid' | 'list' => { try { return localStorage.getItem(VIEW) === 'list' ? 'list' : 'grid'; } catch { return 'grid'; } };
 
 export default function Explore({ q = '' }: { q?: string }) {
+  // the search as it may be shown back (a link chooses it: only a plain search is echoed)
+  const term = searchTerm(q);
   const [list, setList] = useState<Listed[] | null>(null);
   const [stats, setStats] = useState<Map<Address, Stats>>(new Map());
   const [holders, setHolders] = useState<Map<Address, number | null>>(new Map());
@@ -186,7 +188,7 @@ export default function Explore({ q = '' }: { q?: string }) {
               </button>
             </div>
           </div>
-          {q && <p className="small filter-note">Showing tokens matching “{q}”. <a href={href({ page: 'explore' })}>Clear</a></p>}
+          {q && <p className="small filter-note">Showing tokens matching {term ? <>“<bdi>{term}</bdi>”</> : 'your search'}. <a href={href({ page: 'explore' })}>Clear</a></p>}
           {tab !== 'trending' && <p className="muted small milestone-note">Milestone: {MILESTONE_TEXT} of USDC bought into a token’s pool, net of sales (a testnet figure). Graduated shows the tokens at or above it now.</p>}
           {statsState === 'error' && <p className="err small">The 24-hour figures couldn’t load just now: retrying. Figures shown may be out of date.</p>}
         </>

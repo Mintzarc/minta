@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { getAddress, type Address } from 'viem';
 import { isPromoterCode, promoterWallet } from './api';
+import { tokenText } from './format';
 
 export type Route =
   | { page: 'explore'; q?: string }
@@ -29,7 +30,8 @@ export function parseRoute(hash: string): Route {
     const article = slug(arg), section = slug(new URLSearchParams(query).get('s'));
     return { page: 'docs', ...(article ? { article } : {}), ...(section ? { section } : {}) };
   }
-  const q = new URLSearchParams(query).get('q')?.trim().slice(0, 64);
+  // without hidden or direction-changing characters, and at most 64 whole characters
+  const q = Array.from(tokenText(new URLSearchParams(query).get('q') ?? '')).slice(0, 64).join('');
   return q ? { page: 'explore', q } : { page: 'explore' };
 }
 

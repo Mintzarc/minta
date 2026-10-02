@@ -183,7 +183,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
   {
     const { pg, ctx } = await open('#/', { width: 1440, height: 900 });
     ok(/MINTA/.test(await pg.locator('.brand').getAttribute('aria-label')) && (await pg.locator('.brand .wordmark').getAttribute('alt')) === 'MINTA', 'the header says MINTA');
-    ok(await pg.evaluate(() => [...document.querySelectorAll('.brand img')].length === 2 && [...document.querySelectorAll('.brand img')].every((i) => i.complete && i.naturalWidth > 100)), 'and shows the owner’s logo pictures (the M and the wordmark both load)');
+    ok(await pg.evaluate(() => [...document.querySelectorAll('.brand img')].length === 2 && [...document.querySelectorAll('.brand img')].every((i) => i.complete && i.naturalWidth > 100)), 'and shows MINTA’s logo pictures (the M and the wordmark both load)');
     ok(/VYRE Testnet/.test(await pg.locator('.chain-pill').innerText()), 'and shows the chain it runs on');
     ok(!/VYRE Pad/.test(await pg.locator('body').innerText()), 'nothing on the page still says VYRE Pad');
     ok(!/@vyrechain\.com/i.test(await pg.locator('footer').innerText()) && !(await pg.locator('a[href^="mailto:"]').count()), 'the footer and header carry no email address');
@@ -250,6 +250,45 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     const m = await open('#/', { width: 390, height: 844 });
     ok(await sideways(m.pg) <= 0, 'no sideways scroll on a phone');
     await m.ctx.close();
+  }
+
+  // ---- a search carried in a link (#/?q=): the token list says it back only when it reads as a plain search, inside <bdi>, with
+  // hidden and direction-changing characters taken out; anything else is "your search", so a link can't add a sentence of its own.
+  // The list needs a chain: a stand-in answers with no launches (every read is zero)
+  {
+    const { decodeFunctionData, encodeFunctionResult, multicall3Abi } = require('viem');
+    const zero = '0x' + '0'.repeat(64);
+    const answer = ({ id, method, params }) => {
+      let result = null;
+      if (method === 'eth_chainId') result = '0x1cbd';
+      else if (method === 'eth_blockNumber') result = '0x100';
+      else if (method === 'eth_getLogs') result = [];
+      else if (method === 'eth_call') {
+        try {
+          const d = decodeFunctionData({ abi: multicall3Abi, data: params[0].data });
+          result = d.functionName === 'aggregate3' ? encodeFunctionResult({ abi: multicall3Abi, functionName: 'aggregate3', result: d.args[0].map(() => ({ success: true, returnData: zero })) }) : zero;
+        } catch { result = zero; }
+      }
+      return { jsonrpc: '2.0', id, result };
+    };
+    const note = async (q) => {
+      const { pg, ctx, errs } = await open('#/docs', { width: 1280, height: 800 });
+      await ctx.route(/testnet-rpc\.vyrechain\.com/, async (route) => {
+        const body = JSON.parse(route.request().postData() || 'null');
+        await route.fulfill({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' }, body: JSON.stringify(Array.isArray(body) ? body.map(answer) : answer(body)) });
+      });
+      await pg.goto(base + '#/?q=' + q);
+      const el = await pg.waitForSelector('.filter-note', { timeout: 15000 }).catch(() => null);
+      const out = el ? { text: await el.innerText(), bdi: await pg.locator('.filter-note bdi').count() } : { text: '', bdi: 0 };
+      await ctx.close();
+      return { ...out, errs };
+    };
+    let n = await note('pepe');
+    ok(n.text === 'Showing tokens matching “pepe”. Clear' && n.bdi === 1 && !n.errs.length, `a plain search is said back, isolated (${n.text})`);
+    n = await note(encodeURIComponent('x”. Official airdrop: send USDC to 0x1234'));
+    ok(n.text === 'Showing tokens matching your search. Clear' && n.bdi === 0, `a link’s own sentence is not shown (${n.text})`);
+    n = await note(encodeURIComponent('‮epep​'));
+    ok(n.text === 'Showing tokens matching “epep”. Clear', `hidden and direction-changing characters are taken out (${JSON.stringify(n.text)})`);
   }
 
   // ---- no Face ID wallets for now (they're on the roadmap): nothing in the Pad offers or mentions them, and with no wallet in the

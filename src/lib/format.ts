@@ -111,6 +111,17 @@ export const tokenText = (s: string) => s.replace(HIDDEN, '').trim();
 /** A creator's description made safe to show the same way, keeping its line breaks (show it with dir="auto") */
 export const plainText = (s: string) => s.replace(/\r\n?/g, '\n').replace(HIDDEN_INLINE, '').trim();
 
+/**
+ * A search taken from the page's address (#/?q=...), as it may be shown back on the page: cleaned like a ticker, and only when
+ * it reads as a plain search (letters, digits, spaces, $, - and _, up to 42 characters: enough for an address). Anything else
+ * (quotes, punctuation, links, stacked marks) gets null, and the page says "your search": a shared link can't close the
+ * page's quote and add a sentence of its own. Show it inside <bdi>.
+ */
+export function searchTerm(q: string): string | null {
+  const s = tokenText(q);
+  return /^[\p{L}\p{N} $_-]{1,42}$/u.test(s) ? s : null;
+}
+
 /** tokenText isolated for plain strings (labels, messages), the way <bdi> isolates it in the page */
 export const iso = (s: string) => `⁨${tokenText(s)}⁩`;
 

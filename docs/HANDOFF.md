@@ -15,6 +15,8 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
    operates that API to add your domain, or host your own (section 2) and point `VITE_API_URL` at it. Card checkout also returns the
    buyer to a fixed address and is registered with the card provider per domain: both are set up with the API's operator. The same
    goes for the check before signing (section 2): until the API lists your domain, the check gets no answer and stays silent.
+   The Wallet page shows the card checkout only on the test network unless the build sets `VITE_CARD_TOPUP` (README); on any
+   other network leave it off until a live checkout has been tested for your domain, and keep the terms and privacy pages in step.
 5. Promoter links: MINTA remembers a promoter from `?ref=<code or wallet address>` in the address, and shows each approved
    promoter their own link in the Wallet page.
 
@@ -36,11 +38,13 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
   same route to move it, or take `txcheck.ts` out of `walletOn` to turn it off. The privacy page and the FAQ say what it sends. Not
   covered: Face ID wallets (parked, section 5), which send through a bundler rather than the wallet's own provider, and the email
   wallet's sends (off until its provider signs for VYRE): if either returns, check the built transaction first. At the move to the
-  main network the check follows the app's own VYRE chain (`walletOn` passes it), and the service's address and allowed origin
-  (`TXCHECK_ORIGINS`) must name the new site.
+  main network the check follows the app's own VYRE chain (`walletOn` passes it), and the service has to answer the new site (ask its
+  operator to allow your domain).
 - **Fees:** the 1% platform fee and the promoters' share are set in the launchpad contracts and paid by the fee splitter contract.
-  A launchpad fee on top (0 to 1%) is possible for a partner launchpad registered with the splitter, which the contracts' owner does.
-  The app shows every fee before a trade is confirmed.
+  A launchpad fee on top (0 to 1% per side) is named by the launch itself: any launch can name a partner address and its fee, with
+  no registration or approval, and the fee splitter pays that address its part in USDC. The partner can move where its part is paid
+  (`offerPartnerPayout` from the address paid now, then `acceptPartnerPayout` from the new one). MINTA names no partner today. The
+  app shows every fee before a trade is confirmed.
 
 ## 3. Pages to complete before anything but test money
 
@@ -52,7 +56,7 @@ with real money. The in-app Docs (`src/pages/Docs.tsx`) carry no contact address
 
 Not live today. When there is one, MINTA needs: an SDK release that carries that network's definition and addresses, the chain switch
 in `src/lib/chain.ts`, its RPC, explorer and API addresses (and `VITE_API_URL` if the API differs), a decision on the launch
-milestone (the "graduated" line is $100 of USDC bought in on the testnet; about $10,000 was suggested for real money), and a fresh
+milestone (the "graduated" line is $100 of USDC bought in on the testnet; pick the figure for real money), and a fresh
 review of everything that moves money. The launchpad contract requires every launch to open at a $3,000 market cap on a new
 deployment; the testnet's older contract still takes any value, so the app and SDK enforce $3,000 there.
 
