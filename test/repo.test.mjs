@@ -65,3 +65,22 @@ test('the logo tool writes into this repository’s public/ (run up to its first
   const out = execFileSync(py, ['-c', probe, path.join(ROOT, 'brand/logo/make-assets.py')], { encoding: 'utf8' }).trim();
   assert.equal(out, path.join(ROOT, 'public', 'brand'));
 });
+
+test('CI runs actions pinned to a full commit, and checkout keeps no token in .git/config', () => {
+  const flows = files.filter((f) => /^\.github\/workflows\/.+\.ya?ml$/.test(f));
+  assert.ok(flows.length > 0);
+  for (const f of flows) {
+    const lines = text(f).split('\n');
+    lines.forEach((l, i) => {
+      const m = /^\s*(?:-\s*)?uses:\s*(\S+)/.exec(l);
+      if (!m) return;
+      assert.match(m[1], /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/, `${f}:${i + 1} pins ${m[1]} to a commit`);
+      if (/^actions\/checkout@/.test(m[1])) {
+        // its `with:` block, up to the next step
+        const rest = [];
+        for (let j = i + 1; j < lines.length && !/^\s*-\s/.test(lines[j]); j++) rest.push(lines[j]);
+        assert.ok(rest.some((r) => /^\s*persist-credentials:\s*false\s*$/.test(r)), `${f}:${i + 1} checkout with persist-credentials: false`);
+      }
+    });
+  }
+});
