@@ -247,6 +247,20 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     await m.ctx.close();
   }
 
+  // ---- the chain can't be reached (every outside request refused here): the home page says so in its own words, never a library's
+  // error text (the RPC's address, the request's body, the library's version), and Manage says it couldn't read the launch, never
+  // that the address isn't one
+  {
+    const { pg, ctx, errs } = await open('#/', { width: 1280, height: 800 });
+    const err = await pg.waitForSelector('.err', { timeout: 20000 }).then((e) => e.innerText()).catch(() => '');
+    ok(/^Couldn’t read the launches just now/.test(err) && !/Request body|viem|eth_call|https?:|Version/i.test(err), `the home page says it couldn’t read the launches, in a sentence of its own (${JSON.stringify(err.slice(0, 120))})`);
+    await pg.goto(base + '#/manage/0x' + '1a'.repeat(20));
+    const said = await pg.waitForFunction(() => /Couldn’t reach VYRE|isn’t a launch/.test(document.querySelector('main')?.textContent || ''), null, { timeout: 20000 }).then(() => pg.locator('main').innerText()).catch(() => '');
+    ok(/Couldn’t reach VYRE just now/.test(said) && !/isn’t a launch/.test(said) && await pg.locator('main button:has-text("Try again")').count() === 1, 'Manage, the chain unreachable: it says it couldn’t read the launch, with Try again, not that the address isn’t a launch');
+    ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+
   // ---- a search carried in a link (#/?q=): the token list says it back only when it reads as a plain search, inside <bdi>, with
   // hidden and direction-changing characters taken out; anything else is "your search", so a link can't add a sentence of its own.
   // The list needs a chain: a stand-in answers with no launches (every read is zero)

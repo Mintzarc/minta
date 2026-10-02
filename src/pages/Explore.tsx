@@ -86,7 +86,8 @@ export default function Explore({ q = '' }: { q?: string }) {
       setList(merged);
       enrich();
     } catch (e) {
-      setErr(listRef.current ? 'Couldn’t refresh the launches just now: showing the last ones read.' : (e as Error).message || 'Couldn’t read the launches.');
+      // in MINTA's own words: a library's error text carries the RPC's address, the request's body and its own version
+      setErr(listRef.current ? 'Couldn’t refresh the launches just now: showing the last ones read.' : 'Couldn’t read the launches just now: retrying.');
     } finally {
       busy.current = false;
     }

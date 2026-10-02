@@ -39,22 +39,39 @@ export default function Manage({ token }: { token: Address }) {
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [wallets, setWallets] = useState<{ wallets: readonly Address[]; bps: readonly number[] } | null>(null);
   const [pending, setPending] = useState<Address | null>(null);
+  // a read that failed (the RPC busy or unreachable) isn't "not a launch": what was read stays, with a way to try again
+  const [readErr, setReadErr] = useState(false);
 
   const load = useCallback(async () => {
     const { pad } = addresses();
-    const l = await getLaunch(vyre, token).catch(() => null);
+    let l: Launch | null;
+    try {
+      l = await getLaunch(vyre, token);
+    } catch {
+      setReadErr(true);
+      return;
+    }
+    setReadErr(false);
     setLaunch(l);
     if (!l) return;
-    const [tw, pc] = await Promise.all([
-      vyre.readContract({ address: pad, abi: vyrePadAbi, functionName: 'taxWalletsOf', args: [token] }),
-      vyre.readContract({ address: pad, abi: vyrePadAbi, functionName: 'pendingCreator', args: [token] }),
-    ]);
-    setWallets({ wallets: tw[0], bps: tw[1] });
-    setPending(pc === zeroAddress ? null : pc);
+    try {
+      const [tw, pc] = await Promise.all([
+        vyre.readContract({ address: pad, abi: vyrePadAbi, functionName: 'taxWalletsOf', args: [token] }),
+        vyre.readContract({ address: pad, abi: vyrePadAbi, functionName: 'pendingCreator', args: [token] }),
+      ]);
+      setWallets({ wallets: tw[0], bps: tw[1] });
+      setPending(pc === zeroAddress ? null : pc);
+    } catch {
+      setReadErr(true);
+    }
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  if (launch === undefined) return <Loading what="Reading the launch" />;
+  if (launch === undefined) {
+    return readErr
+      ? <div className="empty"><p>Couldn’t reach VYRE just now, so the launch couldn’t be read.</p><button className="btn btn-line btn-sm" type="button" onClick={() => { setReadErr(false); load(); }}>Try again</button></div>
+      : <Loading what="Reading the launch" />;
+  }
   if (launch === null) return <p className="err">That address isn’t a launch.</p>;
   const isCreator = !!account && getAddress(account) === getAddress(launch.creator);
   const isOffered = !!account && !!pending && getAddress(account) === getAddress(pending);
@@ -74,6 +91,7 @@ export default function Manage({ token }: { token: Address }) {
         </div>
       </div>
 
+      {readErr && <p className="err small">Couldn’t reach VYRE just now: what’s shown may be out of date. <button className="linkish" type="button" onClick={() => { setReadErr(false); load(); }}>Try again</button></p>}
       {!account && <ConnectButton />}
       {emailCantTrade && <EmailTradeNote />}
       {account && isOffered && (
