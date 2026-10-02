@@ -79,3 +79,31 @@ test('the card checkout is offered on a test network unless switched off, and el
   assert.match(wallet, /cardTopupOffered\(import\.meta\.env\.VITE_CARD_TOPUP, vyre\.chain\?\.testnet === true\)/, 'the Wallet page asks with the build setting and the app’s own network');
   assert.match(read('README.md'), /VITE_CARD_TOPUP/, 'the setting is documented');
 });
+
+// Every service a visitor's browser calls, read from the code that calls it, is named on the privacy page with what it receives;
+// and the page doesn't say that what's kept in the browser is never sent anywhere, since three things kept there are sent on.
+test('the privacy page names every call the pages make, and which stored things are sent, and to whom', () => {
+  const src = (f) => read(`src/${f}`);
+  // the email sign-in settings, asked on every page by the wallet provider
+  assert.match(src('lib/circle.ts'), /api<WalletConfig>\('\/wallet\/config'\)/);
+  assert.match(src('lib/wallet.tsx'), /useEffect\(\(\) => \{ walletConfig\(\)/);
+  assert.match(privacy, /Open any page[^.]*\.[^.]*\.[^|]*sign-in service \(api\.vyrechain\.com\) is asked whether email sign-in is offered/, 'every page asks the sign-in service');
+  // the faucet, from the Wallet page
+  assert.match(src('pages/Wallet.tsx'), /getFaucetStatus\(\)/);
+  assert.match(privacy, /faucet \(testnet-rpc\.vyrechain\.com\/faucet\)[^|]*your wallet address/, 'the faucet, and the wallet address a request sends it');
+  // the promoter status lookup with the connected wallet, from the Wallet page
+  assert.match(src('pages/Wallet.tsx'), /promoterStatus\(account\)/);
+  assert.match(privacy, /Open the Wallet page with a wallet connected[^|]*promoter service \(testnet-rpc\.vyrechain\.com\)[^|]*wallet address/, 'the promoter status lookup and the wallet address it sends');
+  // the stored promoter code, looked up again from token pages
+  assert.match(src('pages/Token.tsx'), /promoterWallet\(code\)/);
+  assert.match(privacy, /each token page you open looks the stored code up again/);
+  // Circle's transfer service: its fees when the Wallet page opens, and the stored transfers' hashes
+  assert.match(read('node_modules/@vyrechain/sdk/dist/cctp.js'), /iris-api-sandbox\.circle\.com/);
+  assert.match(privacy, /Circle’s transfer service \(iris-api-sandbox\.circle\.com\)[^|]*fees[^|]*transaction hash/, 'Circle’s transfer service, its fees and the transfers’ hashes');
+  // section 3: what's kept in the browser and what of it is sent
+  assert.doesNotMatch(privacy, /none of it is sent anywhere/i);
+  const kept = privacy.slice(privacy.indexOf('3. What’s kept in your browser'), privacy.indexOf('4. Other companies'));
+  assert.match(kept, /promoter who referred you[^.]*promoter service/);
+  assert.match(kept, /transfers between networks[^.]*Circle/);
+  assert.match(kept, /email sign-in[^.]*sign-in service/);
+});
