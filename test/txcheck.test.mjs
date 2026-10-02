@@ -49,12 +49,17 @@ async function standIn(answer) {
 const json = (code, body, extra = {}) => (_q, res) => { res.writeHead(code, { 'content-type': 'application/json', ...extra }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
 const after = (ms, f) => (q, r, b) => { setTimeout(() => f(q, r, b), ms).unref(); };
 
-/** A wallet that records everything it is asked, and answers a send with a hash */
-function wallet({ send = (n) => `0x${n.toString(16).padStart(64, '0')}` } = {}) {
+/** A wallet that records everything it is asked, answers its network (`w.chain`: VYRE's unless changed) and a send with a hash; `calls` counts the sends it was given */
+function wallet({ send = (n) => `0x${n.toString(16).padStart(64, '0')}`, chain = 7357 } = {}) {
   const asked = [];
   const w = {
-    asked, calls: 0,
-    request: async (args) => { asked.push(args); w.calls++; return args.method === 'eth_sendTransaction' ? send(w.calls) : null; },
+    asked, calls: 0, chain,
+    request: async (args) => {
+      asked.push(args);
+      if (args.method === 'eth_chainId') return `0x${w.chain.toString(16)}`;
+      if (args.method === 'eth_sendTransaction' || args.method === 'wallet_sendTransaction') { w.calls++; return send(w.calls); }
+      return null;
+    },
     on() { return this === w ? 'bound' : 'unbound'; },
     removeListener() {},
     label: 'a wallet',
@@ -164,7 +169,8 @@ test('a flag opens the question before the wallet: Continue anyway goes on, Canc
     let w = wallet();
     let g = guardProvider(w, { chainId: 7357, url: api.url, ask: async (c) => { asks.push(c); assert.equal(w.calls, 0, 'the wallet isn’t asked before the question is answered'); return true; } });
     assert.equal(await g.request(sendTx()), `0x${'1'.padStart(64, '0')}`);
-    assert.deepEqual(w.asked, [sendTx()]);
+    // (the wallet's network is asked again once the question is answered, right before the send: see below)
+    assert.deepEqual(w.asked, [{ method: 'eth_chainId' }, sendTx()]);
     assert.equal(asks.length, 1);
     assert.deepEqual(asks[0].map((x) => [x.code, x.address]), [['flagged_address', FLAGGED]]);
     // Cancel
@@ -323,6 +329,87 @@ test('only VYRE is checked: another chain’s wallet client is the wallet’s ow
   } finally { await api.close(); }
 });
 
+const ARC_TESTNET = 5042002;
+const FEES = { gas: 100000n, maxFeePerGas: 10n ** 7n, maxPriorityFeePerGas: 0n };
+const movedOff = (e) => /moved to another network/.test(e.shortMessage ?? '') && /nothing was sent/i.test(e.shortMessage ?? '') && !wasCancelledByCheck(e);
+
+test('the wallet’s network is asked again after the check: one that moved while the question was open sends nothing', async () => {
+  // viem asks the wallet's network, then sends a request with no chain in it, so the wallet signs for whatever network it is
+  // on at that moment: the check (and its question) sits between the two, so the guard asks again right before the send
+  const api = await standIn(json(200, { ...ok, flags: [flag('flagged_address', { address: FLAGGED, roles: ['to'] })] }));
+  try {
+    const w = wallet();
+    const client = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(guardProvider(w, { chainId: 7357, url: api.url, ask: async () => { w.chain = ARC_TESTNET; return true; } })) });
+    await assert.rejects(client.sendTransaction({ to: FLAGGED, value: 100n * E18, ...FEES }), movedOff);
+    assert.equal(w.calls, 0, 'nothing was sent');
+    assert.deepEqual(w.asked.map((x) => x.method), ['eth_chainId', 'eth_chainId'], 'viem asked before the check, the guard asked again after it');
+    // moved away and back before Continue anyway: it goes on, on VYRE
+    const w2 = wallet();
+    const c2 = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(guardProvider(w2, { chainId: 7357, url: api.url, ask: async () => { w2.chain = ARC_TESTNET; await new Promise((r) => setTimeout(r, 5)); w2.chain = 7357; return true; } })) });
+    assert.match(await c2.sendTransaction({ to: FLAGGED, value: 1n, ...FEES }), /^0x[0-9a-f]{64}$/);
+    assert.equal(w2.calls, 1);
+  } finally { await api.close(); }
+});
+
+test('a network that changes while the check is waiting for its answer (no question shown) sends nothing too', async () => {
+  const api = await standIn(after(300, json(200, ok)));
+  try {
+    const w = wallet();
+    const client = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(guardProvider(w, { chainId: 7357, url: api.url, ask: async () => assert.fail('no flag, nothing asked') })) });
+    setTimeout(() => { w.chain = ARC_TESTNET; }, 50).unref();
+    await assert.rejects(client.sendTransaction({ to: OTHER, value: 1n, ...FEES }), movedOff);
+    assert.equal(w.calls, 0);
+    // a wallet whose network can't be read after the check isn't taken to be on VYRE
+    for (const answer of [null, '', 'vyre', {}, () => { throw new Error('no answer'); }]) {
+      const odd = wallet();
+      let n = 0;
+      const request = odd.request;
+      odd.request = async (args) => (args.method === 'eth_chainId' && n++ > 0 ? (typeof answer === 'function' ? answer() : answer) : request(args));
+      const c = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(guardProvider(odd, { chainId: 7357, url: api.url })) });
+      await assert.rejects(c.sendTransaction({ to: OTHER, value: 1n, ...FEES }));
+      assert.equal(odd.calls, 0, String(answer));
+    }
+  } finally { await api.close(); }
+});
+
+test('wallet_sendTransaction is checked as eth_sendTransaction is: viem’s fallback to it, and every later send on that client', async () => {
+  const api = await standIn(json(200, { ...ok, flags: [flag('flagged_address', { address: FLAGGED, roles: ['to'] })] }));
+  try {
+    // asked directly
+    const w = wallet();
+    const g = guardProvider(w, { chainId: 7357, url: api.url, ask: async () => false });
+    await assert.rejects(g.request({ method: 'wallet_sendTransaction', params: [{ ...TX, to: FLAGGED }] }), (e) => e instanceof CheckCancelled);
+    assert.equal(w.calls, 0);
+    assert.equal(api.hits.length, 1);
+    // a wallet that answers eth_sendTransaction with "method not found": viem resends the same request as wallet_sendTransaction,
+    // and from then on sends that way on this client. Each send is asked about once (the resent one isn't asked twice)
+    const methods = [];
+    const refuses = wallet();
+    const request = refuses.request;
+    refuses.request = async (args) => {
+      methods.push(args.method);
+      if (args.method === 'eth_sendTransaction') throw Object.assign(new Error('the method eth_sendTransaction does not exist'), { code: -32601 });
+      return request(args);
+    };
+    let asks = 0;
+    const client = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(guardProvider(refuses, { chainId: 7357, url: api.url, ask: async () => { asks++; return true; } })) });
+    for (let i = 0; i < 3; i++) await client.sendTransaction({ to: FLAGGED, value: 1n, ...FEES });
+    assert.deepEqual(methods.filter((m) => m !== 'eth_chainId'), ['eth_sendTransaction', 'wallet_sendTransaction', 'wallet_sendTransaction', 'wallet_sendTransaction']);
+    assert.equal(asks, 3, 'three sends to a flagged address: three questions');
+    assert.equal(api.hits.length, 1 + 3);
+    // only the very request just refused goes on without a second question: a different one after it is checked
+    const answers = [true, false, true, false];
+    const g2 = guardProvider(refuses, { chainId: 7357, url: api.url, ask: async () => answers.shift() });
+    await assert.rejects(g2.request(sendTx({ ...TX, to: FLAGGED })), (e) => e.code === -32601);
+    await assert.rejects(g2.request({ method: 'wallet_sendTransaction', params: [{ ...TX, to: FLAGGED, value: '0x1' }] }), (e) => e instanceof CheckCancelled);
+    // and a wallet_sendTransaction on its own, a while after, is checked even with the same request
+    await assert.rejects(g2.request(sendTx({ ...TX, to: FLAGGED })), (e) => e.code === -32601);
+    await g2.request({ method: 'eth_accounts' });
+    await assert.rejects(g2.request({ method: 'wallet_sendTransaction', params: [{ ...TX, to: FLAGGED }] }), (e) => e instanceof CheckCancelled);
+    assert.deepEqual(answers, [], 'each of the four was asked about');
+  } finally { await api.close(); }
+});
+
 test('only a send is checked; everything else, and anything that isn’t a well-formed send, goes straight to the wallet', async () => {
   const api = await standIn(json(200, { ...ok, flags: [flag('reverts')] }));
   try {
@@ -339,7 +426,8 @@ test('only a send is checked; everything else, and anything that isn’t a well-
       await g.request(args);
     }
     assert.equal(api.hits.length, 0);
-    assert.equal(w.calls, 16);
+    assert.equal(w.asked.length, 16);
+    assert.deepEqual(w.asked.map((x) => x.method).filter((m) => m === 'eth_chainId'), ['eth_chainId'], 'nothing was checked, so the network isn’t asked again either');
   } finally { await api.close(); }
 });
 
@@ -410,7 +498,7 @@ test('the check follows the app’s own VYRE chain id: a mainnet-shaped app is c
   try {
     const asked = [];
     const ask = async (c) => { asked.push(c); return true; };
-    const w = wallet();
+    const w = wallet({ chain: 9999 });
     // an app whose VYRE is chain 9999 (the id here is made up): its sends are checked; its url is its own
     await guardProvider(w, { chainId: 9999, vyreChainId: 9999, url: api.url, ask }).request(sendTx());
     assert.equal(asked.length, 1, 'checked');
@@ -474,6 +562,7 @@ const abiWord = (types, values) => encodeAbiParameters(types.map((type) => ({ ty
 /** The chain as the SDK's trade functions see it: the node answers just what they ask, and `world.sent` is what the wallet was sent */
 function world({ allowance = 0n, typedData = true, api, ask }) {
   const sent = [];
+  const state = { chain: 7357 }; // the network the wallet is on
   const nodeCall = ({ to, data }) => {
     const sel = data.slice(0, 10);
     if (sel === '0xdd62ed3e') return abiWord(['uint256'], [allowance]); // allowance
@@ -492,7 +581,7 @@ function world({ allowance = 0n, typedData = true, api, ask }) {
   };
   const wallet = {
     request: async ({ method, params }) => {
-      if (method === 'eth_chainId') return '0x1cbd';
+      if (method === 'eth_chainId') return `0x${state.chain.toString(16)}`;
       if (method === 'eth_signTypedData_v4') {
         if (!typedData) throw Object.assign(new Error('The method eth_signTypedData_v4 does not exist/is not available'), { code: -32601 });
         return `0x${'11'.repeat(32)}${'22'.repeat(32)}1b`;
@@ -503,7 +592,7 @@ function world({ allowance = 0n, typedData = true, api, ask }) {
   };
   const publicClient = createPublicClient({ chain: vyreTestnet, transport: custom(node) });
   const walletClient = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(guardProvider(wallet, { chainId: 7357, url: api.url, ask })) });
-  return { publicClient, walletClient, sent };
+  return { publicClient, walletClient, sent, state };
 }
 const never = async (c) => assert.fail(`the check raised a concern on the app's own call: ${JSON.stringify(c)}`);
 /** Runs `flow` until the wallet's first send; returns what the wallet was sent */
@@ -571,6 +660,19 @@ test('a wallet that can’t sign a permit gets an approval for exactly the amoun
     assert.equal(call.args[0].toLowerCase(), A.appRouter.toLowerCase(), 'the spender is the router');
     assert.equal(call.args[1], amountIn, 'for exactly the amount');
     assert.deepEqual(rules(api.hits[0].body), []);
+  } finally { await api.close(); }
+});
+
+test('the app’s buy, asked about and then continued after the wallet moved to Arc, is never sent, and says why in plain words', async () => {
+  // a buy of 100 USDC: the router's address has no contract on Arc's testnet and USDC is that network's own currency, so a send there would strand it
+  const api = await standIn(json(200, { ...ok, flags: [flag('flagged_address', { address: A.appRouter, roles: ['to'] })] }));
+  try {
+    let w;
+    w = world({ api, ask: async () => { w.state.chain = ARC_TESTNET; return true; } });
+    const e = await buy(w.walletClient, w.publicClient, { token: TOKEN, usdcIn: 100n * E18, minTokensOut: 1n }).then(() => assert.fail('sent'), (x) => x);
+    assert.ok(movedOff(e), e.shortMessage);
+    assert.match(e.shortMessage.split('\n')[0], /^Your wallet moved to another network before this was sent, so nothing was sent/);
+    assert.deepEqual(w.sent, [], 'the wallet was never asked to send');
   } finally { await api.close(); }
 });
 

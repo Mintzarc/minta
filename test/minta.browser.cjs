@@ -536,6 +536,19 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok((await asked()).length === 0 && /Cancelled\. Nothing was sent\./.test(await pg.locator('#vyre .status').innerText()) && await pg.locator('[role=alertdialog]').count() === 0, `${how}: nothing is sent, and the page says so`);
       await ctx.close();
     }
+    // the wallet moves to another network (Arc) while the question is open, then Continue anyway: nothing is sent, and the page says why
+    {
+      const { pg, ctx, asked, errs } = await harness(reply(200, hostile));
+      await pg.click('#vyre button');
+      await pg.waitForSelector('[role=alertdialog]');
+      await pg.evaluate(() => { window.__chainHex = '0x4cef52'; });
+      await pg.click('button:has-text("Continue anyway")');
+      await pg.waitForSelector('#vyre .status.err');
+      const said = await pg.locator('#vyre .status').innerText();
+      ok((await asked()).length === 0 && /moved to another network before this was sent, so nothing was sent/.test(said) && /Switch it back to VYRE/.test(said), 'the wallet moved to another network while the question was open: nothing is sent, and the page says why (' + said.slice(0, 80) + '…)');
+      ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
     // "would fail" alone opens it too
     {
       const { pg, ctx, asked } = await harness(reply(200, { ...base0, reverts: true, revertReason: 'x' }));

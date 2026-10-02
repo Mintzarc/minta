@@ -1,7 +1,7 @@
 // An advisory check before a wallet is asked to sign a transaction on VYRE. The check service (api.vyrechain.com, through
 // the SDK's `checkTransaction`) runs the transaction without sending it and looks up the addresses in it with a security
-// service. MINTA wraps the browser wallet's `eth_sendTransaction`, so every send on VYRE (launch, buy, sell, approve, the
-// Wallet page's sends) goes through here without each page doing anything.
+// service. MINTA wraps the browser wallet's `eth_sendTransaction` (and `wallet_sendTransaction`, which viem falls back to),
+// so every send on VYRE (launch, buy, sell, approve, the Wallet page's sends) goes through here without each page doing anything.
 //
 // The rules, which the tests (test/txcheck.test.mjs) hold in place:
 //  - ADVISORY AND FAIL-OPEN. It waits at most CHECK_BUDGET_MS. Any error, a timeout, HTTP 429 or 500, a body that isn't
@@ -14,9 +14,12 @@
 //    the only thing taken from its answer into the text is an address that passed an address check, so a hostile answer
 //    can't put words or markup in front of someone.
 //  - Only VYRE's chain is ever checked; a wallet client for another chain is passed through untouched.
+//  - The check sits between viem's look at the wallet's network and the send (viem's request names no chain, so the wallet
+//    signs for whatever network it is on when the send reaches it). So once the check has waited for anything, the wallet's
+//    network is asked again right before the send, and if it isn't VYRE's any more nothing is sent.
 //
 // No imports from the app (only viem and the SDK) so that node can run this file in the unit tests.
-import { isAddress, type Address, type EIP1193Provider } from 'viem';
+import { BaseError, isAddress, type Address, type EIP1193Provider } from 'viem';
 import { checkTransaction, vyreTestnet, type TxCheck } from '@vyrechain/sdk';
 
 /** The most the check may add before the wallet's own prompt, in milliseconds (everything counted: connecting, the answer, reading it) */
@@ -108,6 +111,16 @@ export class CheckCancelled extends Error {
   constructor() {
     super('Cancelled. Nothing was sent.');
     this.name = 'CheckCancelled';
+  }
+}
+
+/**
+ * Thrown to the page's own code when the wallet was on another network than VYRE's by the time the check had finished: nothing
+ * was sent. (A viem error, so viem passes it on as it is and the page shows its words.)
+ */
+export class WalletMovedNetwork extends BaseError {
+  constructor() {
+    super('Your wallet moved to another network before this was sent, so nothing was sent. Switch it back to VYRE, then try again.', { name: 'WalletMovedNetwork' });
   }
 }
 
@@ -224,31 +237,65 @@ async function concernsWithin(tx: NonNullable<ReturnType<typeof readTx>>, o: Gua
   }
 }
 
-/** Runs the check for one `eth_sendTransaction`'s parameter. Resolves to go on; throws CheckCancelled and nothing else, only if someone chose Cancel. */
-export async function reviewBeforeSend(params: unknown, o: GuardOptions): Promise<void> {
-  if (o.chainId !== (o.vyreChainId ?? vyreTestnet.id)) return;
+/**
+ * Runs the check for one send's parameter. Resolves to go on, with whether it waited for anything (the service, the person);
+ * throws CheckCancelled and nothing else, only if someone chose Cancel.
+ */
+export async function reviewBeforeSend(params: unknown, o: GuardOptions): Promise<boolean> {
+  if (o.chainId !== (o.vyreChainId ?? vyreTestnet.id)) return false;
   let concerns: Concern[] = [];
+  let waited = false;
   try {
     const tx = readTx(Array.isArray(params) ? params[0] : undefined, o.chainId);
-    if (tx) concerns = await concernsWithin(tx, o);
+    if (tx) { waited = true; concerns = await concernsWithin(tx, o); }
   } catch {
     concerns = [];
   }
-  if (!concerns.length) return;
+  if (!concerns.length) return waited;
   let go = false;
   try { go = await (o.ask ?? askToContinue)(concerns); } catch { go = false; }
   if (!go) throw new CheckCancelled();
+  return true;
 }
 
+/** A wallet's answer to `eth_chainId` as a number (NaN when it isn't one) */
+const chainIdOf = (v: unknown): number =>
+  typeof v === 'number' ? v : typeof v === 'string' && /^(0x[0-9a-fA-F]{1,16}|[1-9][0-9]{0,15})$/.test(v) ? Number(v) : NaN;
+
+/** The sends the check looks at: viem uses `wallet_sendTransaction` for a wallet that refuses `eth_sendTransaction`, with the same parameter */
+const SENDS: ReadonlySet<string> = new Set(['eth_sendTransaction', 'wallet_sendTransaction']);
+/** The error codes for which viem resends a refused `eth_sendTransaction` as `wallet_sendTransaction` (invalid input or params, method not found or not supported) */
+const RESENT_ON: ReadonlySet<unknown> = new Set([-32000, -32602, -32601, -32004]);
+const keyOf = (params: unknown): string | null => { try { return JSON.stringify(params) ?? null; } catch { return null; } };
+
 /**
- * The wallet's provider with its `eth_sendTransaction` going through the check first; everything else is passed to the
- * wallet as it is. For any chain but VYRE's, the provider itself comes back, untouched.
+ * The wallet's provider with its sends going through the check first, and the wallet's network asked again after it;
+ * everything else is passed to the wallet as it is. For any chain but VYRE's, the provider itself comes back, untouched.
  */
 export function guardProvider(provider: EIP1193Provider, o: GuardOptions): EIP1193Provider {
   if (o.chainId !== (o.vyreChainId ?? vyreTestnet.id)) return provider;
+  const toWallet = (args: { method: string; params?: unknown }) => provider.request(args as Parameters<EIP1193Provider['request']>[0]);
+  // the send the wallet has just refused as `eth_sendTransaction`: viem's very next request is the same one as
+  // `wallet_sendTransaction`, which was checked a moment ago and isn't asked about twice
+  let refused: string | null = null;
   const request = async (args: { method: string; params?: unknown }) => {
-    if (args && args.method === 'eth_sendTransaction') await reviewBeforeSend(args.params, o);
-    return provider.request(args as Parameters<EIP1193Provider['request']>[0]);
+    const resent = refused;
+    refused = null;
+    if (!args || !SENDS.has(args.method)) return toWallet(args);
+    const key = keyOf(args.params);
+    if (!(args.method === 'wallet_sendTransaction' && key !== null && key === resent)) {
+      // the check may have taken a while (or waited on the person): the send goes to whatever network the wallet is on now
+      if (await reviewBeforeSend(args.params, o)) {
+        const now = chainIdOf(await toWallet({ method: 'eth_chainId' }));
+        if (now !== o.chainId) throw new WalletMovedNetwork(); // (an answer that can't be read isn't VYRE's either)
+      }
+    }
+    try {
+      return await toWallet(args);
+    } catch (e) {
+      if (args.method === 'eth_sendTransaction' && key !== null && RESENT_ON.has((e as { code?: unknown } | null)?.code)) refused = key;
+      throw e;
+    }
   };
   // (the Proxy's target is an empty shell, not the wallet's provider: a Proxy's `get` must return a frozen provider's own `request`
   // unchanged, and throws when it doesn't, which would stop every send for that wallet; with a shell there is no invariant to break.
