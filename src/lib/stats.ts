@@ -3,6 +3,7 @@
 // it, and its last trade; plus holder counts from the explorer. Read in the visitor's browser from the public RPC (a few log queries for every
 // listed launch at once) and the explorer's API. That's fine at testnet scale; a busy mainnet needs an indexer.
 import { getAddress, parseAbiItem, type Address } from 'viem';
+import { inPieces, LOG_LIST_MAX } from './pieces';
 import { isQuoteToken0, LOG_PAGE_BLOCKS, vyreTokenAbi } from '@vyrechain/sdk';
 import { EXPLORER, vyre } from './chain';
 import { addresses, priceFrom, swapEvent, type Listed } from './market';
@@ -91,12 +92,19 @@ export async function loadStats(list: Listed[]): Promise<Map<Address, Stats>> {
   const pools = list.map((l) => l.pool);
   const q0 = new Map(list.map((l) => [l.pool.toLowerCase(), l.market?.quoteIsToken0 ?? isQuoteToken0(l.token, a.wusdc)]));
 
-  // every swap of every listed pool, and each launch's opening price (and its launch transaction)
-  const [swaps, opened] = await Promise.all([
-    pagedLogs((lo, hi) => vyre.getLogs({ address: pools, event: swapEvent, fromBlock: lo, toBlock: hi }), start, latest),
-    pagedLogs((lo, hi) => vyre.getLogs({ address: a.pad, event: launchCreated, args: { token: list.map((l) => l.token) }, fromBlock: lo, toBlock: hi }), start, latest,
-      (got) => got.length >= list.length),
+  // every swap of every listed pool, and each launch's opening price (and its launch transaction); the lists go to the RPC in pieces of
+  // LOG_LIST_MAX (the public RPC refuses a filter naming more addresses or alternatives than it takes), one piece after another
+  const swaps: Awaited<ReturnType<typeof readSwaps>> = [];
+  const opened: Awaited<ReturnType<typeof readOpened>> = [];
+  const readSwaps = (ps: Address[]) => pagedLogs((lo, hi) => vyre.getLogs({ address: ps, event: swapEvent, fromBlock: lo, toBlock: hi }), start, latest);
+  const readOpened = (ts: Address[]) => pagedLogs((lo, hi) => vyre.getLogs({ address: a.pad, event: launchCreated, args: { token: ts }, fromBlock: lo, toBlock: hi }), start, latest,
+    (got) => got.length >= ts.length);
+  const [swapPieces, openedPieces] = await Promise.all([
+    inPieces(pools, LOG_LIST_MAX, readSwaps),
+    inPieces(list.map((l) => l.token), LOG_LIST_MAX, readOpened),
   ]);
+  for (const x of swapPieces) swaps.push(...x);
+  for (const x of openedPieces) opened.push(...x);
   const openPrice = new Map<string, number>();
   const launchTx = new Map<string, string>();
   for (const e of opened) {
