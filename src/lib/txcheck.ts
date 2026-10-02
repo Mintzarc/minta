@@ -133,10 +133,14 @@ const emit = () => subs.forEach((f) => f());
 export const subscribeRequests = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
 /** The question waiting to be answered, if any */
 export const currentRequest = (): CheckRequest | null => pending;
-/** Opens the dialog; true when someone chose Continue anyway, false for Cancel (or if another question took its place: nothing is sent then either) */
+let tail: Promise<unknown> = Promise.resolve();
+let waiting = 0; // questions on screen or waiting their turn
+/**
+ * Opens the dialog; true when someone chose Continue anyway, false for Cancel. One question at a time: a second one (two sends in quick
+ * succession) waits until the first is answered, so nobody's Cancel is made for them.
+ */
 export function askToContinue(concerns: Concern[]): Promise<boolean> {
-  pending?.cancel();
-  return new Promise<boolean>((resolve) => {
+  const show = () => new Promise<boolean>((resolve) => {
     const me: CheckRequest = {
       concerns,
       proceed: () => finish(true),
@@ -149,6 +153,12 @@ export function askToContinue(concerns: Concern[]): Promise<boolean> {
     pending = me;
     emit();
   });
+  // (with nothing on screen or waiting, the question opens at once; otherwise it opens when the one before it has been answered)
+  const first = waiting === 0;
+  waiting++;
+  const mine = (first ? show() : tail.then(show)).finally(() => { waiting--; });
+  tail = mine.catch(() => undefined);
+  return mine;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -157,6 +167,8 @@ export function askToContinue(concerns: Concern[]): Promise<boolean> {
 export interface GuardOptions {
   /** The chain the wallet client is for: anything but VYRE's is passed through unchecked */
   chainId: number;
+  /** VYRE's chain id as this app is built (default: the SDK's testnet): `walletOn` passes the app's own, so the check follows the app when it moves networks */
+  vyreChainId?: number;
   /** The check service's address (default: the SDK's for the testnet) */
   url?: string;
   /** Opens the dialog (default: MINTA's own); resolves true to go on */
@@ -191,6 +203,11 @@ function readTx(p: unknown, chainId: number): { from: string; to: string; data?:
   return { from: t.from, to: t.to, ...(data !== undefined ? { data } : {}), ...(value !== undefined ? { value } : {}) };
 }
 
+/** A flagged address said to be the contract the transaction calls must be the one it really calls (the service can't name another under that sentence) */
+export function pinTo(cs: Concern[], to: string): Concern[] {
+  return cs.map((c) => (c.code === 'flagged_address' && c.role === 'to' && c.address?.toLowerCase() !== to.toLowerCase() ? { ...c, role: undefined } : c));
+}
+
 /** Asks the service, waiting no longer than the budget; always resolves, with the concerns to show ([] for no answer, whatever the reason) */
 async function concernsWithin(tx: NonNullable<ReturnType<typeof readTx>>, o: GuardOptions): Promise<Concern[]> {
   const budget = o.budgetMs ?? CHECK_BUDGET_MS;
@@ -198,7 +215,7 @@ async function concernsWithin(tx: NonNullable<ReturnType<typeof readTx>>, o: Gua
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<Concern[]>((resolve) => { timer = setTimeout(() => { stop.abort(); resolve([]); }, budget); });
   try {
-    const asked = checkTransaction({ chain: { id: o.chainId } }, tx, { ...(o.url ? { url: o.url } : {}), timeoutMs: budget, signal: stop.signal }).then(concernsOf, () => []);
+    const asked = checkTransaction({ chain: { id: o.chainId } }, tx, { ...(o.url ? { url: o.url } : {}), timeoutMs: budget, signal: stop.signal }).then((a) => pinTo(concernsOf(a), tx.to), () => []);
     return await Promise.race([asked, late]);
   } catch {
     return [];
@@ -209,7 +226,7 @@ async function concernsWithin(tx: NonNullable<ReturnType<typeof readTx>>, o: Gua
 
 /** Runs the check for one `eth_sendTransaction`'s parameter. Resolves to go on; throws CheckCancelled and nothing else, only if someone chose Cancel. */
 export async function reviewBeforeSend(params: unknown, o: GuardOptions): Promise<void> {
-  if (o.chainId !== vyreTestnet.id) return;
+  if (o.chainId !== (o.vyreChainId ?? vyreTestnet.id)) return;
   let concerns: Concern[] = [];
   try {
     const tx = readTx(Array.isArray(params) ? params[0] : undefined, o.chainId);
@@ -228,16 +245,20 @@ export async function reviewBeforeSend(params: unknown, o: GuardOptions): Promis
  * wallet as it is. For any chain but VYRE's, the provider itself comes back, untouched.
  */
 export function guardProvider(provider: EIP1193Provider, o: GuardOptions): EIP1193Provider {
-  if (o.chainId !== vyreTestnet.id) return provider;
+  if (o.chainId !== (o.vyreChainId ?? vyreTestnet.id)) return provider;
   const request = async (args: { method: string; params?: unknown }) => {
     if (args && args.method === 'eth_sendTransaction') await reviewBeforeSend(args.params, o);
     return provider.request(args as Parameters<EIP1193Provider['request']>[0]);
   };
-  return new Proxy(provider, {
-    get(target, prop) {
+  // (the Proxy's target is an empty shell, not the wallet's provider: a Proxy's `get` must return a frozen provider's own `request`
+  // unchanged, and throws when it doesn't, which would stop every send for that wallet; with a shell there is no invariant to break.
+  // Everything but `request` is read from the wallet's own provider and bound to it.)
+  return new Proxy({} as EIP1193Provider, {
+    get(_shell, prop) {
       if (prop === 'request') return request;
-      const v = Reflect.get(target, prop, target) as unknown;
-      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      const v = Reflect.get(provider, prop, provider) as unknown;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(provider) : v;
     },
+    has: (_shell, prop) => prop in provider,
   });
 }

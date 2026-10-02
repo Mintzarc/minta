@@ -14,7 +14,7 @@ import http from 'node:http';
 import { createPublicClient, createWalletClient, custom, decodeFunctionData, encodeFunctionData, getAddress, maxUint256, parseUnits, encodeAbiParameters } from 'viem';
 import { buy, getAddresses, launch, sell, vyreAppRouterAbi, vyrePadAbi, vyreTestnet, vyreTokenAbi } from '@vyrechain/sdk';
 import {
-  CHECK_BUDGET_MS, CheckCancelled, askToContinue, concernsOf, currentRequest, describe, guardProvider, reviewBeforeSend, wasCancelledByCheck,
+  CHECK_BUDGET_MS, CheckCancelled, askToContinue, concernsOf, currentRequest, describe, guardProvider, pinTo, reviewBeforeSend, wasCancelledByCheck,
 } from '../src/lib/txcheck.ts';
 
 const ME = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
@@ -354,20 +354,82 @@ test('the wrapper is the wallet itself for everything else: its other members, b
   } finally { await api.close(); }
 });
 
-test('the dialog’s question is one at a time: a new one takes the old one’s place, which is a Cancel', async () => {
+const tick = () => new Promise((r) => setTimeout(r, 5));
+test('the dialog’s question is one at a time: a second one waits for the first to be answered, nobody’s Cancel is made for them', async () => {
   const first = askToContinue([{ code: 'reverts' }]);
   const open = currentRequest();
   assert.deepEqual(open.concerns, [{ code: 'reverts' }]);
   const second = askToContinue([{ code: 'unlimited_approval', address: OTHER }]);
-  assert.equal(await first, false);
+  await tick();
+  assert.equal(currentRequest(), open, 'still the first one on screen');
+  open.proceed();
+  assert.equal(await first, true);
+  await tick();
   assert.notEqual(currentRequest(), open);
-  currentRequest().proceed();
-  assert.equal(await second, true);
+  assert.deepEqual(currentRequest().concerns, [{ code: 'unlimited_approval', address: OTHER }]);
+  currentRequest().cancel();
+  assert.equal(await second, false);
   assert.equal(currentRequest(), null);
   const third = askToContinue([{ code: 'reverts' }]);
   currentRequest().cancel();
   assert.equal(await third, false);
   assert.equal(currentRequest(), null);
+});
+
+test('three questions in a row are answered in turn, in order, each by the person', async () => {
+  const answers = [];
+  const qs = [1, 2, 3].map((n) => askToContinue([{ code: 'flagged_address', address: `0x${String(n).repeat(40)}` }]).then((go) => answers.push([n, go])));
+  for (const go of [true, false, true]) { await tick(); currentRequest().concerns; (go ? currentRequest().proceed : currentRequest().cancel)(); }
+  await Promise.all(qs);
+  assert.deepEqual(answers, [[1, true], [2, false], [3, true]]);
+  assert.equal(currentRequest(), null);
+});
+
+test('a wallet with a frozen provider still sends (a Proxy over the provider itself would throw when viem reads `request`)', async () => {
+  const sent = [];
+  const frozen = Object.freeze({ request: async (a) => { sent.push(a.method); return a.method === 'eth_sendTransaction' ? `0x${'1'.repeat(64)}` : a.method === 'eth_chainId' ? '0x1cbd' : null; }, on() {}, removeListener() {} });
+  const fees = { gas: 100000n, maxFeePerGas: 10n ** 10n, maxPriorityFeePerGas: 0n, nonce: 0 };
+  const api = await standIn(json(200, ok));
+  try {
+    const g = guardProvider(frozen, { chainId: 7357, url: api.url, ask: async () => assert.fail('no flag, nothing asked') });
+    const client = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(g) });
+    const hash = await client.sendTransaction({ to: OTHER, data: '0xdeadbeef', value: 10000n, ...fees });
+    assert.equal(hash, `0x${'1'.repeat(64)}`);
+    assert.ok(sent.includes('eth_sendTransaction'));
+    assert.equal(api.hits.length, 1, 'it was checked');
+  } finally { await api.close(); }
+  // and a provider whose `request` is read-only and non-configurable, the same
+  const odd = {}; Object.defineProperty(odd, 'request', { value: async (a) => (a.method === 'eth_chainId' ? '0x1cbd' : `0x${'2'.repeat(64)}`), writable: false, configurable: false });
+  const g2 = guardProvider(odd, { chainId: 7357, url: 'http://127.0.0.1:1/txcheck' });
+  const client2 = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(g2) });
+  assert.equal(await client2.sendTransaction({ to: OTHER, value: 1n, ...fees }), `0x${'2'.repeat(64)}`);
+});
+
+test('the check follows the app’s own VYRE chain id: a mainnet-shaped app is checked, and the testnet id is then not', async () => {
+  const api = await standIn(json(200, { ...ok, reverts: true, flags: [flag('reverts')] }));
+  try {
+    const asked = [];
+    const ask = async (c) => { asked.push(c); return true; };
+    const w = wallet();
+    // an app whose VYRE is chain 9999 (the id here is made up): its sends are checked; its url is its own
+    await guardProvider(w, { chainId: 9999, vyreChainId: 9999, url: api.url, ask }).request(sendTx());
+    assert.equal(asked.length, 1, 'checked');
+    assert.equal(api.hits[0].body.chainId, 9999);
+    // a wallet client for another chain than the app's VYRE is passed straight through
+    const raw = wallet();
+    assert.equal(guardProvider(raw, { chainId: 7357, vyreChainId: 9999, url: api.url, ask }), raw);
+    await reviewBeforeSend([TX], { chainId: 7357, vyreChainId: 9999, url: api.url, ask });
+    assert.equal(asked.length, 1, 'not checked');
+  } finally { await api.close(); }
+});
+
+test('a flagged address said to be the contract the transaction calls is only that if it is: the service can’t name another under that sentence', () => {
+  const mk = (address, role) => [{ code: 'flagged_address', address, role }];
+  assert.deepEqual(pinTo(mk(OTHER, 'to'), OTHER), mk(OTHER, 'to'));
+  assert.deepEqual(pinTo(mk(OTHER.toUpperCase().replace('0X', '0x'), 'to'), OTHER), mk(OTHER.toUpperCase().replace('0X', '0x'), 'to'));
+  assert.deepEqual(pinTo(mk(FLAGGED, 'to'), OTHER), mk(FLAGGED, undefined));
+  assert.deepEqual(pinTo(mk(FLAGGED, 'spender'), OTHER), mk(FLAGGED, 'spender'));
+  assert.deepEqual(pinTo([{ code: 'reverts' }], OTHER), [{ code: 'reverts' }]);
 });
 
 test('wasCancelledByCheck finds it under viem’s wrapping, and nothing else', () => {

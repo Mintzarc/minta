@@ -29,12 +29,15 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
 - **The check before signing** (`src/lib/txcheck.ts`, `src/components/TxCheckDialog.tsx`): before a browser wallet is asked to send a
   transaction on VYRE, `walletOn` (`src/lib/chain.ts`) runs it past the API's `POST /txcheck`, which simulates it on the network
   without sending it and looks up the addresses in it with a third-party security service. It is advisory and fails open: it waits at
-  most 800 ms, and any error, timeout, busy answer or answer without a simulation lets the transaction go on without a word. Only
+  most 800 ms, and any error, timeout, busy answer or empty answer lets the transaction go on without a word (an answer whose simulation didn't run still shows a flagged address, which doesn't depend on it, and nothing else). Only
   when the answer carries flags (an unlimited approval, an approval to a contract that isn't one of the launchpad's own, a flagged
   address, or a transaction that would fail) does a dialog open before the wallet's prompt, with Continue anyway and Cancel; its words
-  are MINTA's own and nothing from the service's text is shown. It checks VYRE only. Point `VITE_API_URL` at your own service with the
+  are MINTA's own and nothing from the service's text is shown. It checks VYRE transactions sent from a browser wallet only: not Arc, not contract creations or call data over 24 KB. Point `VITE_API_URL` at your own service with the
   same route to move it, or take `txcheck.ts` out of `walletOn` to turn it off. The privacy page and the FAQ say what it sends. Not
-  covered: Face ID wallets (parked, section 5), which send through a bundler rather than the wallet's own provider.
+  covered: Face ID wallets (parked, section 5), which send through a bundler rather than the wallet's own provider, and the email
+  wallet's sends (off until its provider signs for VYRE): if either returns, check the built transaction first. At the move to the
+  main network the check follows the app's own VYRE chain (`walletOn` passes it), and the service's address and allowed origin
+  (`TXCHECK_ORIGINS`) must name the new site.
 - **Fees:** the 1% platform fee and the promoters' share are set in the launchpad contracts and paid by the fee splitter contract.
   A launchpad fee on top (0 to 1%) is possible for a partner launchpad registered with the splitter, which the contracts' owner does.
   The app shows every fee before a trade is confirmed.

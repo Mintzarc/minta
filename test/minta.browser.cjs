@@ -542,7 +542,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(!/\bsafe\b/i.test(faq.slice(faq.indexOf('Does MINTA check'), faq.indexOf('Has it had an outside audit'))), 'and never calls a checked transaction safe');
       await pg.goto(base + 'privacy/');
       const privacy = await pg.locator('main').textContent();
-      ok(/Send a transaction on VYRE/.test(privacy) && /api\.vyrechain\.com/.test(privacy) && /third-party security service/.test(privacy) && /advisory and optional/.test(privacy) && /GoPlus/.test(privacy), 'the privacy page lists what the check sends, to which service, and that it is advisory and optional');
+      ok(/Send a transaction on VYRE/.test(privacy) && /api\.vyrechain\.com/.test(privacy) && /third-party security service/.test(privacy) && /advisory \(it never stops a transaction\)/.test(privacy) && /GoPlus/.test(privacy), 'the privacy page lists what the check sends, to which service, and that it is advisory');
       await ctx.close();
     }
     hsrv.close();

@@ -146,7 +146,7 @@ export async function switchTo(provider: EIP1193Provider, chain: Chain): Promise
  * other chain the wallet's own provider is used as it is.
  */
 export function walletOn(provider: EIP1193Provider, account: Address, chain: Chain = vyreTestnet): WalletClient {
-  return createWalletClient({ account, chain, transport: custom(guardProvider(provider, { chainId: chain.id, url: `${API_URL}/txcheck` })) });
+  return createWalletClient({ account, chain, transport: custom(guardProvider(provider, { chainId: chain.id, vyreChainId: vyre.chain?.id, url: `${API_URL}/txcheck` })) });
 }
 
 /** A readable reason from a wallet or node error */
