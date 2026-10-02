@@ -501,7 +501,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         'an error body that looks flagged (500)': reply(500, flagged),
         'a page that is not JSON': reply(200, '<html><script>window.__pwned=1</script></html>'),
         'truncated JSON': reply(200, '{"advisory":true,"simulated":true,"flags":[{"code":"rev'),
-        'an answer with no simulation': reply(200, { ...flagged, simulated: false, reason: 'trace_unavailable' }),
+        'an answer with no simulation and nothing flagged but a failure': reply(200, { ...base0, simulated: false, reason: 'trace_unavailable', reverts: true, flags: [{ code: 'reverts' }] }),
         'a network error': async (route) => { await route.abort().catch(() => {}); },
         'a service that takes 3 s': async (route, cors) => { await new Promise((r) => setTimeout(r, 3000)); await reply(200, flagged)(route, cors); },
       };

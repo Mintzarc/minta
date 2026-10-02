@@ -71,10 +71,16 @@ const timed = async (f) => { const t = Date.now(); const r = await f(); return [
 test('an answer with nothing in it says nothing, and every kind of "no answer" says nothing', () => {
   assert.deepEqual(concernsOf({ available: true, ...ok }), []);
   for (const x of [null, undefined, 0, 'x', [], {}, { available: false, reason: 'timeout' }, { available: true }, { available: true, advisory: false, simulated: true, flags: [flag('reverts')] },
-    // the node's simulation didn't happen: whatever else the answer holds, the check goes on silently
-    { available: true, ...ok, simulated: false, reason: 'trace_unavailable', flags: [flag('flagged_address', { address: FLAGGED })] },
+    // the node's simulation didn't happen and nothing else was found: silent (a flagged address is the one thing it still says: next test)
+    { available: true, ...ok, simulated: false, reason: 'trace_unavailable', flags: [] },
+    { available: true, ...ok, simulated: false, reason: 'trace_unavailable', reverts: true, flags: [flag('reverts'), flag('unlimited_approval', { spender: FLAGGED })] },
     { available: true, ...ok, simulated: 'true', flags: [flag('reverts')] },
     { available: true, ...ok, flags: 'reverts' }]) assert.deepEqual(concernsOf(x), [], JSON.stringify(x));
+});
+
+test('without a simulation a flagged address is still said, and nothing else is', () => {
+  const c = concernsOf({ available: true, ...ok, simulated: false, reason: 'timeout', reverts: true, flags: [flag('reverts'), flag('unlimited_approval', { spender: FLAGGED }), flag('flagged_address', { address: FLAGGED, roles: ['to'] })] });
+  assert.deepEqual(c, [{ code: 'flagged_address', address: FLAGGED, role: 'to' }]);
 });
 
 test('each kind of flag becomes one concern, with only well-formed addresses', () => {
@@ -215,7 +221,6 @@ test('no answer, in any form, is silent: errors, busy, broken, hostile and absen
     'HTTP 200 without advisory': json(200, { ...flagged, advisory: undefined }),
     'HTTP 200 advisory false': json(200, { ...flagged, advisory: false }),
     'HTTP 200 simulated false': json(200, { ...flagged, simulated: false, reason: 'trace_unavailable' }),
-    'HTTP 200 simulated false with a flagged address': json(200, { ...ok, simulated: false, reason: 'timeout', flags: [flag('flagged_address', { address: FLAGGED })] }),
     'HTTP 200 without flags': json(200, { advisory: true, simulated: true, addressChecks: {} }),
     'HTTP 200 truncated JSON': json(200, '{"advisory":true,"simulated":true,"flags":[{"code":"rev'),
     'a redirect': (_q, r) => { r.writeHead(302, { location: 'http://127.0.0.1:1/' }); r.end(); },

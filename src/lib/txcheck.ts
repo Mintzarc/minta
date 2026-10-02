@@ -5,7 +5,8 @@
 //
 // The rules, which the tests (test/txcheck.test.mjs) hold in place:
 //  - ADVISORY AND FAIL-OPEN. It waits at most CHECK_BUDGET_MS. Any error, a timeout, HTTP 429 or 500, a body that isn't
-//    the expected answer, an answer where the simulation didn't happen: the transaction goes on, silently. A problem with
+//    the expected answer, an answer with nothing in it: the transaction goes on, silently. (An answer where the simulation
+//    didn't happen still shows a flagged address, which doesn't depend on it, and nothing else.) A problem with
 //    the service is never shown to anyone as a warning.
 //  - Only when the answer carries a flag (or says the transaction would fail) does a dialog open, BEFORE the wallet's own
 //    prompt, with Continue anyway and Cancel. No flag: nothing is shown, and nothing is said about the transaction at all.
@@ -56,19 +57,23 @@ const addressOf = (v: unknown): Address | undefined => (typeof v === 'string' &&
 export function concernsOf(answer: TxCheck | unknown): Concern[] {
   try {
     const a = answer as Partial<Record<string, unknown>> | null;
-    if (!a || typeof a !== 'object' || a.available !== true || a.advisory !== true || a.simulated !== true) return [];
+    if (!a || typeof a !== 'object' || a.available !== true || a.advisory !== true || typeof a.simulated !== 'boolean') return [];
+    // The address lookup doesn't depend on the simulation: when the simulation didn't happen, a flagged address is still worth
+    // saying, and nothing else is (the service sends nothing else then; a hostile answer that does is read the same way)
+    const simulated = a.simulated;
     const out: Concern[] = [];
     const seen = new Set<string>();
     const add = (c: Concern) => {
       const key = `${c.code}|${c.address?.toLowerCase() ?? ''}|${c.role ?? ''}`;
       if (!seen.has(key) && out.length < KEEP_AT_MOST) { seen.add(key); out.push(c); }
     };
-    if (a.reverts === true) add({ code: 'reverts' });
+    if (simulated && a.reverts === true) add({ code: 'reverts' });
     const flags = Array.isArray(a.flags) ? a.flags.slice(0, READ_AT_MOST) : [];
     for (const f of flags as unknown[]) {
       if (!f || typeof f !== 'object') continue;
       const { code, spender, address, roles } = f as Record<string, unknown>;
       if (typeof code !== 'string' || !CODES.has(code)) continue;
+      if (code !== 'flagged_address' && !simulated) continue;
       if (code === 'reverts') add({ code });
       else if (code === 'flagged_address') add({ code, address: addressOf(address), role: roleOf(roles) });
       else add({ code: code as ConcernCode, address: addressOf(spender) });
