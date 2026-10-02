@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -98,4 +99,32 @@ test('the network is chosen in one place: no file but src/lib/chain.ts names the
     });
   }
   assert.deepEqual(found, []);
+});
+
+test('.gitignore keeps a linked node_modules and key files out of `git add -A` (read in a fresh repository, so no local exclude counts)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minta-ignore-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // no user or system settings: only this .gitignore decides
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' };
+  const git = (...a) => execFileSync('git', a, { cwd: dir, env, encoding: 'utf8' });
+  git('-c', 'init.defaultBranch=main', 'init', '-q');
+  fs.copyFileSync(path.join(ROOT, '.gitignore'), path.join(dir, '.gitignore'));
+  // packages linked from another working copy: a link is a file to git, not a folder
+  fs.symlinkSync(os.tmpdir(), path.join(dir, 'node_modules'));
+  fs.mkdirSync(path.join(dir, 'tools'));
+  fs.symlinkSync(os.tmpdir(), path.join(dir, 'tools', 'node_modules'));
+  const keys = ['.env', '.env.local', 'deploy.key', 'keystore.json', 'secrets/a.json', 'UTC--2026-01-01T00-00-00.000Z--0000000000000000000000000000000000000001',
+    'server.pem', 'cert.p12', 'id_rsa', 'id_rsa.pub', 'id_ed25519', 'id_ecdsa'];
+  for (const f of keys) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+    fs.writeFileSync(path.join(dir, f), 'x');
+  }
+  const untracked = git('status', '--porcelain=v1', '--untracked-files=all').split('\n').filter(Boolean);
+  assert.deepEqual(untracked, ['?? .gitignore']);
+});
+
+test('.gitignore hides no file the repository tracks', () => {
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' };
+  const hidden = execFileSync('git', ['ls-files', '-ci', '--exclude-per-directory=.gitignore'], { cwd: ROOT, env, encoding: 'utf8' }).split('\n').filter(Boolean);
+  assert.deepEqual(hidden, []);
 });
