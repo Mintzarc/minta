@@ -174,37 +174,49 @@ async function capped(r: Response, max: number): Promise<string | null> {
   return new TextDecoder().decode(all);
 }
 
-const cache = new Map<string, Promise<Meta | null>>();
+// each file is read once and kept; a read that failed (the service busy or unreachable, too slow, not a launch file) is kept only
+// for a while, then read again, so a busy moment doesn't leave a token without its picture, or its creator's editor empty, for the
+// rest of the visit
+const RETRY_FAILED_MS = 30_000;
+const cache = new Map<string, { read: Promise<Meta | null>; failedAt?: number }>();
 
-export function metaOf(uri: string): Promise<Meta | null> {
+/** A launch's file as the app shows it: null when it has none to read (no link, or one that isn't https or ipfs); throws when it
+ * couldn't be read just now, so a page that edits it can tell "couldn't read it" from "there's nothing in it". `again` reads
+ * once more at once after a failure (a "Try again" button) */
+export function readLaunchFile(uri: string, again = false): Promise<Meta | null> {
   if (!uri) return Promise.resolve(null);
-  if (!cache.has(uri)) {
-    cache.set(uri, (async () => {
-      const url = safeUrl(uri);
-      if (!url) return null;
-      // the timeout covers the whole read, body included
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!r.ok) return null;
-      const text = await capped(r, META_BYTES);
-      if (text === null) return null;
-      const j = JSON.parse(text);
-      if (!j || typeof j !== 'object') return null;
-      const raw: Record<string, unknown> = j.links && typeof j.links === 'object' ? j.links : {};
-      const links: Meta['links'] = [];
-      for (const l of LINKS) {
-        const from = l.from.find((k) => Object.prototype.hasOwnProperty.call(raw, k) && urlOf(raw[k], ['https:', 'http:']));
-        const u = from ? urlOf(raw[from], ['https:', 'http:']) : undefined;
-        if (u) links.push({ key: l.key, label: l.label, url: u.toString(), host: u.hostname });
-      }
-      return {
-        image: shownPicture(j.image, API_URL),
-        imageLink: safeUrl(j.image),
-        description: typeof j.description === 'string' ? j.description.slice(0, 600) : undefined,
-        links,
-      };
-    })().catch(() => null));
-  }
-  return cache.get(uri)!;
+  const kept = cache.get(uri);
+  if (kept && !(kept.failedAt !== undefined && (again || Date.now() - kept.failedAt >= RETRY_FAILED_MS))) return kept.read;
+  const entry: { read: Promise<Meta | null>; failedAt?: number } = { read: (async () => {
+    const url = safeUrl(uri);
+    if (!url) return null;
+    // the timeout covers the whole read, body included
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`the file's service answered ${r.status}`);
+    const text = await capped(r, META_BYTES);
+    if (text === null) throw new Error('the file is too big');
+    const j = JSON.parse(text);
+    if (!j || typeof j !== 'object') throw new Error('not a launch file');
+    const raw: Record<string, unknown> = j.links && typeof j.links === 'object' ? j.links : {};
+    const links: Meta['links'] = [];
+    for (const l of LINKS) {
+      const from = l.from.find((k) => Object.prototype.hasOwnProperty.call(raw, k) && urlOf(raw[k], ['https:', 'http:']));
+      const u = from ? urlOf(raw[from], ['https:', 'http:']) : undefined;
+      if (u) links.push({ key: l.key, label: l.label, url: u.toString(), host: u.hostname });
+    }
+    return {
+      image: shownPicture(j.image, API_URL),
+      imageLink: safeUrl(j.image),
+      description: typeof j.description === 'string' ? j.description.slice(0, 600) : undefined,
+      links,
+    };
+  })() };
+  entry.read.catch(() => { entry.failedAt = Date.now(); });
+  cache.set(uri, entry);
+  return entry.read;
 }
+
+/** A launch's file to show, or null (none, or it couldn't be read just now) */
+export const metaOf = (uri: string): Promise<Meta | null> => readLaunchFile(uri).catch(() => null);
 
 export { E18 };

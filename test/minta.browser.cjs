@@ -290,6 +290,8 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
   // side at most). A picture link to another site can be a small file that decodes to gigabytes in every visitor's browser, so it
   // is never even asked for: the token's mascot is drawn instead, on the home page's cards and lists and on the token's page.
   // A stand-in chain lists two launches: one whose file names a kept picture, one whose file names a picture on another site.
+  // Then the creator's Manage page: its editor starts from the launch's current file, so while that file can't be read (the
+  // service busy) it isn't shown empty (saving would wipe the file): it says so, with the file's link and Try again.
   {
     const { decodeFunctionData, encodeFunctionResult, multicall3Abi, parseAbi } = require('viem');
     const sdk = await import('@vyrechain/sdk');
@@ -317,6 +319,8 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       if (fn === 'totalSupply') return r(10n ** 27n);
       if (fn === 'slot0' && byPool(to)) return r([2n ** 96n, 0, 0, 1, 1, 0, true]);
       if (fn === 'token0' && byPool(to)) return r(A.wusdc);
+      if (fn === 'taxWalletsOf') return r([[], []]);
+      if (fn === 'pendingCreator') return r('0x' + '00'.repeat(20));
       throw new Error(`no stand-in for ${fn}`);
     };
     const answer = ({ id, method, params }) => {
@@ -334,17 +338,28 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       return { jsonrpc: '2.0', id, result };
     };
     const asked = [];
-    const visit = async (hash, wait) => {
+    const CREATOR = '0x' + '3c'.repeat(20);
+    let busyFor = 0; // how many more reads of the first launch's file are answered "busy"
+    const visit = async (hash, wait, { creator = false } = {}) => {
       const { pg, ctx, errs } = await open('#/docs', { width: 1440, height: 900 });
       const cors = { 'access-control-allow-origin': '*' };
+      // the launch's creator, in a browser wallet connected before (it's reconnected quietly)
+      if (creator) await ctx.addInitScript((who) => {
+        try { localStorage.setItem('vyre.wallet', 'rdns:test.wallet'); } catch { /* none */ }
+        const provider = { request: async ({ method }) => (method === 'eth_accounts' || method === 'eth_requestAccounts' ? [who] : method === 'eth_chainId' ? '0x1cbd' : null), on() {}, removeListener() {} };
+        window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'w', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test.wallet' }, provider } })));
+      }, CREATOR);
       await ctx.route(/testnet-rpc\.vyrechain\.com/, async (route) => {
         const body = JSON.parse(route.request().postData() || 'null');
         await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(answer) : answer(body)) }).catch(() => {});
       });
-      for (const l of L) await ctx.route(l.uri, (route) => route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ image: l.image, description: `about ${l.symbol}` }) }));
+      for (const l of L) await ctx.route(l.uri, (route) => (l === L[0] && busyFor-- > 0
+        ? route.fulfill({ status: 429, headers: cors, body: 'busy' })
+        : route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ image: l.image, description: `about ${l.symbol}`, links: { website: 'https://example.com' } }) })));
       await ctx.route(KEPT, (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, path: path.join(__dirname, 'fixtures', 'ok.png') }));
       await ctx.route('https://pictures.example/**', (route) => { asked.push(route.request().url()); return route.abort(); });
       await pg.goto(base + hash);
+      if (creator) await pg.reload(); // a new document, so the wallet above is in it (going to another #/ isn't one)
       await pg.waitForSelector(wait, { timeout: 15000 }).catch(() => {});
       await pg.waitForTimeout(1500);
       return { pg, ctx, errs };
@@ -365,6 +380,20 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await ctx.close();
     }
     ok(asked.length === 0, `the picture on another site was never asked for (${asked.length} requests)`);
+    {
+      busyFor = 100;
+      const { pg, ctx, errs } = await visit(`#/manage/${L[0].token}`, '.meta-failed', { creator: true });
+      const card = pg.locator('.card', { hasText: 'Picture, description and links' });
+      ok(/couldn’t be read just now/.test(await card.innerText()) && await card.locator(`a[href="${L[0].uri}"]`).count() === 1, 'Manage, the launch’s file busy: the editor says it couldn’t be read, with the file’s link');
+      ok(await card.locator('textarea').count() === 0 && await card.locator('button:has-text("Save")').count() === 0, 'and offers no empty editor to save over it');
+      busyFor = 0;
+      await card.locator('button:has-text("Try again")').click();
+      await card.locator('textarea').waitFor({ timeout: 10000 }).catch(() => {});
+      ok(await card.locator('textarea').inputValue().catch(() => '') === 'about KEPT' && await card.locator('input[placeholder="https://…"]').first().inputValue().catch(() => '') === 'https://example.com/', 'Try again reads it, and the editor starts from what is there');
+      ok(await card.locator(`.pic-up-box img[src="${KEPT}"]`).count() === 1, 'its picture included');
+      ok(errs.length === 0, 'no page errors on Manage' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
   }
 
   // ---- no Face ID wallets for now (they're on the roadmap): nothing in the Pad offers or mentions them, and with no wallet in the

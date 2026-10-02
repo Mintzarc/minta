@@ -114,3 +114,49 @@ test('the check on its own: only the exact address of a kept picture passes', ()
   assert.equal(picture.shownPicture(undefined, API), undefined);
   assert.equal(picture.shownPicture(`${API}/i/${HASH}.webp`, ''), undefined, 'no service, no picture');
 });
+
+// The Manage page starts its editor from the launch's current file and saves a new one in its place: if a busy moment were
+// remembered as "no file" for the whole visit, the editor would start empty and saving would wipe the picture, description and
+// links. So a read that failed is tried again a little later, and the page can tell a failed read from a file with nothing in it.
+test('a file that couldn’t be read just now is read again a little later, not kept as empty for the visit', async () => {
+  const m = market();
+  const uri = `${API}/m/${'f1'.repeat(32)}.json`;
+  const file = { description: 'still here', links: { x: 'https://x.com/a' } };
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    let asked = serve({ [uri]: 429 });
+    assert.equal(await m.metaOf(uri), null, 'busy: nothing to show');
+    asked = serve({ [uri]: file });
+    assert.equal(await m.metaOf(uri), null, 'right after, the failure is kept (no flood of reads)');
+    assert.equal(asked.length, 0);
+    now += 31_000;
+    assert.equal((await m.metaOf(uri))?.description, 'still here', 'a little later it is read again');
+    assert.equal(asked.length, 1);
+    now += 3_600_000;
+    await m.metaOf(uri);
+    assert.equal(asked.length, 1, 'a file read fine is kept');
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('readLaunchFile says when a file couldn’t be read, apart from a launch with no file', async () => {
+  const m = market();
+  for (const answer of [429, 500, 404]) {
+    const uri = `${API}/m/${(++n).toString(16).padStart(64, 'e')}.json`;
+    serve({ [uri]: answer });
+    await assert.rejects(m.readLaunchFile(uri), `${answer} is a failed read`);
+  }
+  const uri = `${API}/m/${(++n).toString(16).padStart(64, 'e')}.json`;
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(m.readLaunchFile(uri), 'unreachable is a failed read');
+  assert.equal(await m.readLaunchFile(''), null, 'no file');
+  assert.equal(await m.readLaunchFile('ftp://example.com/x.json'), null, 'no file it could ever read');
+  assert.equal(await m.metaOf(uri), null, 'and metaOf, for showing, still just shows nothing');
+  serve({ [uri]: { description: 'back' } });
+  assert.equal(await m.metaOf(uri), null, 'the failure is kept for a while');
+  assert.equal((await m.readLaunchFile(uri, true))?.description, 'back', 'but “Try again” reads it again at once');
+  assert.equal((await m.metaOf(uri))?.description, 'back', 'and then everything shows it');
+});

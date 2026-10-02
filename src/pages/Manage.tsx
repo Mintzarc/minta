@@ -1,15 +1,15 @@
 // A creator's controls for their launch: collect the tax, lower it, split it between wallets, change the picture and
 // links, and hand the launch to someone else (who accepts it). Each transaction is simulated before the wallet sees it.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAddress, zeroAddress, type Address, type Hash } from 'viem';
 import { getFaceIdAddresses, getLaunch, sendCall, vyrePadAbi, type Launch, type WalletLike } from '@vyrechain/sdk';
 import { vyre } from '../lib/chain';
 import { isAddr, pct, short, tokenText } from '../lib/format';
-import { addresses } from '../lib/market';
+import { addresses, readLaunchFile, type Meta } from '../lib/market';
 import { loweredTaxes, refusedForSplit, splitBps, taxSplitProblem } from '../lib/taxsplit';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
-import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
+import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton } from '../components/ui';
 import { LaunchFileFields, emptyLaunchFile, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { API_URL, hasContent, saveLaunchFile, withUploadedPicture, type LaunchFile } from '../lib/api';
 
@@ -156,35 +156,63 @@ function TaxWallets({ launch, current, run }: { launch: Launch; current: { walle
 }
 
 function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
-  const current = useMeta(launch.metadataURI);
+  const uri = launch.metadataURI;
+  const ours = uri.startsWith(`${API_URL}/m/`);
+  // the editor starts from the launch's current file, so it isn't shown until that file has been read: saving replaces the file,
+  // and an editor that started empty because a read failed (or typed in before the file arrived) would wipe what's there
+  const [read, setRead] = useState<'reading' | 'failed' | 'ready'>('reading');
+  const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<LaunchFileState>(emptyLaunchFile);
   const [touched, setTouched] = useState(false);
-  // start from what the launch shows now (or its own file's link, if it isn't one of ours)
+  // the file this editor just saved: when the launch then points at it, the editor already shows it (and its "Saved" stays up)
+  const saved = useRef('');
   useEffect(() => {
-    if (touched) return;
-    const ours = launch.metadataURI.startsWith(`${API_URL}/m/`);
-    if (launch.metadataURI && !ours && !current) { setState({ ...emptyLaunchFile(), own: launch.metadataURI, useOwn: true }); return; }
-    if (current) {
+    if (uri && uri === saved.current) return;
+    let live = true;
+    const fromFile = (m: Meta) => {
       const links: LaunchFile['links'] = {};
-      for (const l of current.links) links[l.key] = l.url;
+      for (const l of m.links) links[l.key] = l.url;
       // the picture link as written, so saving other changes keeps it (a link to another site is kept, though never drawn)
-      setState({ file: { description: current.description, image: current.imageLink, links }, own: '', useOwn: false });
-    }
-  }, [current, launch.metadataURI, touched]);
+      return { file: { description: m.description, image: m.imageLink, links }, own: '', useOwn: false };
+    };
+    // a file that isn't one of ours and can't be read here stays the creator's own: its link is kept as it is
+    const asOwn = () => ({ ...emptyLaunchFile(), own: uri, useOwn: true });
+    setRead('reading');
+    readLaunchFile(uri, attempt > 0).then(
+      (m) => { if (!live) return; setState(m ? fromFile(m) : uri && !ours ? asOwn() : emptyLaunchFile()); setRead('ready'); },
+      () => { if (!live) return; if (ours) { setRead('failed'); return; } setState(asOwn()); setRead('ready'); },
+    );
+    return () => { live = false; };
+  }, [uri, ours, attempt]);
   const problem = launchFileProblem(state);
   return (
     <div className="card">
       <h2 className="h3">Picture, description and links</h2>
-      <LaunchFileFields value={state} onChange={(v) => { setTouched(true); setState(v); }} />
-      {problem && <p className="err small">{problem}</p>}
-      <TxButton className="btn btn-line" label="Save" disabled={!!problem || !touched}
-        run={async (say) => {
-          let uri = '';
-          if (state.useOwn) uri = state.own.trim();
-          else if (hasContent(state.file) || state.picture) { say(state.picture ? 'Uploading the picture…' : 'Saving the file…'); uri = await saveLaunchFile(await withUploadedPicture(state.file, state.picture)); }
-          if (uri === launch.metadataURI) return { text: 'Nothing changed.' };
-          return run({ functionName: 'setMetadata', args: [launch.token, uri] }, 'Saved.')(say);
-        }} />
+      {read === 'reading' && <Loading what="Reading the launch’s current picture and links" />}
+      {read === 'failed' && (
+        <div className="meta-failed" role="alert">
+          <p className="err small">The launch’s current file couldn’t be read just now, so it can’t be edited yet: saving would replace what’s in it. Its link: <a className="mono" href={uri} target="_blank" rel="noopener noreferrer">{uri}</a></p>
+          <p className="small">
+            <button type="button" className="btn btn-line btn-sm" onClick={() => setAttempt((a) => a + 1)}>Try again</button>{' '}
+            <button type="button" className="linkish small" onClick={() => { setState(emptyLaunchFile()); setTouched(false); setRead('ready'); }}>Start a new file instead</button>
+          </p>
+        </div>
+      )}
+      {read === 'ready' && (
+        <>
+          <LaunchFileFields value={state} onChange={(v) => { setTouched(true); setState(v); }} />
+          {problem && <p className="err small">{problem}</p>}
+          <TxButton className="btn btn-line" label="Save" disabled={!!problem || !touched}
+            run={async (say) => {
+              let next = '';
+              if (state.useOwn) next = state.own.trim();
+              else if (hasContent(state.file) || state.picture) { say(state.picture ? 'Uploading the picture…' : 'Saving the file…'); next = await saveLaunchFile(await withUploadedPicture(state.file, state.picture)); }
+              if (next === uri) return { text: 'Nothing changed.' };
+              saved.current = next;
+              return run({ functionName: 'setMetadata', args: [launch.token, next] }, 'Saved.')(say);
+            }} />
+        </>
+      )}
     </div>
   );
 }
