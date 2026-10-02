@@ -3,20 +3,24 @@
 // stylesheet. The wallet is a stand-in the test defines before the page loads (window.__wallet); each button sends one
 // transaction through it, on VYRE or on another chain. A third button stands for a trade sent whose result couldn't be read;
 // a fourth for a sale whose held transaction may be the approval before it (its trade goes to ROUTER); a fifth for a send
-// whose held transaction is kept for the tab.
+// whose held transaction is kept for the tab; a sixth for the "From another chain" form's burn, sent but its receipt unread,
+// thrown as that form throws it (src/lib/fromchain.ts).
 import '../../src/styles.css';
 import { createRoot } from 'react-dom/client';
-import { SentButUnconfirmedError, arcTestnet, vyreTestnet } from '@vyrechain/sdk';
+import { SentButUnconfirmedError, arcTestnet, cctpSource, vyreTestnet } from '@vyrechain/sdk';
 import type { Address, EIP1193Provider } from 'viem';
 import { walletOn } from '../../src/lib/chain';
 import { TxButton } from '../../src/components/ui';
+import { burnSentError } from '../../src/lib/fromchain';
 import TxCheckDialog from '../../src/components/TxCheckDialog';
 
 const ME: Address = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const TO: Address = '0x1111111111111111111111111111111111111111';
 const ROUTER: Address = '0x2222222222222222222222222222222222222222';
+const MESSENGER: Address = '0x4444444444444444444444444444444444444444'; // stands for Circle's transfer contract
+const BASE_SEPOLIA = cctpSource(84_532);
 const wallet = () => (window as unknown as { __wallet: EIP1193Provider }).__wallet;
-const count = window as unknown as { __runs?: number; __done?: number; __runs2?: number; __done2?: number; __runs3?: number; __done3?: number };
+const count = window as unknown as { __runs?: number; __done?: number; __runs2?: number; __done2?: number; __runs3?: number; __done3?: number; __runs4?: number; __done4?: number };
 const setChain = (id: number) => { (window as unknown as { __chainHex: string }).__chainHex = `0x${id.toString(16)}`; };
 
 function Page() {
@@ -54,6 +58,14 @@ function Page() {
         <TxButton label="Send 1 USDC" keepAs="test-kept" onDone={() => { count.__done3 = (count.__done3 || 0) + 1; }} run={async () => {
           count.__runs3 = (count.__runs3 || 0) + 1;
           throw new SentButUnconfirmedError(`0x${'cf'.repeat(32)}`, vyreTestnet.id, new Error('HTTP request failed: 429'));
+        }} />
+      </div>
+      <div id="burn">
+        {/* the burn of 100 USDC from Base Sepolia, sent (and sped up in the wallet: the form follows the newer hash) but unread */}
+        <TxButton label="Send 100 USDC to Arc" keepAs="test-burn" finalTo={MESSENGER} onDone={() => { count.__done4 = (count.__done4 || 0) + 1; }} run={async () => {
+          count.__runs4 = (count.__runs4 || 0) + 1;
+          const unread = new SentButUnconfirmedError(`0x${'c1'.repeat(32)}`, BASE_SEPOLIA.id, new Error('HTTP request failed: 429'));
+          throw burnSentError(unread, `0x${'c2'.repeat(32)}`, BASE_SEPOLIA);
         }} />
       </div>
       <TxCheckDialog />

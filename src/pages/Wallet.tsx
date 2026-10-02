@@ -3,7 +3,7 @@
 // "Move to VYRE" runs through Circle's window.
 import { useEffect, useRef, useState } from 'react';
 import {
-  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, SentButUnconfirmedError, TransactionReplacedError, arcTestnet, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
+  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, TransactionReplacedError, arcTestnet, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
   depositFromArc, getAddresses, getCctpFees, feeCapFor, getConfirmedCount, getFaucetStatus, getPromoter, getWithdrawals, isApprovedPromoter, maxFeeFor,
   mintOnArc, outboxAbi, requestTestUsdc, sendUsdc, toNativeUsdc, FAUCET_ADDRESS, vyreTestnet, waitForArcMint, waitForDeposit, withdrawToArc,
   type CctpFees, type CctpStatus, type FaucetStatus, type Withdrawal,
@@ -13,6 +13,7 @@ import { arc, reason, sourceClient, switchTo, vyre, walletOn } from '../lib/chai
 import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
+import { burnSentError } from '../lib/fromchain';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
 import { useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
@@ -256,12 +257,8 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
         if (sent.hash) forget(sent.hash);
         throw new Error(e.reason === 'cancelled' ? 'Cancelled in your wallet: nothing was burned.' : 'Your wallet sent a different transaction in its place: nothing was burned.');
       }
-      if (sent.hash) {
-        const text = e instanceof SentButUnconfirmedError ? `Sent, but ${from.name} hasn’t confirmed it yet. It’s followed below: don’t send it again.`
-          : /reverted/.test(m) ? `The transfer failed on ${from.name}: nothing was burned (only its gas was spent).`
-          : `Sent, but checking it failed (${reason(e)}). It’s followed below: don’t send it again.`;
-        throw Object.assign(new Error(text), { hash: sent.hash, chainId: from.id });
-      }
+      // sent: held as Check it unless its receipt says it failed, so a second press can't burn again
+      if (sent.hash) throw burnSentError(e, sent.hash, from);
       if (/fees went up/.test(m)) {
         setFeeTick((n) => n + 1);
         throw new Error('Circle’s fees just went up. The new fees are shown above: check them and press again (an approval already made is kept for it).');

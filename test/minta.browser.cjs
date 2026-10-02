@@ -826,6 +826,40 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
     }
+    // the "From another chain" form's burn, sent but its receipt unread: its button holds it as Check it (a second press can't
+    // burn again), links the newer hash on the chain it left, and reads only that chain until the burn shows there
+    {
+      const SRC_RPC = 'https://sepolia.base.org', MESSENGER = '0x4444444444444444444444444444444444444444';
+      const H4 = '0x' + 'c2'.repeat(32);
+      const receipts = {};
+      const asks = [];
+      const rcpt = (hash, status, to) => ({ blockHash: '0x' + '11'.repeat(32), blockNumber: '0x10', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x989680', from: ME, gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256), status, to, transactionHash: hash, transactionIndex: '0x0', type: '0x2' });
+      const { pg, ctx, errs } = await harness(reply(200, base0));
+      await ctx.route((u) => u.href.startsWith(SRC_RPC), async (route) => {
+        const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+        const body = JSON.parse(route.request().postData() || 'null');
+        const one = (q) => { asks.push(q.method); return { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? receipts[String(q.params && q.params[0]).toLowerCase()] ?? null : null }; };
+        await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
+      });
+      const counter = (n) => pg.evaluate((k) => window[k] || 0, n);
+      const btn = pg.locator('#burn .tx > button');
+      const status = () => pg.locator('#burn .status').innerText().catch(() => '');
+      const settle = (re) => pg.waitForFunction((src) => new RegExp(src, 'i').test(document.querySelector('#burn .status')?.textContent || ''), re.source, { timeout: 5000 }).catch(() => {});
+      await btn.click();
+      await settle(/couldn’t be read/);
+      ok(await counter('__runs4') === 1 && /Check it/.test(await btn.innerText()) && await btn.isEnabled(), 'a burn sent but unread: it ran once, and its button now reads Check it (not the send button again)');
+      ok(await pg.locator(`#burn a[href="https://sepolia.basescan.org/tx/${H4}"]`).count() === 1 && /See it on Base Sepolia/.test(await status()), 'the status links the burn the form follows, on the chain it left');
+      await btn.click();
+      await settle(/isn’t confirmed yet/);
+      ok(await counter('__runs4') === 1 && asks.includes('eth_getTransactionReceipt') && /Check it/.test(await btn.innerText()), 'pressing it again only reads that chain: no second burn');
+      receipts[H4] = rcpt(H4, '0x1', MESSENGER);
+      await btn.click();
+      await settle(/went through/);
+      ok(/It went through/.test(await status()) && await counter('__done4') === 1 && await counter('__runs4') === 1 && /Send 100 USDC to Arc/.test(await btn.innerText()), 'once the burn shows on that chain it went through: the form is cleared, and nothing was sent twice');
+      ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
     // the dialog on a phone
     {
       const { pg, ctx } = await harness(reply(200, hostile), { width: 360, height: 640 });
