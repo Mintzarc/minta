@@ -6,7 +6,7 @@ import { getLaunch, sendCall, vyrePadAbi, type Launch, type WalletLike } from '@
 import { vyre } from '../lib/chain';
 import { isAddr, pct, short, tokenText } from '../lib/format';
 import { addresses } from '../lib/market';
-import { refusedTaxWallets, splitBps, taxSplitProblem } from '../lib/taxsplit';
+import { loweredTaxes, refusedTaxWallets, splitBps, taxSplitProblem } from '../lib/taxsplit';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
@@ -105,9 +105,9 @@ type Runner = (call: PadCall, text: string) => (say: (t: string) => void) => Pro
 function LowerTaxes({ launch, run }: { launch: Launch; run: Runner }) {
   const [b, setB] = useState(String(launch.buyTaxBps / 100));
   const [s, setS] = useState(String(launch.sellTaxBps / 100));
-  // an empty field isn't 0%: taxes can never go back up, so nothing is sent until both are filled in
-  const nb = b.trim() === '' ? NaN : Math.round(Number(b) * 100), ns = s.trim() === '' ? NaN : Math.round(Number(s) * 100);
-  const ok = isFinite(nb) && isFinite(ns) && nb >= 0 && ns >= 0 && nb <= launch.buyTaxBps && ns <= launch.sellTaxBps && (nb < launch.buyTaxBps || ns < launch.sellTaxBps);
+  // an empty field isn't 0%: taxes can never go back up, so nothing is sent until both are filled in, each a plain percent
+  // with at most two decimals (read exactly as typed, never rounded)
+  const { buy: nb, sell: ns, ok } = loweredTaxes(b, s, launch);
   return (
     <div className="card">
       <h2 className="h3">Lower the tax</h2>
@@ -144,7 +144,7 @@ function TaxWallets({ launch, current, run }: { launch: Launch; current: { walle
       ))}
       {rows.length < 4 && <button type="button" className="linkish small" onClick={() => setRows([...rows, { addr: '', share: '' }])}>Add a wallet</button>}
       {problem && <p className="err small">{problem}</p>}
-      <TxButton className="btn btn-line" label="Save the split" disabled={!!problem}
+      <TxButton className="btn btn-line" label={problem ? 'Save the split' : `Save the split: ${bps.map(pct).join(' / ')}`} disabled={!!problem}
         run={(say) => run({ functionName: 'setTaxWallets', args: [launch.token, rows.map((r) => getAddress(r.addr as Address)), bps] }, 'Saved.')(say)} />
     </div>
   );

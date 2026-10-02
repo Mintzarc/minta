@@ -6,7 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPublicClient, createWalletClient, custom, getAddress } from 'viem';
 import { getAddresses, setTaxWallets, vyreTestnet } from '@vyrechain/sdk';
-import { refusedTaxWallets, splitBps, taxSplitProblem } from '../src/lib/taxsplit.ts';
+import { loweredTaxes, refusedTaxWallets, splitBps, taxSplitProblem } from '../src/lib/taxsplit.ts';
+import { percentBps } from '../src/lib/format.ts';
 
 const A = getAddresses(vyreTestnet.id);
 const MULTICALL3 = vyreTestnet.contracts.multicall3.address;
@@ -62,4 +63,43 @@ test('a plain wallet, or a split between wallets, is accepted; the other rules s
   assert.match(taxSplitProblem([{ addr: CREATOR.toLowerCase().replace('c', 'C'), share: '100' }], refused), /checksum/);
   assert.match(taxSplitProblem([{ addr: CREATOR, share: '0' }, { addr: OTHER, share: '100' }], refused), /above 0%/);
   assert.match(taxSplitProblem([{ addr: CREATOR, share: '60' }, { addr: OTHER, share: '30' }], refused), /add up to 100%/);
+});
+
+test('a share is read as typed or refused: no hex, exponents, signs or third decimal, and no float rounding', () => {
+  const two = (a, b) => [{ addr: CREATOR, share: a }, { addr: OTHER, share: b }];
+  // read exactly as typed
+  assert.deepEqual(splitBps(two('12.34', '87.66')), [1234, 8766]);
+  assert.equal(taxSplitProblem(two('33.33', '66.67'), refused), '');
+  assert.equal(taxSplitProblem(two(' 40 ', '60.'), refused), '');
+  assert.deepEqual(splitBps(two('0.01', '99.99')), [1, 9999]);
+  // what Number() would have read as something else, or rounded, is refused, and says why
+  for (const [a, b] of [['0x19', '75'], ['1e1', '90'], ['+40', '60'], ['12.344', '87.656'], ['33.335', '66.665'], ['-10', '110'], ['40%', '60'], ['4 0', '60'], ['', '100'], ['Infinity', '0'], ['٤٠', '60']]) {
+    assert.ok(splitBps(two(a, b)).some(Number.isNaN), `${a} / ${b} is not read`);
+    assert.match(taxSplitProblem(two(a, b), refused), /at most two decimals/, `${a} / ${b}`);
+  }
+});
+
+test('lowering the tax reads each field as typed or not at all, and only ever lowers', () => {
+  const now = { buyTaxBps: 500, sellTaxBps: 300 };
+  assert.deepEqual(loweredTaxes('2.5', '1', now), { buy: 250, sell: 100, ok: true });
+  assert.deepEqual(loweredTaxes('5', '2.99', now), { buy: 500, sell: 299, ok: true });
+  assert.equal(loweredTaxes('5', '3', now).ok, false, 'nothing lower');
+  assert.equal(loweredTaxes('5.01', '1', now).ok, false, 'never higher');
+  assert.equal(loweredTaxes('0', '0', now).ok, true);
+  for (const typed of ['', ' ', '0x1', '1e0', '+1', '-1', '1.234', '2.555', 'NaN', '1,5']) {
+    const r = loweredTaxes(typed, '1', now);
+    assert.equal(r.ok, false, JSON.stringify(typed));
+    assert.ok(Number.isNaN(r.buy), JSON.stringify(typed));
+  }
+});
+
+test('a share is read by the same rule as the Create page’s taxes (format.ts’s percentBps)', () => {
+  const typed = ['0', '1', '10', '100', '2.5', '2.50', '2.05', '0.01', '99.99', '40.', ' 7 ', '007', '12.345', '.5', '5.', '1e1', '0x1', '+1', '-1', '1,5', '', ' ', 'abc', '1.2.3', '١', '12345678901234567890'];
+  for (let i = 0; i < 2000; i++) typed.push((Math.random() * 120).toFixed(Math.floor(Math.random() * 4)));
+  for (const t of typed) {
+    const [mine] = splitBps([{ addr: CREATOR, share: t }]);
+    const theirs = percentBps(t);
+    assert.ok(Object.is(mine, theirs), `${JSON.stringify(t)}: ${mine} vs ${theirs}`);
+    assert.ok(Object.is(loweredTaxes(t, '0', { buyTaxBps: 1e30, sellTaxBps: 1 }).buy, theirs), JSON.stringify(t));
+  }
 });
