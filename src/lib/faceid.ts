@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from 'react';
 import {
   checkPasskey, createFaceIdPasskey, faceIdBundler, faceIdWallet, faceIdWalletAddress, operationIn, signInWithPasskey,
-  vyrePadAbi, vyreTestnet, type FaceIdWallet, type OperationTracker, type Passkey, type WalletLike,
+  vyrePadAbi, type FaceIdWallet, type OperationTracker, type Passkey, type WalletLike,
 } from '@vyrechain/sdk';
 import {
   getAddress, isAddress, isAddressEqual, parseAbi, parseAbiItem, parseEventLogs,
@@ -17,7 +17,7 @@ import {
 } from 'viem';
 import { addresses } from './market';
 import { API_URL } from './api';
-import { faceIdReason, vyre } from './chain';
+import { VYRE_CHAIN, faceIdReason, vyre } from './chain';
 
 export interface FaceIdSession {
   passkey: Passkey;
@@ -42,7 +42,7 @@ export function loadFaceId(): FaceIdSession | null {
     if (!j || typeof j !== 'object') return null;
     const passkey = { id: String(j.passkey?.id ?? ''), publicKey: j.passkey?.publicKey };
     checkPasskey(passkey);
-    return { passkey, address: faceIdWalletAddress(passkey.publicKey, vyreTestnet.id) };
+    return { passkey, address: faceIdWalletAddress(passkey.publicKey, VYRE_CHAIN.id) };
   } catch {
     return null;
   }
@@ -325,7 +325,7 @@ export async function createFaceId(): Promise<FaceIdSession> {
     const at = new Date().toISOString().slice(0, 16).replace('T', ' ');
     passkey = await createFaceIdPasskey({ name: `VYRE wallet ${at}` });
   } catch (e) { throw plain(e); }
-  const s = { passkey, address: faceIdWalletAddress(passkey.publicKey, vyreTestnet.id) };
+  const s = { passkey, address: faceIdWalletAddress(passkey.publicKey, VYRE_CHAIN.id) };
   save(s);
   return s;
 }

@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Address, Hash, PublicClient, TransactionReceipt } from 'viem';
-import { CCTP_SOURCES, SentButUnconfirmedError, arcTestnet } from '@vyrechain/sdk';
-import { ARC_EXPLORER, EXPLORER, arc, reason, refreshWallets, sourceClient, vyre } from '../lib/chain';
+import { CCTP_SOURCES, SentButUnconfirmedError } from '@vyrechain/sdk';
+import { ARC_CHAIN, ARC_EXPLORER, EXPLORER, arc, reason, refreshWallets, sourceClient, vyre } from '../lib/chain';
 import { EMAIL_TRADE_NOTE } from '../lib/circle';
 import { amount, short } from '../lib/format';
 import { href } from '../lib/router';
@@ -199,14 +199,14 @@ export const txUrl = (hash: string, chainId?: number) => `${chainName(chainId)[1
 
 /** A chain's name for links ('' for VYRE), and its explorer */
 function chainName(chainId?: number): [string, string] {
-  if (chainId === arcTestnet.id) return ['Arc', ARC_EXPLORER];
+  if (chainId === ARC_CHAIN.id) return ['Arc', ARC_EXPLORER];
   const src = CCTP_SOURCES.find((s) => s.id === chainId);
   return src ? [src.name, src.explorer] : ['', EXPLORER];
 }
 
 /** The chain a transaction was sent on, to read its receipt from: Arc testnet, a chain USDC comes from, or VYRE */
 function clientFor(chainId?: number): PublicClient {
-  if (chainId === arcTestnet.id) return arc;
+  if (chainId === ARC_CHAIN.id) return arc;
   if (chainId !== undefined && CCTP_SOURCES.some((s) => s.id === chainId)) return sourceClient(chainId);
   return vyre;
 }

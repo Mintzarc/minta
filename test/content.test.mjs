@@ -107,3 +107,30 @@ test('the privacy page names every call the pages make, and which stored things 
   assert.match(kept, /transfers between networks[^.]*Circle/);
   assert.match(kept, /email sign-in[^.]*sign-in service/);
 });
+
+// The handover notes' section on another network is the checklist for that move: it names the one place the network is chosen,
+// and every file whose words or features belong to the test network (what such a file says or offers must change at the move).
+const section = (md, n) => { const from = md.indexOf(`\n## ${n}. `); assert.ok(from >= 0, `section ${n}`); const to = md.indexOf('\n## ', from + 1); return md.slice(from, to < 0 ? undefined : to); };
+test('the handover notes’ “Another network” section names where the network is chosen and every file tied to the test network', () => {
+  const s4 = section(handoff, 4);
+  assert.match(s4, /Another network/);
+  assert.match(s4, /`VYRE_CHAIN`/, 'the one place the network is chosen');
+  assert.match(s4, /`ARC_CHAIN`/, 'and the network USDC is moved to and from');
+  assert.match(read('src/lib/chain.ts'), /^export const VYRE_CHAIN = /m, 'chain.ts chooses the network');
+  assert.match(read('src/lib/chain.ts'), /^export const ARC_CHAIN = /m);
+  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n')
+    .filter((f) => /^src\/.+\.tsx?$/.test(f) || f === 'index.html' || /^public\/.+\.(html|webmanifest)$/.test(f));
+  // words and features of the test network, outside comments
+  const tied = /test USDC|real money|testnet|test network|\b7357\b|faucet|requestTestUsdc|CCTP_SOURCES/i;
+  const comment = /^\s*(?:\/\/|\*|\/\*|\{\/\*)/;
+  const missing = files.filter((f) => read(f).split('\n').some((l) => !comment.test(l) && tied.test(l)) && !s4.includes('`' + f + '`'));
+  assert.deepEqual(missing, [], 'files tied to the test network that the checklist doesn’t name');
+  for (const step of [/stored in the browser/i, /card checkout/i, /faucet/i, /milestone/i, /\$3,000/]) assert.match(s4, step);
+});
+
+// The faucet, like the app API, answers a browser only from the pages it knows: a new domain needs it too.
+test('the handover notes list the faucet among the services a new domain must be allowed by, and walk through getting test USDC', () => {
+  const s1 = section(handoff, 1);
+  assert.match(s1, /faucet[^.]*only[^.]*(?:pages|addresses) it knows|faucet[^.]*answers[^.]*pages it knows/i, 'the faucet answers only pages it knows');
+  assert.match(s1, /Get test USDC/, 'the walk-through presses Get test USDC');
+});

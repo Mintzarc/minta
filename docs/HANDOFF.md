@@ -9,12 +9,15 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
 2. Build with `VITE_SITE_URL=https://<the domain>` (or rely on Vercel's production domain) so the link-preview image has an
    absolute address. Check one link in a chat app.
 3. Open the live site and walk through: the home page and splash, a token page, Create (the wizard, a picture upload), the Wallet
-   page, the docs, `/terms/`, `/privacy/`.
+   page (Get test USDC, with a wallet that hasn't had any today), the docs, `/terms/`, `/privacy/`.
 4. **The services MINTA calls only answer pages they know.** Picture upload, card checkout links and email sign-in are served by the
    app API (`api.vyrechain.com` unless you set `VITE_API_URL`), which accepts requests from a list of page addresses. Ask whoever
    operates that API to add your domain, or host your own (section 2) and point `VITE_API_URL` at it. Card checkout also returns the
    buyer to a fixed address and is registered with the card provider per domain: both are set up with the API's operator. The same
    goes for the check before signing (section 2): until the API lists your domain, the check gets no answer and stays silent.
+   The faucet behind the Wallet page's Get test USDC (`testnet-rpc.vyrechain.com/faucet`) is a separate service and also answers a
+   browser only from the pages it knows: ask its operator to add your domain too, or every Get test USDC on your domain is refused
+   ("not from another website") while it works on the faucet's own page.
    The Wallet page shows the card checkout only on the test network unless the build sets `VITE_CARD_TOPUP` (README); on any
    other network leave it off until a live checkout has been tested for your domain, and keep the terms and privacy pages in step.
 5. Promoter links: MINTA remembers a promoter from `?ref=<code or wallet address>` in the address, and shows each approved
@@ -57,11 +60,40 @@ with real money. The in-app Docs (`src/pages/Docs.tsx`) carry no contact address
 
 ## 4. Another network
 
-Not live today. When there is one, MINTA needs: an SDK release that carries that network's definition and addresses, the chain switch
-in `src/lib/chain.ts`, its RPC, explorer and API addresses (and `VITE_API_URL` if the API differs), a decision on the launch
-milestone (the "graduated" line is $100 of USDC bought in on the testnet; pick the figure for real money), and a fresh
-review of everything that moves money. The launchpad contract requires every launch to open at a $3,000 market cap on a new
-deployment; the testnet's older contract still takes any value, so the app and SDK enforce $3,000 there.
+Not live today. MINTA is built for the test network, and much of what it says and offers belongs to that network, so moving it is a
+change to the code and the words, not a setting. In order:
+
+1. **An SDK release** that carries the new network's definition and addresses (the launchpad's contracts, the outbox for moves out,
+   the networks USDC can come from), vendored in `vendor/` as today.
+2. **The network itself, chosen in one place:** `VYRE_CHAIN` and `ARC_CHAIN` in `src/lib/chain.ts`. Every other file reads them from
+   there: the launchpad's addresses (`addresses()` in `src/lib/market.ts`, used by the trade button, Create, Manage, the tax split's
+   list of refused addresses and the docs' contract table), the network a wallet is switched to before a send, the Arc side of
+   deposits, moves out and claims, the explorers, and the check before signing. A test keeps it that way: no other file names the
+   SDK's test networks (`src/lib/txcheck.ts` keeps the test network's id only as a fallback for its own unit tests; the app always
+   passes its own). The SDK sends trades and launches to its own records for the client's network, so these must be the same
+   network: if they weren't, a trade that went through could read as "only the approval" and be offered again, and Manage's changes
+   would go to an address with no contract. Check one buy, one sell and one Manage change on the new network before anyone else uses it.
+3. **The other addresses:** the RPC and the explorer come with the network's definition; set the app API (`VITE_API_URL`), the
+   promoter service (`VITE_PROMOTERS_URL`: its default in `src/lib/api.ts` is the test network's) and the site's own address
+   (`VITE_SITE_URL`).
+4. **What only the test network has**, taken out or switched off: the faucet (the Wallet page's Get test USDC and its status, and the
+   Faucet link in the network menu), the card checkout (`src/lib/features.ts`: off on any other network unless the build sets it;
+   leave it off until a live checkout has been tested for your domain), and the test networks USDC can come from (`CCTP_SOURCES`,
+   used by `src/lib/pending.ts`, `src/components/ui.tsx` and `src/pages/Wallet.tsx`).
+5. **What's stored in the browser** belongs to one network: the launch being sent (`vyre.launch`), transactions whose result is still
+   being checked (`minta.held.*`), transfers on their way (`vyre.fromChain.pending`) and the Face ID wallet's records (parked,
+   section 5). Give those keys the network's name, or clear them, so nothing from the test network is read as the new one's.
+6. **The words.** These files say "testnet", "test USDC", "no real money", "VYRE Testnet" or "chain 7357", or offer the faucet, and
+   each must be rewritten for real money: `src/App.tsx` (the footer and the network menu), `src/components/Ticker.tsx`,
+   `src/components/ui.tsx` (the wallet menu, the connect menu's help link, the email wallet's note), `src/pages/Docs.tsx`,
+   `src/pages/Explore.tsx` (the milestone note), `src/pages/Launch.tsx` (the review's network, the note about a reset),
+   `src/pages/Wallet.tsx`, `index.html`, `public/manifest.webmanifest`, `public/terms/index.html` and `public/privacy/index.html`
+   (which must be completed before real money anyway, section 3). A test fails for any file with such words that isn't named here.
+   Search the new build for those words before it is published.
+7. **The launch milestone:** the "graduated" line is $100 of USDC bought in on the testnet (`MILESTONE` in `src/lib/stats.ts`); pick
+   the figure for real money. The launchpad contract requires every launch to open at a $3,000 market cap on a new deployment; the
+   testnet's older contract still takes any value, so the app and SDK enforce $3,000 there.
+8. **A fresh review of everything that moves money,** then the walk-through in section 1 on the new network, with a small amount.
 
 ## 5. Face ID wallets are parked
 

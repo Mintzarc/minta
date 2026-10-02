@@ -3,13 +3,13 @@
 // "Move to VYRE" runs through Circle's window.
 import { useEffect, useRef, useState } from 'react';
 import {
-  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, TransactionReplacedError, arcTestnet, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
+  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, TransactionReplacedError, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
   depositFromArc, getAddresses, getCctpFees, feeCapFor, getConfirmedCount, getFaucetStatus, getPromoter, getWithdrawals, isApprovedPromoter, maxFeeFor,
-  mintOnArc, outboxAbi, requestTestUsdc, sendUsdc, toNativeUsdc, FAUCET_ADDRESS, vyreTestnet, waitForArcMint, waitForDeposit, withdrawToArc,
+  mintOnArc, outboxAbi, requestTestUsdc, sendUsdc, toNativeUsdc, FAUCET_ADDRESS, waitForArcMint, waitForDeposit, withdrawToArc,
   type CctpFees, type CctpStatus, type FaucetStatus, type Withdrawal,
 } from '@vyrechain/sdk';
 import { erc20Abi, getAddress, isAddress, zeroAddress, type Address, type EIP1193Provider, type Hash } from 'viem';
-import { arc, reason, sourceClient, switchTo, vyre, walletOn } from '../lib/chain';
+import { ARC_CHAIN, VYRE_CHAIN, arc, reason, sourceClient, switchTo, vyre, walletOn } from '../lib/chain';
 import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
@@ -49,7 +49,7 @@ async function arrival(account: Address, before: bigint, arcTx: Hash | null): Pr
     await waitForDeposit(vyre, { address: account, before, pollMs: 500 });
   } catch {
     const e = new Error(`Sent on Arc${arcTx ? ` (transaction ${short(arcTx)})` : ''}, but it hasn’t shown up on VYRE yet. Check your balance here again in a minute before sending more.`);
-    throw arcTx ? Object.assign(e, { hash: arcTx, chainId: arcTestnet.id }) : e;
+    throw arcTx ? Object.assign(e, { hash: arcTx, chainId: ARC_CHAIN.id }) : e;
   }
   return (Date.now() - t0) / 1000;
 }
@@ -136,10 +136,10 @@ export default function Wallet() {
                 }
                 if (!provider) throw new Error('Connect a wallet first.');
                 say('Switching your wallet to Arc testnet…');
-                await switchTo(provider, arcTestnet);
+                await switchTo(provider, ARC_CHAIN);
                 const before = await vyre.getBalance({ address: account });
                 say('Confirm in your wallet…');
-                const r = await depositFromArc(walletOn(provider, account, arcTestnet), arc, { amount: value! }).catch((e: unknown) => {
+                const r = await depositFromArc(walletOn(provider, account, ARC_CHAIN), arc, { amount: value! }).catch((e: unknown) => {
                   throw /is a smart account or contract on Arc/.test((e as Error)?.message || '') ? new Error(SMART_ACCOUNT) : e;
                 });
                 say('Sent on Arc. Waiting for it on VYRE…');
@@ -393,7 +393,7 @@ function Transfer({ t, account, provider, onLanded, onMove, onForget }: {
       </div>
       <p className={`status ${end?.kind === 'arrived' ? 'ok' : end ? 'err' : 'busy'}`} role="status" aria-live="polite">
         {text}{' '}
-        {end?.kind === 'arrived' && <a href={txUrl(end.mint, arcTestnet.id)} target="_blank" rel="noopener noreferrer">See it on Arc</a>}
+        {end?.kind === 'arrived' && <a href={txUrl(end.mint, ARC_CHAIN.id)} target="_blank" rel="noopener noreferrer">See it on Arc</a>}
       </p>
       {late && (st?.stage === 'unseen' && st.burnMined === false ? (
         <p className="small muted">{src.name} still hasn’t confirmed this transfer. Check it in your wallet or on the explorer: if it was dropped or replaced there, nothing was burned. This page keeps checking.</p>
@@ -407,11 +407,11 @@ function Transfer({ t, account, provider, onLanded, onMove, onForget }: {
             run={async (say) => {
               if (!provider || !account || !signed?.message || !signed.attestation) throw new Error('Circle hasn’t given its signature for this transfer yet.');
               say('Switching your wallet to Arc testnet…');
-              await switchTo(provider, arcTestnet);
+              await switchTo(provider, ARC_CHAIN);
               say('Confirm in your wallet…');
-              const r = await mintOnArc(walletOn(provider, account, arcTestnet), arc, { message: signed.message, attestation: signed.attestation });
+              const r = await mintOnArc(walletOn(provider, account, ARC_CHAIN), arc, { message: signed.message, attestation: signed.attestation });
               arrived(r.hash, signed.received ?? t.amount - t.maxFee);
-              return { hash: r.hash, chainId: arcTestnet.id, text: 'Minted on Arc.' };
+              return { hash: r.hash, chainId: ARC_CHAIN.id, text: 'Minted on Arc.' };
             }} />
         )}
         {end?.kind === 'error' && <button type="button" className="btn btn-line btn-sm" onClick={() => setTick((n) => n + 1)}>Check again</button>}
@@ -575,7 +575,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
       const list: Row[] = await getWithdrawals(vyre, { destination: account, caller: account, limit: 10, fromBlock: head > LOOK_BACK_BLOCKS ? head - LOOK_BACK_BLOCKS : 0n, pageBlocks: LOOK_PAGE_BLOCKS });
       setRows(list);
       if (!list.length) return;
-      const outbox = getAddresses(vyreTestnet.id).rollup!.outbox!;
+      const outbox = getAddresses(VYRE_CHAIN.id).rollup!.outbox!;
       const [confirmed, spent] = await Promise.all([
         getConfirmedCount(vyre, arc),
         Promise.all(list.map((w) => arc.readContract({ address: outbox, abi: outboxAbi, functionName: 'isSpent', args: [w.position] }))),
@@ -621,9 +621,9 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
                   run={async (say) => {
                     if (!provider) throw new Error('Connect a wallet first.');
                     say('Switching your wallet to Arc testnet…');
-                    await switchTo(provider, arcTestnet);
+                    await switchTo(provider, ARC_CHAIN);
                     say('Confirm in your wallet…');
-                    const r = await claimWithdrawal(walletOn(provider, account, arcTestnet), arc, vyre, w);
+                    const r = await claimWithdrawal(walletOn(provider, account, ARC_CHAIN), arc, vyre, w);
                     return { text: `Paid out on Arc (transaction ${short(r.hash)}).` };
                   }} />
               )}
@@ -714,7 +714,7 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
         .sort((a, b) => (a.position < b.position ? 1 : -1)).slice(0, 10) as Row[];
       setRows(list);
       if (!list.length) return;
-      const outbox = getAddresses(vyreTestnet.id).rollup!.outbox!;
+      const outbox = getAddresses(VYRE_CHAIN.id).rollup!.outbox!;
       const [confirmed, spent] = await Promise.all([
         getConfirmedCount(vyre, arc),
         Promise.all(list.map((w) => arc.readContract({ address: outbox, abi: outboxAbi, functionName: 'isSpent', args: [w.position] }))),
@@ -775,9 +775,9 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
                       if (!p) throw new Error('Open this page in a browser with a wallet (MetaMask, Rabby…) to claim it yourself, or wait for VYRE to pay it out.');
                       const [who] = (await p.request({ method: 'eth_requestAccounts' })) as Address[];
                       say('Switching your wallet to Arc testnet…');
-                      await switchTo(p, arcTestnet);
+                      await switchTo(p, ARC_CHAIN);
                       say('Confirm in your wallet (it pays Arc’s gas; the USDC goes to the move’s own address)…');
-                      const r = await claimWithdrawal(walletOn(p, getAddress(who), arcTestnet), arc, vyre, w);
+                      const r = await claimWithdrawal(walletOn(p, getAddress(who), ARC_CHAIN), arc, vyre, w);
                       return { text: `Paid out on Arc (transaction ${short(r.hash)}).` };
                     }} />
                 </span>

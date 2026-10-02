@@ -84,3 +84,18 @@ test('CI runs actions pinned to a full commit, and checkout keeps no token in .g
     });
   }
 });
+
+// The network the app works on is chosen in src/lib/chain.ts (VYRE_CHAIN and ARC_CHAIN); every other file reads it from there,
+// so the launchpad's addresses, the wallet's network, the Arc side and the SDK's own clients can't point at different networks.
+// (txcheck.ts keeps the SDK's test network only as a fallback for its unit tests; the app always passes its own chain.)
+test('the network is chosen in one place: no file but src/lib/chain.ts names the SDK’s test networks', () => {
+  const found = [];
+  for (const f of files.filter((f) => /^src\/.+\.tsx?$/.test(f) && f !== 'src/lib/chain.ts')) {
+    text(f).split('\n').forEach((l, i) => {
+      if (!/\b(?:vyreTestnet|arcTestnet)\b/.test(l)) return;
+      if (f === 'src/lib/txcheck.ts' && (/^import \{[^}]*\bvyreTestnet\b[^}]*\} from '@vyrechain\/sdk';$/.test(l) || /\(o\.vyreChainId \?\? vyreTestnet\.id\)/.test(l))) return;
+      found.push(`${f}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(found, []);
+});

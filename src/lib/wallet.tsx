@@ -5,8 +5,8 @@
 // key that can sign: that stays in the device's secure chip), are kept on this device until sign-out.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getAddress, isAddressEqual, type Address, type EIP1193Provider } from 'viem';
-import { vyreTestnet, type WalletLike } from '@vyrechain/sdk';
-import { onWalletsChanged, switchTo, walletOn, wallets, type WalletInfo } from './chain';
+import { type WalletLike } from '@vyrechain/sdk';
+import { VYRE_CHAIN, onWalletsChanged, switchTo, walletOn, wallets, type WalletInfo } from './chain';
 import { FACEID_KEY, checkEarlier, createFaceId, faceIdSigner, forgetFaceId, loadFaceId, signInFaceId, type FaceIdSession } from './faceid';
 import {
   EMAIL_TRADE_NOTE, WalletApiError, clearSession, loadSession, saveSession, signInWithEmail, walletConfig, walletsOf, withSession,
@@ -175,7 +175,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // an email wallet can't sign VYRE transactions until Circle signs for VYRE's chain ID
     if (email) throw new Error(EMAIL_TRADE_NOTE);
     if (!current || !account) throw new Error('Connect a wallet first.');
-    await switchTo(current.provider, vyreTestnet);
+    await switchTo(current.provider, VYRE_CHAIN);
     return walletOn(current.provider, account);
   }, [current, account, email, faceId]);
 

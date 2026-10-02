@@ -19,11 +19,16 @@ import { vyreTransport } from './transport';
 import { API_URL } from './api';
 import { guardProvider, wasCancelledByCheck } from './txcheck';
 
-export const EXPLORER = vyreTestnet.blockExplorers.default.url;
-export const ARC_EXPLORER = arcTestnet.blockExplorers.default.url;
+/** The network the app works on, and the network USDC is moved to and from. The only place either is chosen: every other file
+ * reads them from here (moving MINTA to another network: docs/HANDOFF.md, section 4). */
+export const VYRE_CHAIN = vyreTestnet;
+export const ARC_CHAIN = arcTestnet;
+
+export const EXPLORER = VYRE_CHAIN.blockExplorers.default.url;
+export const ARC_EXPLORER = ARC_CHAIN.blockExplorers.default.url;
 
 export const vyre: PublicClient = createPublicClient({
-  chain: vyreTestnet,
+  chain: VYRE_CHAIN,
   // Requests made together travel as one JSON-RPC batch, at most 5 to a request: the public RPC charges an eth_call 10
   // of a visitor's 60-point burst, so a batch of 7 or more is refused however long it waits. Reads made together go
   // through Multicall3 in chunks of 4 KB of calls (about a hundred balance reads), which keeps each eth_call's gas far
@@ -33,7 +38,7 @@ export const vyre: PublicClient = createPublicClient({
   batch: { multicall: { wait: 16, batchSize: 4_096 } },
 }) as PublicClient;
 
-export const arc: PublicClient = createPublicClient({ chain: arcTestnet, transport: http() }) as PublicClient;
+export const arc: PublicClient = createPublicClient({ chain: ARC_CHAIN, transport: http() }) as PublicClient;
 
 const sources = new Map<number, PublicClient>();
 /** A client on a chain USDC can come from (Ethereum, Base or Arbitrum Sepolia), over its free public RPC */
@@ -147,7 +152,7 @@ export async function switchTo(provider: EIP1193Provider, chain: Chain): Promise
  * is first run through the advisory pre-sign check (lib/txcheck.ts: at most 0.8 s, silent unless it finds something); on any
  * other chain the wallet's own provider is used as it is.
  */
-export function walletOn(provider: EIP1193Provider, account: Address, chain: Chain = vyreTestnet): WalletClient {
+export function walletOn(provider: EIP1193Provider, account: Address, chain: Chain = VYRE_CHAIN): WalletClient {
   return createWalletClient({ account, chain, transport: custom(guardProvider(provider, { chainId: chain.id, vyreChainId: vyre.chain?.id, url: `${API_URL}/txcheck` })) });
 }
 
