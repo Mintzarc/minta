@@ -969,15 +969,18 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
     }
-    // "Move to VYRE": a deposit mined on Arc that hasn't shown up on VYRE in time. Its Arc receipt is a success from the start (the
-    // real flow has already read it before it waits for VYRE), so what a check must look for is what's missing: the USDC on VYRE.
-    // The button holds it as Check it; while VYRE's balance hasn't moved, Check it stays Check it (no second deposit, nothing
-    // re-armed); a reload keeps it; a failed read on VYRE keeps it; once the balance rises it says it arrived and re-arms. Starting
-    // over says to look at the VYRE balance first. A deposit that failed on Arc can be sent again.
+    // "Move to VYRE": a deposit of 2 USDC mined on Arc that hasn't shown up on VYRE in time. Its Arc receipt is a success from the
+    // start (the real flow has already read it before it waits for VYRE), so what a check must look for is what's missing: the
+    // USDC on VYRE, all of it (a deposit is credited one for one). The button holds it as Check it; while VYRE's balance hasn't
+    // risen by the whole amount (unchanged, up by 1 wei from someone else, up by a 1 USDC drip) Check it stays Check it (no second
+    // deposit, nothing re-armed); a reload keeps it; a failed read on VYRE keeps it; once the balance is up by the amount it says
+    // it arrived and re-arms. Starting over says to look at the activity on VYRE first. A deposit that failed on Arc can be sent again.
     {
       const ARC_RPC = 'https://rpc.testnet.arc.io';
       const H5 = '0x' + 'a1'.repeat(32);
       const INBOX = '0x5555555555555555555555555555555555555555';
+      const START = 1n, AMOUNT = 2n * 10n ** 18n; // the stand-in VYRE's balance before (0x1), and the deposit
+      const hex = (n) => '0x' + n.toString(16);
       const asks = [];
       const rcpt = (hash, status, to) => ({ blockHash: '0x' + '11'.repeat(32), blockNumber: '0x10', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x989680', from: ME, gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256), status, to, transactionHash: hash, transactionIndex: '0x0', type: '0x2' });
       const receipts = { [H5]: rcpt(H5, '0x1', INBOX) };
@@ -995,6 +998,16 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       const status = () => pg.locator('#deposit .status').innerText().catch(() => '');
       const startOver = () => pg.locator('#deposit .tx').innerText().catch(() => '');
       const settle = (re) => pg.waitForFunction((src) => new RegExp(src, 'i').test(document.querySelector('#deposit .status')?.textContent || ''), re.source, { timeout: 5000 }).catch(() => {});
+      // one press of Check it, done once it has read VYRE and the button isn't busy any more
+      const checkOnce = async () => {
+        const r0 = await counter('__vyreReads');
+        await btn.click();
+        await pg.waitForFunction((r) => (window.__vyreReads || 0) > r && !/Working/.test(document.querySelector('#deposit .tx > button')?.textContent || ''), r0, { timeout: 5000 }).catch(() => {});
+      };
+      const stillHeldAfter = async (what) => {
+        ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && await counter('__done5') === 0 && /doesn’t show on VYRE yet/.test(await status()) && !/arrived|went through/i.test(await status()),
+          `${what}: it stays Check it and says it doesn’t show on VYRE yet (no second deposit, nothing re-armed)`);
+      };
       await btn.click();
       await settle(/hasn’t shown up on VYRE yet/);
       ok(await counter('__runs5') === 1 && /Check it/.test(await btn.innerText()) && await btn.isEnabled(), 'a deposit mined on Arc but not on VYRE in time: it ran once, and its button now reads Check it (not the move button again)');
@@ -1002,35 +1015,38 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         'the status says what is missing in the app’s words and links the deposit on Arc');
       // Check it while VYRE's balance hasn't moved: the Arc receipt is a success, but the deposit isn't on VYRE
       const reads0 = await counter('__vyreReads');
-      await btn.click();
-      await settle(/isn’t on VYRE yet/);
+      await checkOnce();
       ok(asks.includes('eth_getTransactionReceipt') && await counter('__vyreReads') > reads0, 'Check it reads the deposit on Arc and the balance on VYRE');
       ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 1 && await counter('__done5') === 0,
         'confirmed on Arc but VYRE’s balance hasn’t moved: it stays Check it (no second deposit, nothing re-armed, the balances not refreshed as if it arrived)');
-      ok(/sent from Arc and confirmed there, but it isn’t on VYRE yet\. Check again in a minute: checking doesn’t send anything/.test(await status()) && !/went through/i.test(await status()),
+      ok(/sent from Arc and confirmed there, but it doesn’t show on VYRE yet\. Check again in a minute: checking doesn’t send anything/.test(await status()) && !/went through/i.test(await status()),
         'and it says so in the app’s words: confirmed on Arc, not on VYRE yet, check again in a minute, checking sends nothing');
-      ok(/Look at your balance on VYRE first/.test(await startOver()) && /sending again moves more USDC/.test(await startOver()) && !/never reached the chain/.test(await startOver())
-        && await pg.locator('#deposit button:has-text("start over")').count() === 1,
-        'starting over is offered with its own words: look at the VYRE balance first, since sending again moves more USDC (never “it never reached the chain”)');
+      ok(/Look at your recent activity on VYRE first/.test(await startOver()) && /if you’ve spent on VYRE since, it may already have/.test(await startOver()) && /sending again moves more USDC/.test(await startOver())
+        && !/never reached the chain/.test(await startOver()) && await pg.locator('#deposit button:has-text("start over")').count() === 1,
+        'starting over is offered with its own words: look at the activity on VYRE first (spending there since can hide the deposit), since sending again moves more USDC (never “it never reached the chain”)');
       // a reload keeps it
       await pg.reload();
       await pg.waitForSelector('#deposit .tx > button');
       ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && /deposit sent from here earlier/.test(await status()), 'after a reload it still reads Check it, says a deposit is on its way, and nothing was sent by itself');
-      await btn.click();
-      await settle(/isn’t on VYRE yet/);
-      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && await counter('__done5') === 0, 'pressing it after the reload still only checks: it stays Check it while VYRE’s balance hasn’t moved');
+      await checkOnce();
+      await stillHeldAfter('pressing it after the reload with VYRE’s balance unchanged');
       // a read on VYRE that fails keeps it held
       await vyreBalance('busy');
-      await btn.click();
-      await settle(/VYRE couldn’t be read/);
-      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && await counter('__done5') === 0 && /Check again in a minute: checking doesn’t send anything/.test(await status()),
+      await checkOnce();
+      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && await counter('__done5') === 0 && /VYRE couldn’t be read/.test(await status()) && /Check again in a minute: checking doesn’t send anything/.test(await status()),
         'a balance read on VYRE that fails keeps it held, and says to check again');
+      // other money arriving on VYRE is not the deposit
+      await vyreBalance(hex(START + 1n));
+      await checkOnce();
+      await stillHeldAfter('VYRE’s balance up by 1 wei from someone else');
+      await vyreBalance(hex(START + 10n ** 18n));
+      await checkOnce();
+      await stillHeldAfter('VYRE’s balance up by a 1 USDC drip, less than the 2 USDC deposit');
       // the deposit shows up on VYRE
-      await vyreBalance('0x3');
-      await btn.click();
-      await settle(/arrived on VYRE/);
+      await vyreBalance(hex(START + 10n ** 18n + AMOUNT));
+      await checkOnce();
       ok(/It arrived on VYRE/.test(await status()) && await counter('__done5') === 1 && await counter('__runs5') === 0 && /Move 2 USDC to VYRE/.test(await btn.innerText()),
-        'once VYRE’s balance rises it says it arrived, the balances are read again, the move button is back, and nothing was sent twice');
+        'once VYRE’s balance is up by the whole amount it says it arrived, the balances are read again, the move button is back, and nothing was sent twice');
       await pg.reload();
       await pg.waitForSelector('#deposit .tx > button');
       ok(/Move 2 USDC to VYRE/.test(await btn.innerText()) && await pg.locator('#deposit .status').count() === 0 && await counter('__runs5') === 0, 'after a reload nothing is held any more, and nothing was sent by itself');

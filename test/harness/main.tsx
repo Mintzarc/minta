@@ -85,14 +85,14 @@ function Page() {
         }} />
       </div>
       <div id="deposit">
-        {/* 2 USDC moved to VYRE: mined on Arc, not on VYRE in time */}
+        {/* 2 USDC moved to VYRE: mined on Arc, not on VYRE in time (the stand-in's balance doesn't rise by 2 USDC by itself) */}
         <TxButton label="Move 2 USDC to VYRE" keepAs="test-deposit" onDone={() => { count.__done5 = (count.__done5 || 0) + 1; }}
           arrived={(d) => depositArrived(standInVyre, d)}
           run={async (say) => {
             count.__runs5 = (count.__runs5 || 0) + 1;
             const before = await standInVyre.getBalance({ address: ME });
             say('Sent on Arc. Waiting for it on VYRE…');
-            const secs = await arrival(standInVyre, arcTestnet.id, ME, before, `0x${'a1'.repeat(32)}`, { timeoutMs: 300, pollMs: 20, retryMs: 20 });
+            const secs = await arrival(standInVyre, arcTestnet.id, ME, before, 2n * 10n ** 18n, `0x${'a1'.repeat(32)}`, { timeoutMs: 300, pollMs: 20, retryMs: 20 });
             return { text: `Arrived on VYRE in ${secs.toFixed(1)} s.` };
           }} />
       </div>

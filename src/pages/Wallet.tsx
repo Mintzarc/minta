@@ -120,7 +120,7 @@ export default function Wallet() {
                   const before = await vyre.getBalance({ address: account });
                   const r = await withEmail((s) => moveToVyre(s, exact(value!).replace(/,/g, ''), say));
                   say('Sent on Arc. Waiting for it on VYRE…');
-                  const secs = await arrival(vyre, ARC_CHAIN.id, account, before, r.arcTx);
+                  const secs = await arrival(vyre, ARC_CHAIN.id, account, before, value!, r.arcTx);
                   return { text: `Arrived on VYRE in ${secs.toFixed(1)} s.${r.arcTx ? ` (Arc transaction ${short(r.arcTx)})` : ''}` };
                 }
                 if (!provider) throw new Error('Connect a wallet first.');
@@ -130,11 +130,11 @@ export default function Wallet() {
                 say('Confirm in your wallet…');
                 const r = await depositFromArc(walletOn(provider, account, ARC_CHAIN), arc, { amount: value! }).catch((e: unknown) => {
                   // sent, but its receipt on Arc couldn't be read: held as Check it, which looks for it on VYRE too once it went through
-                  if (e instanceof SentButUnconfirmedError) throw heldDeposit(e, account, before);
+                  if (e instanceof SentButUnconfirmedError) throw heldDeposit(e, account, before, value!);
                   throw /is a smart account or contract on Arc/.test((e as Error)?.message || '') ? new Error(SMART_ACCOUNT) : e;
                 });
                 say('Sent on Arc. Waiting for it on VYRE…');
-                const secs = await arrival(vyre, ARC_CHAIN.id, account, before, r.hash);
+                const secs = await arrival(vyre, ARC_CHAIN.id, account, before, value!, r.hash);
                 return { text: `Arrived on VYRE in ${secs.toFixed(1)} s. (Arc transaction ${short(r.hash)})` };
               }} />
             {value && onArc !== null && value >= onArc && <p className="err small">You have {amount(onArc)} USDC on Arc testnet; keep a little for its gas.</p>}

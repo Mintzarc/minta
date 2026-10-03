@@ -256,8 +256,8 @@ const stillHeld = (h: Held | null): Status => (h
  * transaction is kept for the tab, so leaving the page or reloading it still shows Check it. With `finalTo` (the address the
  * action's own transaction is sent to), a held transaction that went anywhere else was only the approval before it: once it
  * went through, the button says so and can be pressed again to finish. A held deposit to VYRE (its error carries `deposit`:
- * lib/deposit.ts) is checked for what's missing: once its transaction went through, `arrived` reads whether the USDC has shown
- * up on VYRE, and the button stays Check it until it has (a read that fails, or no `arrived`, is no answer: it stays too).
+ * lib/deposit.ts) is checked for what's missing: once its transaction went through, `arrived` reads whether the whole amount has
+ * shown up on VYRE, and the button stays Check it until it has (a read that fails, or no `arrived`, is no answer: it stays too).
  */
 export function TxButton({ label, run, disabled, className = 'btn btn-accent', onDone, keepAs, finalTo, arrived }: {
   label: string; run: (say: (t: string) => void) => Promise<{ hash?: string; text?: string; chainId?: number } | void>; disabled?: boolean;
@@ -307,7 +307,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
         setHeld({ ...h, looked: true });
         setSt({
           kind: 'err',
-          text: there === false ? 'It was sent from Arc and confirmed there, but it isn’t on VYRE yet. Check again in a minute: checking doesn’t send anything.'
+          text: there === false ? 'It was sent from Arc and confirmed there, but it doesn’t show on VYRE yet. Check again in a minute: checking doesn’t send anything.'
             : 'It was sent from Arc and confirmed there, but VYRE couldn’t be read just now. Check again in a minute: checking doesn’t send anything.',
           ...at,
         });
@@ -374,7 +374,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
         </p>
       )}
       {held?.looked && st.kind === 'err' && (held.deposit
-        ? <p className="small muted">Still not on VYRE after a few minutes? Look at your balance on VYRE first: a deposit confirmed on Arc still arrives, and sending again moves more USDC. To send another anyway, <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
+        ? <p className="small muted">Still not on VYRE after a few minutes? Look at your recent activity on VYRE first: a deposit confirmed on Arc still arrives (if you’ve spent on VYRE since, it may already have), and sending again moves more USDC. To send another anyway, <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
         : <p className="small muted">Not on the explorer after a few minutes? It never reached the chain: <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
       )}
     </div>
