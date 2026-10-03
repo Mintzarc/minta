@@ -15,6 +15,7 @@ npm run dev          # http://localhost:5173
 npm run build        # typecheck, then the site into dist/
 npm run typecheck && npm test
 npm run test:browser # a real-browser check of the wizard, docs, ticker, splash, the check before signing; needs `npx playwright install chromium`
+npm run check:published # before publishing: vyrechain.com serves the SDK release the in-app docs tell builders to install
 ```
 
 Node 22 or newer. Routes live after a `#` (`/#/token/0x…`), so any static host works with no rewrite rules.
@@ -49,7 +50,8 @@ gets a domain of its own or moves to another network.
 `vyrechain-sdk-<version>.tgz` from <https://vyrechain.com/sdk/>, put it in `vendor/`, record its SHA-256 in
 `vendor/SHA256SUMS` (`cd vendor && sha256sum *.tgz > SHA256SUMS`; remove the old file first), change the path in
 `package.json`, run `npm install`, then the tests (`test/vendor.test.mjs` checks that the file, its recorded hash and the
-lockfile agree). A new SDK always comes as a new version: never replace a vendored file with different contents under the same name. The SDK carries the contract addresses: after VYRE redeploys its contracts,
+lockfile agree). The in-app docs' install line (`SDK_FILE` in `src/pages/Docs.tsx`) names the same release on vyrechain.com: change
+it with the vendored file, and publish a build only once `npm run check:published` finds that file served there. A new SDK always comes as a new version: never replace a vendored file with different contents under the same name. The SDK carries the contract addresses: after VYRE redeploys its contracts,
 MINTA needs the SDK released after that.
 
 ## Layout
@@ -61,6 +63,7 @@ src/lib/          chain and wallet plumbing, the app API client, the check befor
 public/           the logo, art, meme mascots for tokens with no picture, the splash film, manifest, terms and privacy pages
 brand/            the logo's source, and the tools that cut the logo pictures and the splash film; see each folder
 test/             unit tests (node --test) and a browser check (Playwright)
+scripts/          the check before publishing (npm run check:published)
 vercel.json       the page's security headers (a strict content security policy) and the build settings
 ```
 

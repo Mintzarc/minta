@@ -1,5 +1,6 @@
 // The vendored SDK (vendor/): the package installed is the file recorded, byte for byte. vendor/SHA256SUMS records each file's
-// SHA-256 (the same hash as the copy published at https://vyrechain.com/sdk/), package.json points at a recorded file, and the
+// SHA-256 (the same hash as the copy https://vyrechain.com/sdk/ serves, which `npm run check:published` confirms before a build is
+// published), package.json points at a recorded file, and the
 // lockfile's integrity and version match that file, so a file swapped or re-packed under the same name fails here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

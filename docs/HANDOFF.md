@@ -5,6 +5,11 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
 
 ## 1. When MINTA gets its own domain
 
+Before any build is published (the first one here, and every later one), run `npm run check:published`: the in-app docs tell
+builders to install the SDK release vendored in `vendor/` from vyrechain.com (`SDK_FILE` in `src/pages/Docs.tsx`), and the check
+fails while that address doesn't serve the same file. A vendored release can be newer than what vyrechain.com serves yet; publish
+once it is there.
+
 1. Create the hosting project from this repository (Vercel: framework Vite, settings in `vercel.json`) and attach the domain.
 2. Build with `VITE_SITE_URL=https://<the domain>` (or rely on Vercel's production domain) so the link-preview image has an
    absolute address. Check one link in a chat app.
