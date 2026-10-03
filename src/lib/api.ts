@@ -1,5 +1,7 @@
 // The app API (api.vyrechain.com): it keeps launches' pictures and picture-and-links files, so creators don't have to host
 // anything: they upload the picture (lib/picture.ts makes it ready) and the file's "image" is the address that comes back.
+import { shownPicture } from './picture';
+
 // the app API's address; built with VITE_API_URL it can point anywhere (a service of MINTA's own, say)
 export const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || 'https://api.vyrechain.com';
 
@@ -27,6 +29,15 @@ export async function withUploadedPicture(file: LaunchFile, picture?: { blob: Bl
   return picture ? { ...file, image: await uploadPicture(picture.blob) } : file;
 }
 
+/**
+ * The file as the service keeps it: its picture only when it is one the service stores (`API_URL`/i/<hash>.<ext>). The
+ * service refuses a picture link to anywhere else, so an older file's outside link is left out when the file is saved again
+ * (MINTA never drew it; the editor says so before saving).
+ */
+export function storable(file: LaunchFile): LaunchFile {
+  return { ...file, image: shownPicture(file.image?.trim(), API_URL) || '' };
+}
+
 /** Stores a launch file and returns the link to put on chain (the same content always gets the same link) */
 export async function saveLaunchFile(file: LaunchFile): Promise<string> {
   let r: Response;
@@ -34,7 +45,7 @@ export async function saveLaunchFile(file: LaunchFile): Promise<string> {
     r = await fetch(`${API_URL}/metadata`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(file),
+      body: JSON.stringify(storable(file)),
       signal: AbortSignal.timeout(15000),
     });
   } catch {
@@ -46,7 +57,7 @@ export async function saveLaunchFile(file: LaunchFile): Promise<string> {
 }
 
 /** Whether a launch file has anything in it */
-export const hasContent = (f: LaunchFile) => !!(f.description?.trim() || f.image?.trim() || Object.values(f.links || {}).some((v) => v?.trim()));
+export const hasContent = (f: LaunchFile) => !!(f.description?.trim() || storable(f).image || Object.values(f.links || {}).some((v) => v?.trim()));
 
 /** A card / Apple Pay checkout (Transak) that delivers USDC on Arc to `address`; the link works once, for 5 minutes */
 export async function topupLink(address: string, usd?: number): Promise<string> {

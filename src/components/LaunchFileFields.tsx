@@ -137,7 +137,7 @@ function PictureField({ value, onChange }: { value: LaunchFileState; onChange: (
         </div>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/*" hidden onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
-      {outside && <small className="muted pic-outside">This launch’s picture is a link to another site, which MINTA doesn’t show: its pages show only pictures uploaded through it, so they show the token’s mascot. Choose the picture from your device to show it.</small>}
+      {outside && <small className="muted pic-outside">This launch’s picture is a link to another site, which MINTA doesn’t show: its pages show only pictures uploaded through it, so they show the token’s mascot. Saving here keeps only uploaded pictures, so that link is left out of the new file. Choose the picture from your device to keep a picture.</small>}
       {err && <small className="err" role="alert">{err}</small>}
     </div>
   );
