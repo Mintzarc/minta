@@ -1,9 +1,12 @@
 // The app API (api.vyrechain.com): it keeps launches' pictures and picture-and-links files, so creators don't have to host
 // anything: they upload the picture (lib/picture.ts makes it ready) and the file's "image" is the address that comes back.
+import { TXCHECK_URL } from '@vyrechain/sdk';
 import { shownPicture } from './picture';
 
-// the app API's address; built with VITE_API_URL it can point anywhere (a service of MINTA's own, say)
-export const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || 'https://api.vyrechain.com';
+// the app API's address: the test network's, as the SDK records it (the SDK's check before signing is that API's /txcheck), so an
+// SDK release that moves the test network's services to other host names moves this with them; built with VITE_API_URL it can
+// point anywhere (a service of MINTA's own, say, or another network's API: docs/HANDOFF.md, section 4)
+export const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || new URL('.', TXCHECK_URL).href.replace(/\/$/, '');
 
 export interface LaunchFile {
   description?: string;

@@ -68,7 +68,7 @@ export default function App() {
       <TxCheckDialog />
       <footer className="foot">
         <p>MINTA on the VYRE testnet: test USDC, no real money. Trading is risky and launch tokens can go to zero; nothing here is advice.
-          USDC is issued by Circle, which isn’t affiliated with MINTA or VYRE. <a href={href({ page: 'docs' })}>Docs</a> · <a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="https://explorer.vyrechain.com" target="_blank" rel="noopener noreferrer">Explorer</a></p>
+          USDC is issued by Circle, which isn’t affiliated with MINTA or VYRE. <a href={href({ page: 'docs' })}>Docs</a> · <a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href={EXPLORER} target="_blank" rel="noopener noreferrer">Explorer</a></p>
       </footer>
       {searching && <SearchPanel initial={route.page === 'explore' ? route.q : ''} onClose={() => setSearching(false)} />}
     </>
@@ -129,7 +129,7 @@ function Menu({ at }: { at: (r: Route) => boolean }) {
           {NAV.map((n) => <a key={n.label} href={href(n.route)} aria-current={at(n.route) ? 'page' : undefined}>{n.label}</a>)}
           <hr />
           <a href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">Faucet</a>
-          <a href="https://explorer.vyrechain.com" target="_blank" rel="noopener noreferrer">Explorer</a>
+          <a href={EXPLORER} target="_blank" rel="noopener noreferrer">Explorer</a>
           <a href="https://vyrechain.com" target="_blank" rel="noopener noreferrer">VYRE</a>
         </nav>
       )}

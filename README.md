@@ -26,7 +26,7 @@ Set these when building (`VITE_…` values are public: they end up in the page):
 | Variable | What | Default |
 |---|---|---|
 | `VITE_SITE_URL` | the site's own address, for the link-preview image (`https://example.com`, no slash at the end). On Vercel its production domain is used when this isn't set | none: the preview image address stays relative |
-| `VITE_API_URL` | the app API: picture upload, token details files, card checkout links, email sign-in | `https://api.vyrechain.com` |
+| `VITE_API_URL` | the app API: picture upload, token details files, card checkout links, email sign-in, the check before signing | the test network's API as the SDK records it (`https://api.vyrechain.com` today) |
 | `VITE_PROMOTERS_URL` | the promoter-code lookup | `https://testnet-rpc.vyrechain.com/promoters` |
 | `VITE_CARD_TOPUP` | `1` shows the card checkout on the Wallet page, `0` hides it. Turn it on for a network other than the testnet only once a live checkout works for your site | shown on the test network only |
 

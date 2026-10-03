@@ -46,6 +46,14 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
   wallet's sends (off until its provider signs for VYRE): if either returns, check the built transaction first. At the move to the
   main network the check follows the app's own VYRE chain (`walletOn` passes it), and the service has to answer the new site (ask its
   operator to allow your domain).
+- **The services' host names.** The RPC and the explorer come with the SDK's definition of the network, and the app API's address
+  (`API_URL` in `src/lib/api.ts`) is the SDK's record of the test network's API unless the build sets `VITE_API_URL`. If the
+  network's services move to other host names (another network taking over the current ones, say) while MINTA stays on the test
+  network, vendor the SDK release that carries the new names, and publish a build with it, before the old names point anywhere
+  else: until then the pages would send pictures, launch files and the check before signing, and open explorer links, at whatever
+  answers at the old names. Then change by hand what doesn't come from the SDK: the promoter service's address
+  (`VITE_PROMOTERS_URL`, or its default in `src/lib/api.ts`) and the hosts the terms and privacy pages name
+  (`public/terms/index.html`, `public/privacy/index.html`). A test keeps every other page free of written-out host names.
 - **Fees:** the 1% platform fee and the promoters' share are set in the launchpad contracts and paid by the fee splitter contract.
   A launchpad fee on top (0 to 1% per side) is named by the launch itself: any launch can name a partner address and its fee, with
   no registration or approval, and the fee splitter pays that address its part in USDC. The partner can move where its part is paid

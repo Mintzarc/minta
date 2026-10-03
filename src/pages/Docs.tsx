@@ -4,11 +4,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { href } from '../lib/router';
 import { addresses } from '../lib/market';
 import { EXPLORER } from '../lib/chain';
+import { API_URL } from '../lib/api';
 import { VyreGlyph } from '../components/Brand';
 import './docs.css';
 
 /** The pictures (public/art, served beside the app) */
 const ART = '/art/';
+/** The app API's host, as the pages call it (the check before signing is one of its routes) */
+const API_HOST = (() => { try { return new URL(API_URL).host; } catch { return API_URL; } })();
 const SDK_FILE = 'https://vyrechain.com/sdk/vyrechain-sdk-0.5.6.tgz';
 
 type Section = { id: string; title: string; body: ReactNode; label?: string; nav?: string; art?: string };
@@ -292,7 +295,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
             <details><summary>Can the liquidity be pulled?</summary><p>No. Each pool’s liquidity is locked in the contract and only the launchpad can add to it; nobody can remove it.</p></details>
             <details><summary>Can a creator raise the tax?</summary><p>No. A creator can lower either tax at any time and can never raise it.</p></details>
             <details><summary>What does a trade cost in gas?</summary><p>On the testnet, a buy has cost about six millionths of a dollar. <Ext to="https://vyrechain.com/gas">Every number links to a real transaction.</Ext></p></details>
-            <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service (api.vyrechain.com) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href="/privacy/">privacy policy</a>.</p></details>
+            <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service ({API_HOST}) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href="/privacy/">privacy policy</a>.</p></details>
             <details><summary>Has it had an outside audit?</summary><p>Not yet. The contracts have been through tests and review rounds by the network’s operator, who deployed them, and this is a testnet.</p></details>
             <details><summary>Can I lose money?</summary><p>On the testnet there is no real money. On any chain, launch tokens can go to zero and nothing here is financial advice.</p></details>
           </div>

@@ -134,3 +134,26 @@ test('the handover notes list the faucet among the services a new domain must be
   assert.match(s1, /faucet[^.]*only[^.]*(?:pages|addresses) it knows|faucet[^.]*answers[^.]*pages it knows/i, 'the faucet answers only pages it knows');
   assert.match(s1, /Get test USDC/, 'the walk-through presses Get test USDC');
 });
+
+// The network's services (its RPC, explorer and app API, each on a host under vyrechain.com) are reached at the addresses the SDK
+// and the build settings give, chosen in src/lib/chain.ts and src/lib/api.ts. A host written out anywhere else in the pages would
+// stay behind if those services moved to other names, and send a test-network build's visitors to whatever took the old ones.
+test('no page names a service host of the network outside src/lib/chain.ts and src/lib/api.ts', () => {
+  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n')
+    .filter((f) => (/^src\/.+\.tsx?$/.test(f) || f === 'index.html') && f !== 'src/lib/chain.ts' && f !== 'src/lib/api.ts');
+  const comment = /^\s*(?:\/\/|\*|\/\*|\{\/\*)/;
+  const host = /\b[a-z0-9-]+\.vyrechain\.com\b/i;
+  const found = [];
+  for (const f of files) read(f).split('\n').forEach((l, i) => { if (!comment.test(l) && host.test(l)) found.push(`${f}:${i + 1} (${l.match(host)[0]})`); });
+  assert.deepEqual(found, []);
+});
+
+// If the network's services move to other host names while MINTA stays on the test network, the handover notes say what follows the
+// SDK and what must be changed by hand, before the old names go to anything else.
+test('the handover notes say what to do when the network’s services move to other host names', () => {
+  const s2 = section(handoff, 2);
+  assert.match(s2, /other host names/, 'the case is named');
+  assert.match(s2, /SDK release[^.]*new names[^.]*before/i, 'the SDK release with the new names comes first');
+  for (const f of ['src/lib/api.ts', 'public/terms/index.html', 'public/privacy/index.html']) assert.ok(s2.includes('`' + f + '`'), `names ${f}`);
+  assert.match(s2, /VITE_PROMOTERS_URL/, 'and the promoter service’s address');
+});
