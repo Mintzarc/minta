@@ -33,7 +33,8 @@ export const vyre: PublicClient = createPublicClient({
   // of a visitor's 60-point burst, so a batch of 7 or more is refused however long it waits. Reads made together go
   // through Multicall3 in chunks of 4 KB of calls (about a hundred balance reads), which keeps each eth_call's gas far
   // under the 10M cap; `fetchSplit` keeps each request under the RPC's body limit. (No `gas` is passed on these reads.) A log
-  // read the RPC refuses as too large comes back at once, so the range is halved without waiting (`vyreTransport`).
+  // read the RPC refuses as too large comes back at once, so the range is halved without waiting, and another call of a batch
+  // refused that way is asked once more on its own (`vyreTransport`).
   transport: vyreTransport(fetchSplit),
   batch: { multicall: { wait: 16, batchSize: 4_096 } },
 }) as PublicClient;

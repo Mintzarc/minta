@@ -100,14 +100,16 @@ test('the transport is still viem’s http one, set up as the SDK sets it up', a
 
 /**
  * A stand-in RPC that sizes answers as the public RPC does for a batch: when the answers of one request add up to more than `cap`,
- * every call of that request gets the refusal as too large (a log read's answer counts one per block of its range, any other one).
+ * every call of that request gets the refusal as too large (a log read's answer counts one per block of its range, a balance
+ * `balanceSize`, a contract read `callSize`, any other one). `singles` counts the requests that were one call, not a batch.
  */
 async function batchRpc(t, cap) {
-  const s = { calls: [], posts: [] };
+  const s = { calls: [], posts: [], singles: 0, balanceSize: 1, callSize: 1 };
   const answer = (m) => {
     s.calls.push(m.method);
     if (m.method === 'eth_blockNumber') return { size: 1, out: { jsonrpc: '2.0', id: m.id, result: '0x10' } };
-    if (m.method === 'eth_call') return { size: 1, out: { jsonrpc: '2.0', id: m.id, result: '0x' } };
+    if (m.method === 'eth_getBalance') return { size: s.balanceSize, out: { jsonrpc: '2.0', id: m.id, result: '0x1' } };
+    if (m.method === 'eth_call') return { size: s.callSize, out: { jsonrpc: '2.0', id: m.id, result: '0x' } };
     const { fromBlock, toBlock } = m.params[0];
     return { size: Number(BigInt(toBlock) - BigInt(fromBlock) + 1n), out: { jsonrpc: '2.0', id: m.id, result: [] } };
   };
@@ -117,6 +119,7 @@ async function batchRpc(t, cap) {
     req.on('end', () => {
       const j = JSON.parse(body);
       const list = Array.isArray(j) ? j : [j];
+      if (!Array.isArray(j)) s.singles++;
       s.posts.push(list.map((m) => m.method));
       const got = list.map(answer);
       const out = got.reduce((n, g) => n + g.size, 0) > cap
@@ -159,4 +162,30 @@ test('two log reads refused together are each halved and each read whole', { tim
   const read = (lo, hi) => readLogsSplitting((a, b) => client.getLogs({ fromBlock: a, toBlock: b }), lo, hi);
   assert.deepEqual(await Promise.all([read(0n, 1199n), read(5000n, 5099n)]), [[], []]);
   assert.ok(s.calls.length <= 12, `${s.calls.length} reads`);
+});
+
+test('a batch refused as too large in which no call is a log read: each call is asked once more on its own and answered', { timeout: 120_000 }, async (t) => {
+  // three balances whose answers together pass the cap, each one alone far under it
+  const s = await batchRpc(t, 1500);
+  s.balanceSize = 800;
+  const client = clientFor(s.url);
+  const t0 = Date.now();
+  const got = await Promise.allSettled(['1', '2', '3'].map((d) => client.getBalance({ address: `0x${d.repeat(40)}` })));
+  assert.deepEqual(got.map((g) => g.status === 'fulfilled' ? g.value : g.reason?.shortMessage), [1n, 1n, 1n]);
+  assert.deepEqual(s.posts[0], ['eth_getBalance', 'eth_getBalance', 'eth_getBalance'], 'the three went out as one batch, refused together');
+  assert.equal(s.singles, 3, 'each asked once on its own');
+  assert.equal(s.calls.length, 6, 'nothing asked again after that');
+  assert.ok(Date.now() - t0 < 5000, `no waiting between tries (${Date.now() - t0} ms)`);
+});
+
+test('a contract read whose own answer is too large comes back at once: asked in its batch, then once on its own', { timeout: 120_000 }, async (t) => {
+  const s = await batchRpc(t, 1500);
+  s.callSize = 2000;
+  const t0 = Date.now();
+  const e = await clientFor(s.url).request({ method: 'eth_call', params: [{ to: '0x1111111111111111111111111111111111111111', data: '0x' }, 'latest'] }).catch((x) => x);
+  assert.ok(e instanceof LimitExceededRpcError, e?.name);
+  assert.equal(isAnswerTooLarge(e), true);
+  assert.equal(s.calls.length, 2);
+  assert.equal(s.singles, 1);
+  assert.ok(Date.now() - t0 < 5000, `no waiting between tries (${Date.now() - t0} ms)`);
 });
