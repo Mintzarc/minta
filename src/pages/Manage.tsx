@@ -206,13 +206,16 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
   // the file this editor just saved: when the launch then points at it, the editor already shows it (and its "Saved" stays up)
   const saved = useRef('');
   useEffect(() => {
-    if (uri && uri === saved.current) return;
+    // the fields just saved as a new file: "Your own file" no longer starts from the link the launch had before
+    if (uri && uri === saved.current) { setState((s) => (s.useOwn ? s : { ...s, own: ours ? '' : uri })); return; }
     let live = true;
     const fromFile = (m: Meta) => {
       const links: LaunchFile['links'] = {};
       for (const l of m.links) links[l.key] = l.url;
-      // the picture link as written, so saving other changes keeps it (a link to another site is kept, though never drawn)
-      return { file: { description: m.description, image: m.imageLink, links }, own: '', useOwn: false };
+      // the picture link as written: one to another site shows as a link MINTA doesn't draw, and a save of the fields leaves it out
+      // of the new file (lib/api.ts storable; the picture field says so). A file kept on another site is the creator's own, so
+      // "Your own file" starts from its link and saving from there keeps it
+      return { file: { description: m.description, image: m.imageLink, links }, own: ours ? '' : uri, useOwn: false };
     };
     // a file that isn't one of ours and can't be read here stays the creator's own: its link is kept as it is
     const asOwn = () => ({ ...emptyLaunchFile(), own: uri, useOwn: true });
@@ -223,7 +226,11 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
     );
     return () => { live = false; };
   }, [uri, ours, attempt]);
-  const problem = launchFileProblem(state);
+  // a save that would leave the launch with no file: an emptied own-file link is refused (it would read as no file at all), and
+  // fields with nothing in them that a file keeps say so before they're saved
+  const emptied = state.useOwn ? !state.own.trim() : !(hasContent(state.file) || state.picture);
+  const problem = launchFileProblem(state)
+    || (state.useOwn && emptied && uri ? 'Paste the link to your own file. To take the launch’s picture, description and links away, use the fields instead and leave them empty.' : '');
   return (
     <div className="card">
       <h2 className="h3">Picture, description and links</h2>
@@ -239,7 +246,13 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
       )}
       {read === 'ready' && (
         <>
+          {uri && !ours && !state.useOwn && (
+            <p className="small muted">This launch’s file is kept on another site ({/^https:\/\//.test(uri)
+              ? <a className="mono break" href={uri} target="_blank" rel="noopener noreferrer">{uri}</a>
+              : <span className="mono break">{uri}</span>}). Saving the fields puts a new file in its place, kept by the service that keeps launch files; to keep using your own file, change it there and save its link under “Your own file (advanced)”.</p>
+          )}
           <LaunchFileFields value={state} onChange={(v) => { setTouched(true); setState(v); }} />
+          {uri && !state.useOwn && emptied && <p className="small">Nothing here would be kept in a file, so saving removes the launch’s picture, description and links.</p>}
           {problem && <p className="err small">{problem}</p>}
           <TxButton className="btn btn-line" label="Save" disabled={!!problem || !touched}
             run={async (say) => {

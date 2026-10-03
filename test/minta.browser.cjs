@@ -457,6 +457,30 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await ctx.close();
     }
     {
+      // a launch whose file is kept on another site (the creator's own, which MINTA can read): the editor starts from what is in it and
+      // says that saving the fields stores a new file in its place; "Your own file" starts from the launch's current link, so saving
+      // from there keeps it; a link emptied there is refused rather than saved as no file at all, and fields left empty say before
+      // saving that it takes the file away
+      const { pg, ctx, errs } = await visit(`#/manage/${L[1].token}`, '.launch-file textarea', { creator: true });
+      const card = pg.locator('.card', { hasText: 'Picture, description and links' });
+      const own = card.locator('input[placeholder^="https://… or ipfs"]');
+      const save = card.locator('.tx button');
+      ok(await card.locator('textarea').inputValue().catch(() => '') === 'about LINK', 'Manage, a file kept on another site: the editor starts from what is in it');
+      ok(/kept on another site/.test(await card.innerText()) && await card.locator(`a[href="${L[1].uri}"]`).count() === 1, 'and says saving the fields puts a new file in its place, with the current file’s link');
+      await card.locator('button:has-text("Your own file (advanced)")').click();
+      ok(await own.inputValue().catch(() => '') === L[1].uri, `“Your own file” starts from the launch’s current link (${JSON.stringify(await own.inputValue().catch(() => ''))})`);
+      ok(!(await save.isDisabled()), 'which can be saved as it is (nothing changes)');
+      await own.fill('');
+      ok(await save.isDisabled() && /Paste the link to your own file/.test(await card.innerText()), 'an emptied link is refused in words, not saved as no file');
+      await card.locator('button:has-text("Fill in the fields instead")').click();
+      ok(!/removes the launch’s picture, description and links/.test(await card.innerText()), 'the fields as they were: nothing said about removing');
+      await card.locator('textarea').fill('');
+      await card.locator('input[placeholder="https://…"]').first().fill('');
+      ok(/removes the launch’s picture, description and links/.test(await card.innerText()) && !(await save.isDisabled()), 'fields left empty: the editor says saving removes the launch’s file, before it is saved');
+      ok(errs.length === 0, 'no page errors on Manage with a file on another site' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
+    {
       splitBusy = true;
       const { pg, ctx, errs } = await visit(`#/manage/${L[0].token}`, '.split-failed', { creator: true });
       const card = pg.locator('.card', { hasText: 'Split the tax' });

@@ -2,7 +2,8 @@
 // The picture is chosen from the device (nobody should have to find an image link): it is made ready here and uploaded when the
 // launch is sent (lib/api.ts withUploadedPicture). A picture link to another site isn't taken: MINTA's pages draw only pictures
 // the picture service keeps (lib/picture.ts shownPicture), so one would never show. A launch file that already has one (from
-// before, or the creator's own) keeps it when edited, and the field says it isn't shown.
+// before, or the creator's own) shows it in the field as a link that isn't drawn; saving the fields leaves it out of the new file
+// (lib/api.ts storable), and the field says so first.
 import { useRef, useState } from 'react';
 import { API_URL, type LaunchFile } from '../lib/api';
 import { preparePicture, shownPicture, type Picture } from '../lib/picture';
@@ -105,7 +106,7 @@ function PictureField({ value, onChange }: { value: LaunchFileState; onChange: (
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const shown = value.picture?.preview || keptPicture(f.image);
-  // a link to another site's picture (an older file's, or the creator's own): kept in the file, never drawn
+  // a link to another site's picture (an older file's, or the creator's own): never drawn, and left out when the fields are saved
   const outside = !value.picture && !!f.image?.trim() && !shown;
   const choose = async (file?: File | null) => {
     if (!file) return;
