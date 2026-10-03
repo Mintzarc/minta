@@ -12,6 +12,7 @@ import { metaOf, type Meta } from '../lib/market';
 import { useWallet } from '../lib/wallet';
 import TokenArt from './TokenArt';
 import { FACE_ID_OFFERED, kept, useConfirmRequest } from '../lib/faceid';
+import { depositWaitOf, type DepositWait } from '../lib/deposit';
 
 const WalletIcon = () => (
   <svg className="ic cb-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="4" y="8" width="16" height="11" rx="2.5" /><path d="M16 13.5h4" /></svg>
@@ -211,17 +212,23 @@ function clientFor(chainId?: number): PublicClient {
   return vyre;
 }
 
-/** A transaction sent whose result couldn't be read yet; `looked`: a check has found no receipt for it since */
-type Held = { hash: Hash; chainId?: number; looked: boolean };
+/**
+ * A transaction sent whose result couldn't be read yet; `looked`: a check has found no receipt for it since (or, for a deposit,
+ * found it hasn't shown up on VYRE yet). `deposit`: it is a deposit to VYRE (lib/deposit.ts), so what a check looks for once
+ * it went through is the USDC arriving there, not only its receipt.
+ */
+type Held = { hash: Hash; chainId?: number; looked: boolean; deposit?: DepositWait };
 
 /** Held transactions are kept for this tab under this prefix and the button's `keepAs`, so leaving the page or reloading it doesn't re-arm the button */
 const HELD_KEY = 'minta.held.';
 function readHeld(keepAs?: string): Held | null {
   if (!keepAs) return null;
   try {
-    const v = JSON.parse(sessionStorage.getItem(HELD_KEY + keepAs) || 'null') as Partial<Held> | null;
+    const v = JSON.parse(sessionStorage.getItem(HELD_KEY + keepAs) || 'null') as (Partial<Omit<Held, 'deposit'>> & { deposit?: unknown }) | null;
     if (v && typeof v.hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v.hash) && (v.chainId === undefined || Number.isSafeInteger(v.chainId))) {
-      return { hash: v.hash as Hash, ...(v.chainId !== undefined ? { chainId: v.chainId } : {}), looked: v.looked === true };
+      // a deposit's part must be exactly what lib/deposit.ts keeps: anything else makes the whole record unreadable
+      const deposit = v.deposit === undefined ? undefined : depositWaitOf(v.deposit);
+      if (deposit !== null) return { hash: v.hash as Hash, ...(v.chainId !== undefined ? { chainId: v.chainId } : {}), looked: v.looked === true, ...(deposit ? { deposit } : {}) };
     }
   } catch { /* storage blocked, or something unreadable kept: nothing held */ }
   return null;
@@ -232,7 +239,13 @@ function writeHeld(keepAs: string | undefined, h: Held | null): void {
 }
 /** What the button says when it comes back (a reload, or back to the page) with a transaction still held */
 const stillHeld = (h: Held | null): Status => (h
-  ? { kind: 'err', text: 'A transaction sent from here earlier couldn’t be confirmed yet. Check it before anything else: checking doesn’t send anything.', hash: h.hash, chainId: h.chainId }
+  ? {
+    kind: 'err',
+    text: h.deposit ? 'A deposit sent from here earlier hadn’t shown up on VYRE yet. Check it before sending more: checking doesn’t send anything.'
+      : 'A transaction sent from here earlier couldn’t be confirmed yet. Check it before anything else: checking doesn’t send anything.',
+    hash: h.hash,
+    chainId: h.chainId,
+  }
   : { kind: 'idle' });
 
 /**
@@ -242,11 +255,13 @@ const stillHeld = (h: Held | null): Status => (h
  * found nothing and the user chooses to start over. With `keepAs` (a name for this action, unique on the page), a held
  * transaction is kept for the tab, so leaving the page or reloading it still shows Check it. With `finalTo` (the address the
  * action's own transaction is sent to), a held transaction that went anywhere else was only the approval before it: once it
- * went through, the button says so and can be pressed again to finish.
+ * went through, the button says so and can be pressed again to finish. A held deposit to VYRE (its error carries `deposit`:
+ * lib/deposit.ts) is checked for what's missing: once its transaction went through, `arrived` reads whether the USDC has shown
+ * up on VYRE, and the button stays Check it until it has (a read that fails, or no `arrived`, is no answer: it stays too).
  */
-export function TxButton({ label, run, disabled, className = 'btn btn-accent', onDone, keepAs, finalTo }: {
+export function TxButton({ label, run, disabled, className = 'btn btn-accent', onDone, keepAs, finalTo, arrived }: {
   label: string; run: (say: (t: string) => void) => Promise<{ hash?: string; text?: string; chainId?: number } | void>; disabled?: boolean;
-  className?: string; onDone?: () => void; keepAs?: string; finalTo?: string;
+  className?: string; onDone?: () => void; keepAs?: string; finalTo?: string; arrived?: (d: DepositWait) => Promise<boolean>;
 }) {
   const [held, keepHeld] = useState<Held | null>(() => readHeld(keepAs));
   const [st, setSt] = useState<Status>(() => stillHeld(held));
@@ -279,11 +294,31 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
       setSt({ kind: 'err', text: 'It isn’t confirmed yet. Check again in a moment: checking doesn’t send anything.', ...at });
       return;
     }
-    setHeld(null);
     if (r.status !== 'success') {
+      setHeld(null);
       setSt({ kind: 'err', text: 'It failed on chain, so it did nothing (only its network fee was paid). You can send it again.', ...at });
       return;
     }
+    if (h.deposit) {
+      // a deposit that went through on Arc: what's missing is the USDC on VYRE, so it stays held until the balance there shows it
+      let there: boolean | null = null;
+      try { if (arrived) there = (await arrived(h.deposit)) === true; } catch { /* VYRE couldn't be read: no answer */ }
+      if (!there) {
+        setHeld({ ...h, looked: true });
+        setSt({
+          kind: 'err',
+          text: there === false ? 'It was sent from Arc and confirmed there, but it isn’t on VYRE yet. Check again in a minute: checking doesn’t send anything.'
+            : 'It was sent from Arc and confirmed there, but VYRE couldn’t be read just now. Check again in a minute: checking doesn’t send anything.',
+          ...at,
+        });
+        return;
+      }
+      setHeld(null);
+      setSt({ kind: 'ok', text: 'It arrived on VYRE.', ...at });
+      done();
+      return;
+    }
+    setHeld(null);
     if (finalTo && r.to?.toLowerCase() !== finalTo.toLowerCase()) {
       setSt({ kind: 'err', text: 'That was only the approval, and it went through: nothing else was sent yet. Press again to finish.', ...at });
       return;
@@ -298,10 +333,12 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
       r = await run((t) => setSt({ kind: 'busy', text: t }));
     } catch (e) {
       // sent, but its result couldn't be read: from now on the button checks it, and never sends it again by itself. A `note`
-      // on it is the app's own words for what is missing (a deposit not on VYRE yet, say: lib/deposit.ts)
+      // on it is the app's own words for what is missing (a deposit not on VYRE yet, say: lib/deposit.ts), a `deposit` what a
+      // check of a deposit looks for on VYRE
       if (e instanceof SentButUnconfirmedError && !e.userOperation) {
         const note = (e as { note?: unknown }).note;
-        setHeld({ hash: e.hash, chainId: e.chainId, looked: false });
+        const deposit = depositWaitOf((e as { deposit?: unknown }).deposit);
+        setHeld({ hash: e.hash, chainId: e.chainId, looked: false, ...(deposit ? { deposit } : {}) });
         setSt({ kind: 'err', text: typeof note === 'string' && note ? note : 'Sent, but its result couldn’t be read yet. Check it before anything else: checking doesn’t send anything.', hash: e.hash, chainId: e.chainId });
         return;
       }
@@ -336,8 +373,9 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
           {st.hash && /^0x[0-9a-fA-F]{64}$/.test(st.hash) && <a href={txUrl(st.hash, st.chainId)} target="_blank" rel="noopener noreferrer">{chainName(st.chainId)[0] ? `See it on ${chainName(st.chainId)[0]}` : 'See it'}</a>}
         </p>
       )}
-      {held?.looked && st.kind === 'err' && (
-        <p className="small muted">Not on the explorer after a few minutes? It never reached the chain: <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
+      {held?.looked && st.kind === 'err' && (held.deposit
+        ? <p className="small muted">Still not on VYRE after a few minutes? Look at your balance on VYRE first: a deposit confirmed on Arc still arrives, and sending again moves more USDC. To send another anyway, <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
+        : <p className="small muted">Not on the explorer after a few minutes? It never reached the chain: <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
       )}
     </div>
   );

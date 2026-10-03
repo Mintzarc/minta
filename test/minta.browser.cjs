@@ -969,15 +969,18 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
     }
-    // "Move to VYRE": a deposit mined on Arc that hasn't shown up on VYRE in time. Its button holds the Arc transaction as Check it
-    // (one more press can't send a second deposit), says what is missing in the app's words, keeps it across a reload, and reads
-    // only Arc until the deposit shows there
+    // "Move to VYRE": a deposit mined on Arc that hasn't shown up on VYRE in time. Its Arc receipt is a success from the start (the
+    // real flow has already read it before it waits for VYRE), so what a check must look for is what's missing: the USDC on VYRE.
+    // The button holds it as Check it; while VYRE's balance hasn't moved, Check it stays Check it (no second deposit, nothing
+    // re-armed); a reload keeps it; a failed read on VYRE keeps it; once the balance rises it says it arrived and re-arms. Starting
+    // over says to look at the VYRE balance first. A deposit that failed on Arc can be sent again.
     {
       const ARC_RPC = 'https://rpc.testnet.arc.io';
       const H5 = '0x' + 'a1'.repeat(32);
-      const receipts = {};
+      const INBOX = '0x5555555555555555555555555555555555555555';
       const asks = [];
       const rcpt = (hash, status, to) => ({ blockHash: '0x' + '11'.repeat(32), blockNumber: '0x10', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x989680', from: ME, gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256), status, to, transactionHash: hash, transactionIndex: '0x0', type: '0x2' });
+      const receipts = { [H5]: rcpt(H5, '0x1', INBOX) };
       const { pg, ctx, errs } = await harness(reply(200, base0));
       await ctx.route((u) => u.href.startsWith(ARC_RPC), async (route) => {
         const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
@@ -987,24 +990,58 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
       });
       const counter = (n) => pg.evaluate((k) => window[k] || 0, n);
+      const vyreBalance = (v) => pg.evaluate((x) => { window.__vyreBalance = x; }, v);
       const btn = pg.locator('#deposit .tx > button');
       const status = () => pg.locator('#deposit .status').innerText().catch(() => '');
+      const startOver = () => pg.locator('#deposit .tx').innerText().catch(() => '');
       const settle = (re) => pg.waitForFunction((src) => new RegExp(src, 'i').test(document.querySelector('#deposit .status')?.textContent || ''), re.source, { timeout: 5000 }).catch(() => {});
       await btn.click();
       await settle(/hasn’t shown up on VYRE yet/);
       ok(await counter('__runs5') === 1 && /Check it/.test(await btn.innerText()) && await btn.isEnabled(), 'a deposit mined on Arc but not on VYRE in time: it ran once, and its button now reads Check it (not the move button again)');
       ok(/sent from Arc, but it hasn’t shown up on VYRE yet\. Check it before sending more/.test(await status()) && await pg.locator(`#deposit a[href="https://testnet.arcscan.app/tx/${H5}"]`).count() === 1,
         'the status says what is missing in the app’s words and links the deposit on Arc');
+      // Check it while VYRE's balance hasn't moved: the Arc receipt is a success, but the deposit isn't on VYRE
+      const reads0 = await counter('__vyreReads');
+      await btn.click();
+      await settle(/isn’t on VYRE yet/);
+      ok(asks.includes('eth_getTransactionReceipt') && await counter('__vyreReads') > reads0, 'Check it reads the deposit on Arc and the balance on VYRE');
+      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 1 && await counter('__done5') === 0,
+        'confirmed on Arc but VYRE’s balance hasn’t moved: it stays Check it (no second deposit, nothing re-armed, the balances not refreshed as if it arrived)');
+      ok(/sent from Arc and confirmed there, but it isn’t on VYRE yet\. Check again in a minute: checking doesn’t send anything/.test(await status()) && !/went through/i.test(await status()),
+        'and it says so in the app’s words: confirmed on Arc, not on VYRE yet, check again in a minute, checking sends nothing');
+      ok(/Look at your balance on VYRE first/.test(await startOver()) && /sending again moves more USDC/.test(await startOver()) && !/never reached the chain/.test(await startOver())
+        && await pg.locator('#deposit button:has-text("start over")').count() === 1,
+        'starting over is offered with its own words: look at the VYRE balance first, since sending again moves more USDC (never “it never reached the chain”)');
+      // a reload keeps it
       await pg.reload();
       await pg.waitForSelector('#deposit .tx > button');
-      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0, 'after a reload it still reads Check it, and nothing was sent by itself');
+      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && /deposit sent from here earlier/.test(await status()), 'after a reload it still reads Check it, says a deposit is on its way, and nothing was sent by itself');
       await btn.click();
-      await settle(/isn’t confirmed yet/);
-      ok(await counter('__runs5') === 0 && asks.includes('eth_getTransactionReceipt') && /Check it/.test(await btn.innerText()), 'pressing it only reads Arc: no second deposit');
-      receipts[H5] = rcpt(H5, '0x1', '0x5555555555555555555555555555555555555555');
+      await settle(/isn’t on VYRE yet/);
+      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && await counter('__done5') === 0, 'pressing it after the reload still only checks: it stays Check it while VYRE’s balance hasn’t moved');
+      // a read on VYRE that fails keeps it held
+      await vyreBalance('busy');
       await btn.click();
-      await settle(/went through/);
-      ok(/It went through/.test(await status()) && await counter('__done5') === 1 && await counter('__runs5') === 0 && /Move 2 USDC to VYRE/.test(await btn.innerText()), 'once the deposit shows on Arc it went through: the balances are read again, and nothing was sent twice');
+      await settle(/VYRE couldn’t be read/);
+      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0 && await counter('__done5') === 0 && /Check again in a minute: checking doesn’t send anything/.test(await status()),
+        'a balance read on VYRE that fails keeps it held, and says to check again');
+      // the deposit shows up on VYRE
+      await vyreBalance('0x3');
+      await btn.click();
+      await settle(/arrived on VYRE/);
+      ok(/It arrived on VYRE/.test(await status()) && await counter('__done5') === 1 && await counter('__runs5') === 0 && /Move 2 USDC to VYRE/.test(await btn.innerText()),
+        'once VYRE’s balance rises it says it arrived, the balances are read again, the move button is back, and nothing was sent twice');
+      await pg.reload();
+      await pg.waitForSelector('#deposit .tx > button');
+      ok(/Move 2 USDC to VYRE/.test(await btn.innerText()) && await pg.locator('#deposit .status').count() === 0 && await counter('__runs5') === 0, 'after a reload nothing is held any more, and nothing was sent by itself');
+      // a deposit that failed on Arc did nothing: it can be sent again
+      await btn.click();
+      await settle(/hasn’t shown up on VYRE yet/);
+      receipts[H5] = rcpt(H5, '0x0', INBOX);
+      await btn.click();
+      await settle(/failed/);
+      ok(/failed on chain, so it did nothing/.test(await status()) && /Move 2 USDC to VYRE/.test(await btn.innerText()) && await counter('__runs5') === 1 && await counter('__done5') === 0,
+        'a deposit whose Arc receipt failed did nothing: it says so and the move button is back');
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
     }

@@ -3,7 +3,7 @@
 // "Move to VYRE" runs through Circle's window.
 import { useEffect, useRef, useState } from 'react';
 import {
-  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, TransactionReplacedError, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
+  CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, SentButUnconfirmedError, TransactionReplacedError, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
   depositFromArc, getAddresses, getCctpFees, feeCapFor, getConfirmedCount, getFaucetStatus, getPromoter, getWithdrawals, isApprovedPromoter, maxFeeFor,
   mintOnArc, outboxAbi, requestTestUsdc, sendUsdc, toNativeUsdc, FAUCET_ADDRESS, waitForArcMint, withdrawToArc,
   type CctpFees, type CctpStatus, type FaucetStatus, type Withdrawal,
@@ -14,7 +14,7 @@ import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
 import { burnSentError } from '../lib/fromchain';
-import { arrival } from '../lib/deposit';
+import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
 import { useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
@@ -114,6 +114,7 @@ export default function Wallet() {
             <label className="field"><span>Amount (USDC)</span><input ref={fromArcInput} inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="5" aria-invalid={!!amountProblem(amountIn)} /></label>
             {amountProblem(amountIn) && <p className="err small" role="alert">{amountProblem(amountIn)}</p>}
             <TxButton label={value ? `Move ${exact(value)} USDC to VYRE` : 'Move to VYRE'} disabled={!value || (onArc !== null && value >= onArc)} onDone={load} keepAs={`to-vyre:${account.toLowerCase()}`}
+              arrived={(d) => depositArrived(vyre, d)}
               run={async (say) => {
                 if (email) {
                   const before = await vyre.getBalance({ address: account });
@@ -128,6 +129,8 @@ export default function Wallet() {
                 const before = await vyre.getBalance({ address: account });
                 say('Confirm in your wallet…');
                 const r = await depositFromArc(walletOn(provider, account, ARC_CHAIN), arc, { amount: value! }).catch((e: unknown) => {
+                  // sent, but its receipt on Arc couldn't be read: held as Check it, which looks for it on VYRE too once it went through
+                  if (e instanceof SentButUnconfirmedError) throw heldDeposit(e, account, before);
                   throw /is a smart account or contract on Arc/.test((e as Error)?.message || '') ? new Error(SMART_ACCOUNT) : e;
                 });
                 say('Sent on Arc. Waiting for it on VYRE…');
