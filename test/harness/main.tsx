@@ -4,14 +4,16 @@
 // transaction through it, on VYRE or on another chain. A third button stands for a trade sent whose result couldn't be read;
 // a fourth for a sale whose held transaction may be the approval before it (its trade goes to ROUTER); a fifth for a send
 // whose held transaction is kept for the tab; a sixth for the "From another chain" form's burn, sent but its receipt unread,
-// thrown as that form throws it (src/lib/fromchain.ts).
+// thrown as that form throws it (src/lib/fromchain.ts); a seventh for "Move to VYRE", whose deposit was mined on Arc but hasn't
+// shown up on a stand-in VYRE in time, waited for as the Wallet page waits (src/lib/deposit.ts).
 import '../../src/styles.css';
 import { createRoot } from 'react-dom/client';
 import { SentButUnconfirmedError, arcTestnet, cctpSource, vyreTestnet } from '@vyrechain/sdk';
-import type { Address, EIP1193Provider } from 'viem';
+import { createPublicClient, custom, type Address, type EIP1193Provider, type PublicClient } from 'viem';
 import { walletOn } from '../../src/lib/chain';
 import { TxButton } from '../../src/components/ui';
 import { burnSentError } from '../../src/lib/fromchain';
+import { arrival } from '../../src/lib/deposit';
 import TxCheckDialog from '../../src/components/TxCheckDialog';
 
 const ME: Address = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
@@ -20,8 +22,10 @@ const ROUTER: Address = '0x2222222222222222222222222222222222222222';
 const MESSENGER: Address = '0x4444444444444444444444444444444444444444'; // stands for Circle's transfer contract
 const BASE_SEPOLIA = cctpSource(84_532);
 const wallet = () => (window as unknown as { __wallet: EIP1193Provider }).__wallet;
-const count = window as unknown as { __runs?: number; __done?: number; __runs2?: number; __done2?: number; __runs3?: number; __done3?: number; __runs4?: number; __done4?: number };
+const count = window as unknown as { __runs?: number; __done?: number; __runs2?: number; __done2?: number; __runs3?: number; __done3?: number; __runs4?: number; __done4?: number; __runs5?: number; __done5?: number };
 const setChain = (id: number) => { (window as unknown as { __chainHex: string }).__chainHex = `0x${id.toString(16)}`; };
+/** A stand-in VYRE whose balance never rises: the deposit hasn't shown up there */
+const quietVyre = createPublicClient({ chain: vyreTestnet, transport: custom({ request: async () => '0x1' }, { retryCount: 0 }) }) as PublicClient;
 
 function Page() {
   return (
@@ -66,6 +70,15 @@ function Page() {
           count.__runs4 = (count.__runs4 || 0) + 1;
           const unread = new SentButUnconfirmedError(`0x${'c1'.repeat(32)}`, BASE_SEPOLIA.id, new Error('HTTP request failed: 429'));
           throw burnSentError(unread, `0x${'c2'.repeat(32)}`, BASE_SEPOLIA);
+        }} />
+      </div>
+      <div id="deposit">
+        {/* 2 USDC moved to VYRE: mined on Arc, not on VYRE in time */}
+        <TxButton label="Move 2 USDC to VYRE" keepAs="test-deposit" onDone={() => { count.__done5 = (count.__done5 || 0) + 1; }} run={async (say) => {
+          count.__runs5 = (count.__runs5 || 0) + 1;
+          say('Sent on Arc. Waiting for it on VYRE…');
+          const secs = await arrival(quietVyre, arcTestnet.id, ME, 1n, `0x${'a1'.repeat(32)}`, { timeoutMs: 300, pollMs: 20, retryMs: 20 });
+          return { text: `Arrived on VYRE in ${secs.toFixed(1)} s.` };
         }} />
       </div>
       <TxCheckDialog />

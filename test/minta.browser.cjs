@@ -945,6 +945,45 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
     }
+    // "Move to VYRE": a deposit mined on Arc that hasn't shown up on VYRE in time. Its button holds the Arc transaction as Check it
+    // (one more press can't send a second deposit), says what is missing in the app's words, keeps it across a reload, and reads
+    // only Arc until the deposit shows there
+    {
+      const ARC_RPC = 'https://rpc.testnet.arc.io';
+      const H5 = '0x' + 'a1'.repeat(32);
+      const receipts = {};
+      const asks = [];
+      const rcpt = (hash, status, to) => ({ blockHash: '0x' + '11'.repeat(32), blockNumber: '0x10', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x989680', from: ME, gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256), status, to, transactionHash: hash, transactionIndex: '0x0', type: '0x2' });
+      const { pg, ctx, errs } = await harness(reply(200, base0));
+      await ctx.route((u) => u.href.startsWith(ARC_RPC), async (route) => {
+        const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+        const body = JSON.parse(route.request().postData() || 'null');
+        const one = (q) => { asks.push(q.method); return { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? receipts[String(q.params && q.params[0]).toLowerCase()] ?? null : null }; };
+        await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
+      });
+      const counter = (n) => pg.evaluate((k) => window[k] || 0, n);
+      const btn = pg.locator('#deposit .tx > button');
+      const status = () => pg.locator('#deposit .status').innerText().catch(() => '');
+      const settle = (re) => pg.waitForFunction((src) => new RegExp(src, 'i').test(document.querySelector('#deposit .status')?.textContent || ''), re.source, { timeout: 5000 }).catch(() => {});
+      await btn.click();
+      await settle(/hasn’t shown up on VYRE yet/);
+      ok(await counter('__runs5') === 1 && /Check it/.test(await btn.innerText()) && await btn.isEnabled(), 'a deposit mined on Arc but not on VYRE in time: it ran once, and its button now reads Check it (not the move button again)');
+      ok(/sent from Arc, but it hasn’t shown up on VYRE yet\. Check it before sending more/.test(await status()) && await pg.locator(`#deposit a[href="https://testnet.arcscan.app/tx/${H5}"]`).count() === 1,
+        'the status says what is missing in the app’s words and links the deposit on Arc');
+      await pg.reload();
+      await pg.waitForSelector('#deposit .tx > button');
+      ok(/Check it/.test(await btn.innerText()) && await counter('__runs5') === 0, 'after a reload it still reads Check it, and nothing was sent by itself');
+      await btn.click();
+      await settle(/isn’t confirmed yet/);
+      ok(await counter('__runs5') === 0 && asks.includes('eth_getTransactionReceipt') && /Check it/.test(await btn.innerText()), 'pressing it only reads Arc: no second deposit');
+      receipts[H5] = rcpt(H5, '0x1', '0x5555555555555555555555555555555555555555');
+      await btn.click();
+      await settle(/went through/);
+      ok(/It went through/.test(await status()) && await counter('__done5') === 1 && await counter('__runs5') === 0 && /Move 2 USDC to VYRE/.test(await btn.innerText()), 'once the deposit shows on Arc it went through: the balances are read again, and nothing was sent twice');
+      ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
     // the dialog on a phone
     {
       const { pg, ctx } = await harness(reply(200, hostile), { width: 360, height: 640 });

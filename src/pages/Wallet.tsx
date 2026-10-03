@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   CCTP_SOURCES, CctpBurnRevertedError, CctpDeliveryError, TransactionReplacedError, burnToArc, cctpNetworkFor, cctpSource, claimWithdrawal,
   depositFromArc, getAddresses, getCctpFees, feeCapFor, getConfirmedCount, getFaucetStatus, getPromoter, getWithdrawals, isApprovedPromoter, maxFeeFor,
-  mintOnArc, outboxAbi, requestTestUsdc, sendUsdc, toNativeUsdc, FAUCET_ADDRESS, waitForArcMint, waitForDeposit, withdrawToArc,
+  mintOnArc, outboxAbi, requestTestUsdc, sendUsdc, toNativeUsdc, FAUCET_ADDRESS, waitForArcMint, withdrawToArc,
   type CctpFees, type CctpStatus, type FaucetStatus, type Withdrawal,
 } from '@vyrechain/sdk';
 import { erc20Abi, getAddress, isAddress, zeroAddress, type Address, type EIP1193Provider, type Hash } from 'viem';
@@ -14,6 +14,7 @@ import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
 import { burnSentError } from '../lib/fromchain';
+import { arrival } from '../lib/deposit';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
 import { useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
@@ -40,19 +41,6 @@ const TO_SIX = 10n ** 12n;
 const usdc6 = (units: bigint) => amount(toNativeUsdc(units), 6);
 /** Past this, a transfer from another chain is taking longer than usual (they take seconds to a few minutes) */
 const SLOW_MS = 10 * 60_000;
-
-/** Waits for a deposit sent on Arc to reach VYRE (seconds, usually); if it doesn't in time, says so, linking the Arc
- * transaction, so it's checked rather than sent again. Resolves with how long it took, in seconds. */
-async function arrival(account: Address, before: bigint, arcTx: Hash | null): Promise<number> {
-  const t0 = Date.now();
-  try {
-    await waitForDeposit(vyre, { address: account, before, pollMs: 500 });
-  } catch {
-    const e = new Error(`Sent on Arc${arcTx ? ` (transaction ${short(arcTx)})` : ''}, but it hasn’t shown up on VYRE yet. Check your balance here again in a minute before sending more.`);
-    throw arcTx ? Object.assign(e, { hash: arcTx, chainId: ARC_CHAIN.id }) : e;
-  }
-  return (Date.now() - t0) / 1000;
-}
 
 export default function Wallet() {
   const { account, provider, email, withEmail, faceId } = useWallet();
@@ -131,7 +119,7 @@ export default function Wallet() {
                   const before = await vyre.getBalance({ address: account });
                   const r = await withEmail((s) => moveToVyre(s, exact(value!).replace(/,/g, ''), say));
                   say('Sent on Arc. Waiting for it on VYRE…');
-                  const secs = await arrival(account, before, r.arcTx);
+                  const secs = await arrival(vyre, ARC_CHAIN.id, account, before, r.arcTx);
                   return { text: `Arrived on VYRE in ${secs.toFixed(1)} s.${r.arcTx ? ` (Arc transaction ${short(r.arcTx)})` : ''}` };
                 }
                 if (!provider) throw new Error('Connect a wallet first.');
@@ -143,7 +131,7 @@ export default function Wallet() {
                   throw /is a smart account or contract on Arc/.test((e as Error)?.message || '') ? new Error(SMART_ACCOUNT) : e;
                 });
                 say('Sent on Arc. Waiting for it on VYRE…');
-                const secs = await arrival(account, before, r.hash);
+                const secs = await arrival(vyre, ARC_CHAIN.id, account, before, r.hash);
                 return { text: `Arrived on VYRE in ${secs.toFixed(1)} s. (Arc transaction ${short(r.hash)})` };
               }} />
             {value && onArc !== null && value >= onArc && <p className="err small">You have {amount(onArc)} USDC on Arc testnet; keep a little for its gas.</p>}

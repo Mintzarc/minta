@@ -297,10 +297,12 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     try {
       r = await run((t) => setSt({ kind: 'busy', text: t }));
     } catch (e) {
-      // sent, but its result couldn't be read: from now on the button checks it, and never sends it again by itself
+      // sent, but its result couldn't be read: from now on the button checks it, and never sends it again by itself. A `note`
+      // on it is the app's own words for what is missing (a deposit not on VYRE yet, say: lib/deposit.ts)
       if (e instanceof SentButUnconfirmedError && !e.userOperation) {
+        const note = (e as { note?: unknown }).note;
         setHeld({ hash: e.hash, chainId: e.chainId, looked: false });
-        setSt({ kind: 'err', text: 'Sent, but its result couldn’t be read yet. Check it before anything else: checking doesn’t send anything.', hash: e.hash, chainId: e.chainId });
+        setSt({ kind: 'err', text: typeof note === 'string' && note ? note : 'Sent, but its result couldn’t be read yet. Check it before anything else: checking doesn’t send anything.', hash: e.hash, chainId: e.chainId });
         return;
       }
       // a transaction sent but not confirmed yet (a deposit still on its way, say)
