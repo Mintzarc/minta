@@ -9,7 +9,7 @@ import './docs.css';
 
 /** The pictures (public/art, served beside the app) */
 const ART = '/art/';
-const SDK_FILE = 'https://vyrechain.com/sdk/vyrechain-sdk-0.5.0.tgz';
+const SDK_FILE = 'https://vyrechain.com/sdk/vyrechain-sdk-0.5.6.tgz';
 
 type Section = { id: string; title: string; body: ReactNode; label?: string; nav?: string; art?: string };
 type Article = { slug: string; title: string; intro?: ReactNode; sections: Section[] };

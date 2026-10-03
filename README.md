@@ -36,7 +36,7 @@ Set these when building (`VITE_…` values are public: they end up in the page):
 |---|---|---|
 | VYRE Testnet (chain ID 7357) | `https://testnet-rpc.vyrechain.com` | every read and every transaction |
 | The contracts (launchpad, fee splitter, app router, …) | addresses and ABIs inside the SDK | launching, trading, promoters |
-| `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.5.0.tgz` | chain definition, addresses, typed calls |
+| `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.5.6.tgz` | chain definition, addresses, typed calls |
 | The VYRE app API | `https://api.vyrechain.com` | token pictures (`POST /image`), details files, card checkout links, email sign-in, and the advisory check before a wallet signs (`POST /txcheck`) |
 | The explorer | `https://explorer.vyrechain.com` | links, holder counts, the block at a given time (called from the visitor’s browser) |
 | The faucet | `https://vyrechain.com/faucet` | test USDC |
