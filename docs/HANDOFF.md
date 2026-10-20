@@ -87,7 +87,7 @@ read from it:
    (unless `VITE_CARD_TOPUP=1`), and the testnet words. The browser check `test/mainnet.browser.cjs` fails if one appears.
 5. **What's stored in the browser** for a launch being sent and for held transactions has the network's name in its key on mainnet, so nothing kept for one network is read as the other's.
 6. **Every launch opens at $3,000** on both networks (the mainnet contract enforces it; the app and SDK hold it on the testnet). **New launches:** the launchpad contract starts closed; the Create page reads `launchesOpen` (`src/lib/launches.ts`).
-7. **MINTA's launch fee** (mainnet only): `MINTA_PARTNER` in `network.ts`.
+7. **Taxes and fees:** the wizard's tax limits come from `NETWORK.minTaxBps` (mainnet 1%, testnet 0) and the contracts' 10% maximum; the app names no partner and states no platform fee. The mainnet launch contract is being replaced: take its address and ABI from the new SDK release, rebuild, and keep launches closed in the app until then.
 8. **Still to decide before real money** (not done in code): the terms and privacy pages (`public/terms/`, `public/privacy/`) still describe the
    testnet, the faucet and the promoter service; the launch milestone ("graduated", `MILESTONE` in `src/lib/stats.ts`) is still the testnet's $100 figure; email
    sign-in, card top-ups and real-wallet transactions on mainnet have not been tested.

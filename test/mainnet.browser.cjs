@@ -1,7 +1,7 @@
 // A browser check of MINTA built for VYRE mainnet (no VITE_NETWORK set: a production build is mainnet), with every outside request
 // cut off except the mainnet RPC, which a stand-in answers: the app says plainly it is on mainnet, nothing testnet-only shows (the
 // faucet, test USDC, testnet words, promoter links), and the Create page says "Launches open soon" while the launchpad contract has
-// launches closed (read on chain: launchesOpen) and runs the wizard, with the fee in words, once they are open.
+// launches closed (read on chain: launchesOpen) and runs the wizard, with taxes limited to 1 to 10% a side, once they are open.
 //   node test/mainnet.browser.cjs   (npm run test:browser runs it after the testnet check)
 // (needs Playwright with a Chromium: PLAYWRIGHT=<its directory> and CHROME=<a Chromium binary> override)
 const { chromium } = (() => { try { return require(process.env.PLAYWRIGHT || 'playwright'); } catch { return require('/opt/node22/lib/node_modules/playwright'); } })();
@@ -23,7 +23,7 @@ const srv = http.createServer((q, r) => {
 let failed = 0;
 const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what); } else console.log('ok  ', what); };
 /** words the mainnet pages must not carry (testnet-only things, and wording the project does not use) */
-const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:ly)? withdraw|layer ?2|layer-2|trustless|audited|decentralized|decentralised|cheapest|promoter|airdrop|guaranteed/i;
+const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:ly)? withdraw|layer ?2|layer-2|trustless|audited|decentralized|decentralised|cheapest|promoter|airdrop|guaranteed|platform fee|per trade/i;
 
 (async () => {
   const viem = await import('viem');
@@ -159,11 +159,24 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.fill('.wz-step input[placeholder="MYT"]', 'MYT');
     await pg.click('.wz-next');
     await pg.click('.wz-next');
-    ok(/1% platform fee \+ 1% MINTA fee = 2% per trade/.test(await pg.locator('.wz-step').innerText()), 'the tokenomics step shows the total fee in words');
+    const tokenomics = await pg.locator('.wz-step').innerText();
+    ok(/1 to 10%/.test(tokenomics), 'the tokenomics step says taxes are 1 to 10% a side');
+    ok(await pg.locator('.setting-cards, .wz-step').locator('button:has-text("No tax")').count() === 0, 'and offers no “No tax” choice');
+    ok(await pg.locator('.wz-step button:has-text("1% / 1%")').count() === 1, 'while the 1% / 1% choice is there');
+    ok(!/platform fee|per trade|MINTA fee/i.test(tokenomics), 'it states no platform or MINTA fee');
+    await pg.click('.wz-step button:has-text("Custom")');
+    await pg.fill('.wz-step input[placeholder="1 to 10"] >> nth=0', '0');
+    await pg.click('.wz-next');
+    ok(/Taxes can be 1 to 10%/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'a buy tax of 0 is refused in words');
+    await pg.fill('.wz-step input[placeholder="1 to 10"] >> nth=0', '11');
+    await pg.click('.wz-next');
+    ok(/Taxes can be 1 to 10%/.test(await pg.locator('.wz-step [role=alert]').innerText()), 'and so is 11');
+    await pg.fill('.wz-step input[placeholder="1 to 10"] >> nth=0', '1');
+    await pg.fill('.wz-step input[placeholder="1 to 10"] >> nth=1', '10');
     await pg.click('.wz-next');
     await pg.click('.wz-next');
     const review = await pg.locator('.wz-step').innerText();
-    ok(/Trading fees/.test(review) && /1% platform fee \+ 1% MINTA fee = 2% per trade/.test(review), 'the final review shows the total fee in words');
+    ok(/1% \/ 10%/.test(review) && !/platform fee|per trade|MINTA fee|Trading fees/i.test(review), 'the final review shows the tax and no fee sentence');
     ok(!BANNED.test(await body(pg)), 'the wizard has no testnet-only wording' + (BANNED.test(await body(pg)) ? ': ' + (await body(pg)).match(BANNED)[0] : ''));
     ok(errs.length === 0, 'nothing throws in the wizard' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { href } from '../lib/router';
 import { addresses } from '../lib/market';
 import { EXPLORER, VYRE_CHAIN } from '../lib/chain';
-import { FEES, NETWORK, PARTNER } from '../lib/network';
+import { NETWORK } from '../lib/network';
 import { MILESTONE_TEXT } from '../lib/stats';
 import { API_URL } from '../lib/api';
 import { VyreGlyph } from '../components/Brand';
@@ -51,7 +51,7 @@ function ContractTable() {
     ['VyrePad', a.pad, 'Launches tokens (one transaction each) and holds every launch’s settings'],
     ['VyreAppRouter', a.appRouter, NETWORK.promoters ? 'Buys and sells launch tokens for apps and pays promoters' : 'Buys and sells launch tokens for apps'],
     ...(NETWORK.promoters ? [['VyreReferrals', a.referrals, 'Records which promoter brought each wallet'] as [string, string, string]] : []),
-    ['VyreFeeSplitter', a.feeSplitter, NETWORK.promoters ? 'Splits the platform fee between the platform, partner launchpads and promoters' : 'Splits the platform fee between the platform and partner launchpads'],
+    ['VyreFeeSplitter', a.feeSplitter, NETWORK.promoters ? 'Splits the platform fee between the platform, partner launchpads and promoters' : 'Pays out the fees the launchpad contracts take'],
     ['VyrePoolFactory', a.poolFactory, 'Creates launch pools (Uniswap v3 design; only the launchpad adds liquidity)'],
     ['SwapRouter', a.swapRouter, 'Uniswap v3’s router, for these pools'],
     ['QuoterV2', a.quoter, 'Uniswap v3’s quoter: prices a trade without making it'],
@@ -115,7 +115,7 @@ const ARTICLES: Article[] = [
               ? <li><b>Get test USDC.</b> Take some from the faucet: the Wallet page has the button.</li>
               : <li><b>Get USDC on VYRE.</b> The Wallet page moves USDC to VYRE from Arc. A withdrawal back to Arc takes about a day.</li>}
             <li><b>Create a token.</b> Pick its name, ticker, supply and tax. The launch happens in one transaction, with an optional first buy of your own in the same transaction.</li>
-            <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. Every trade pays the platform fee and the creator’s tax in USDC.</li>
+            <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. {NETWORK.testnet ? 'Every trade pays the platform fee and the creator’s tax in USDC.' : 'Every trade pays the creator’s tax in USDC.'}</li>
             <li><b>Collect.</b> The creator collects the tax whenever they like, and can split it between up to four wallets.</li>
           </ol>
         ),
@@ -189,7 +189,7 @@ const ARTICLES: Article[] = [
       { id: 'supply', title: 'Supply', body: <p>From 1,000 to 10<sup>15</sup> tokens. The whole supply is in the pool at launch, apart from what you buy yourself with your first buy.</p> },
       { id: 'tax', title: 'Tax', body: <p>0–10% on buys and 0–10% on sells, set separately. Presets in the form: no tax, 1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down.</p> },
       { id: 'split', title: 'Splitting the tax', body: <p>After launch, the tax can be split between up to four wallets in any proportions that add up to 100%. Tax earned so far is paid out before the split changes. Only name wallets whose owners hold the keys: tax sent to a contract or an address nobody controls is lost.</p> },
-      { id: 'first-buy', title: 'First buy', body: <p>Optional USDC you spend in the launch transaction, before anyone else can trade, at your own tax plus the platform fee.</p> },
+      { id: 'first-buy', title: 'First buy', body: <p>Optional USDC you spend in the launch transaction, before anyone else can trade, at your own tax{NETWORK.testnet ? ' plus the platform fee' : ''}.</p> },
     ],
   },
   {
@@ -205,10 +205,9 @@ const ARTICLES: Article[] = [
               <table>
                 <thead><tr><th>Fee</th><th>Size</th><th>Goes to</th></tr></thead>
                 <tbody>
-                  <tr><td><b>Creator’s tax</b></td><td>0–10% per side</td><td className="wrap">The creator, or up to 4 wallets they name</td></tr>
-                  <tr><td><b>Platform fee</b></td><td>1% of every buy and sell</td><td className="wrap">The platform treasury set in the launchpad contracts {NETWORK.promoters ? '(less a promoter’s share, below)' : ''}</td></tr>
-                  {PARTNER ? <tr><td><b>MINTA fee</b></td><td>{FEES.mintaBps / 100}% of every buy and sell of a token launched on MINTA</td><td className="wrap">MINTA, fixed for each token when it is launched ({FEES.text})</td></tr> : null}
-                  <tr><td><b>Partner fee</b></td><td>0–1%, only on launches through a partner launchpad</td><td className="wrap">The partner launchpad</td></tr>
+                  <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">The creator, or up to 4 wallets they name</td></tr>
+                  {NETWORK.testnet && <tr><td><b>Platform fee</b></td><td>1% of every buy and sell</td><td className="wrap">The platform treasury set in the launchpad contracts {NETWORK.promoters ? '(less a promoter’s share, below)' : ''}</td></tr>}
+                  {NETWORK.testnet && <tr><td><b>Partner fee</b></td><td>0–1%, only on launches through a partner launchpad</td><td className="wrap">The partner launchpad</td></tr>}
                   {NETWORK.promoters && <tr><td><b>Promoter share</b></td><td>30% of the platform fee</td><td className="wrap">The promoter who brought the trader, when the trade goes through the app router</td></tr>}
                 </tbody>
               </table>
@@ -269,7 +268,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
     title: 'Integrations',
     sections: [
       { id: 'apps', title: 'Apps and bots', body: <p>Trade through the app router with native USDC (no wrapping, no approval to buy){NETWORK.promoters ? ', and be your users’ promoter' : ''}. The router can charge an app fee on top; it is 0 today, and any change is announced on chain 7 days ahead.</p> },
-      { id: 'partners', title: 'Partner launchpads', body: <p>Other launchpads can run on the same contracts under their own brand: launch with your payout address as the partner and a fee of up to 1%. It’s added on top of the creator’s tax and the platform fee (it never comes out of either) and paid to you in USDC. No sign-up or approval is needed.</p> },
+      ...(NETWORK.testnet ? [{ id: 'partners', title: 'Partner launchpads', body: <p>Other launchpads can run on the same contracts under their own brand: launch with your payout address as the partner and a fee of up to 1%. It’s added on top of the creator’s tax and the platform fee (it never comes out of either) and paid to you in USDC. No sign-up or approval is needed.</p> } as Section] : []),
       { id: 'own', title: 'Your own launchpad', body: <p>VYRE is an open EVM chain: anyone can deploy anything, including their own launchpad on a standard, unmodified Uniswap v3.</p> },
     ],
   },

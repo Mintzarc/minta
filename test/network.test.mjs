@@ -68,50 +68,12 @@ test('browser-stored state is kept apart per network: the testnet keeps its name
   assert.equal(scoped('vyre.launch'), 'vyre.launch.mainnet', 'this build’s own');
 });
 
-test('MINTA’s fee: one pair in one place, exactly 100 basis points to the named address, mainnet only', () => {
+test('the smallest tax on a side is 1% on mainnet and 0 on the testnet; the largest is the contract’s 10%', () => {
   const n = network({ PROD: true });
-  assert.equal(n.MINTA_PARTNER.feeBps, 100);
-  assert.equal(n.MINTA_PARTNER.address, '0x72938Daaf3c2Fa4bEf722E1263a5766755788392', 'checksummed exactly like this');
-  assert.equal(getAddress(n.MINTA_PARTNER.address), n.MINTA_PARTNER.address);
-  assert.ok(n.MINTA_PARTNER.feeBps <= n.MAX_PARTNER_FEE_BPS);
-  assert.equal(n.MAX_PARTNER_FEE_BPS, LAUNCH_LIMITS.maxPartnerFeeBps, 'the maximum is the contract’s, as the SDK records it');
-  assert.equal(LAUNCH_LIMITS.maxPartnerFeeBps, 100);
-  assert.deepEqual(n.partnerFor('mainnet'), { partner: '0x72938Daaf3c2Fa4bEf722E1263a5766755788392', partnerFeeBps: 100 });
-  assert.equal(n.partnerFor('testnet'), null, 'the testnet’s launches name no partner');
-  assert.deepEqual(network({ PROD: true }).PARTNER, n.partnerFor('mainnet'), 'a production build names MINTA');
-  assert.equal(network({ PROD: true, VITE_NETWORK: 'testnet' }).PARTNER, null);
-  // the address is written out in this one file only
-  for (const f of fs.readdirSync(new URL('../src/', import.meta.url), { recursive: true }).filter((f) => /\.tsx?$/.test(f) && f !== 'lib/network.ts')) {
-    assert.doesNotMatch(read(`src/${f}`), /0x72938Daaf3c2Fa4bEf722E1263a5766755788392/i, f);
-  }
-});
-
-test('a partner and its fee are one pair: a zero address, a zero or missing fee, or a fee above 100 is refused', () => {
-  const { checkPartnerPair, MINTA_PARTNER } = network({ PROD: true });
-  const A = MINTA_PARTNER.address;
-  const zero = '0x0000000000000000000000000000000000000000';
-  assert.deepEqual(checkPartnerPair(A.toLowerCase(), 100), { partner: A, partnerFeeBps: 100 }, 'checksummed on the way out');
-  assert.deepEqual(checkPartnerPair(A, 1), { partner: A, partnerFeeBps: 1 });
-  assert.throws(() => checkPartnerPair(zero, 100), /zero address/);
-  assert.throws(() => checkPartnerPair(A, 0), /no fee/);
-  assert.throws(() => checkPartnerPair(A, undefined), /no fee/);
-  assert.throws(() => checkPartnerPair(undefined, 100), /must be an address/);
-  assert.throws(() => checkPartnerPair('0x1234', 100), /must be an address/);
-  assert.throws(() => checkPartnerPair(A, 101), /at most 100/);
-  assert.throws(() => checkPartnerPair(A, 1_000_000), /at most 100/);
-  assert.throws(() => checkPartnerPair(A, -1), /no fee/);
-  assert.throws(() => checkPartnerPair(A, 50.5), /no fee/);
-  assert.throws(() => checkPartnerPair(A, '100'), /no fee/);
-});
-
-test('the fee text is worked out from the constants', () => {
-  const n = network({ PROD: true });
-  assert.equal(n.FEES.text, '1% platform fee + 1% MINTA fee = 2% per trade');
-  assert.equal(n.FEES.totalBps, 200);
-  assert.equal(network({ PROD: true, VITE_NETWORK: 'testnet' }).FEES.text, '1% platform fee per trade');
-  assert.equal(n.tradeFees({ partner: n.MINTA_PARTNER.address, partnerFeeBps: 25 }).text, '1% platform fee + 0.25% MINTA fee = 1.25% per trade');
-  assert.equal(n.tradeFees({ partner: n.MINTA_PARTNER.address, partnerFeeBps: 100 }, 'partner').text, '1% platform fee + 1% partner fee = 2% per trade');
-  assert.equal(n.tradeFees(null).totalBps, 100);
+  assert.equal(n.settingsFor('mainnet').minTaxBps, 100);
+  assert.equal(n.settingsFor('testnet').minTaxBps, 0);
+  assert.equal(n.MAX_TAX_BPS, LAUNCH_LIMITS.maxTaxBps, 'the maximum is the contract’s, as the SDK records it');
+  assert.equal(LAUNCH_LIMITS.maxTaxBps, 1000);
 });
 
 /** A node that answers just what `launch` asks, and a wallet that keeps what it is sent and stops there */
@@ -135,26 +97,28 @@ function launchOn(chain, extra) {
   return launch(wc, pc, { ...base, ...extra }).catch(() => {}).then(() => sent);
 }
 
-test('on mainnet the launch call carries MINTA as the partner with exactly 100 basis points; on the testnet it names nobody', async () => {
-  const n = network({ PROD: true });
-  const [tx] = await launchOn(vyreMainnet, n.partnerFor('mainnet'));
-  assert.ok(tx, 'a launch was sent to the wallet');
-  assert.equal(getAddress(tx.to), getAddresses(3045).pad, 'to mainnet’s launchpad');
-  const call = decodeFunctionData({ abi: vyrePadAbi, data: tx.data });
-  assert.equal(call.functionName, 'createLaunch');
-  assert.equal(call.args[0].partner, '0x72938Daaf3c2Fa4bEf722E1263a5766755788392');
-  assert.equal(call.args[0].partnerFeeBps, 100);
-  const [tt] = await launchOn(vyreTestnet, n.partnerFor('testnet') ?? {});
-  const t = decodeFunctionData({ abi: vyrePadAbi, data: tt.data });
-  assert.equal(t.args[0].partner, '0x0000000000000000000000000000000000000000');
-  assert.equal(t.args[0].partnerFeeBps, 0);
+test('a launch on either network names no partner and no partner fee', async () => {
+  for (const [chain, id] of [[vyreMainnet, 3045], [vyreTestnet, 7357]]) {
+    const [tx] = await launchOn(chain, {});
+    assert.ok(tx, 'a launch was sent to the wallet');
+    assert.equal(getAddress(tx.to), getAddresses(id).pad);
+    const call = decodeFunctionData({ abi: vyrePadAbi, data: tx.data });
+    assert.equal(call.functionName, 'createLaunch');
+    assert.equal(call.args[0].partner, '0x0000000000000000000000000000000000000000');
+    assert.equal(call.args[0].partnerFeeBps, 0);
+  }
 });
 
-test('the Create page sends the pair with every launch and says the fee in words from the constants', () => {
-  const launchPage = read('src/pages/Launch.tsx');
-  assert.match(launchPage, /\.\.\.\(PARTNER \?\? \{\}\)/, 'the launch parameters carry the pair');
-  assert.match(launchPage, /launch\(w, vyre, \{ \.\.\.params, metadataURI \}\)/, 'and the launch call sends them');
-  assert.equal((launchPage.match(/FEES\.text/g) || []).length >= 3, true, 'the fee is shown in the wizard and in the review');
-  assert.doesNotMatch(launchPage, /1% platform fee/, 'no written-out sum');
-  assert.match(read('src/pages/Token.tsx'), /tradeFees\(/, 'the token page works its fees out from the token’s own record');
+test('the app sends no partner or fee of its own, and states no platform fee, on the Create and token pages', () => {
+  const launchPage = read('src/pages/Launch.tsx'), tokenPage = read('src/pages/Token.tsx');
+  assert.match(launchPage, /launch\(w, vyre, \{ \.\.\.params, metadataURI \}\)/, 'the launch call sends the form’s parameters');
+  for (const f of fs.readdirSync(new URL('../src/', import.meta.url), { recursive: true }).filter((f) => /\.tsx?$/.test(f))) {
+    const t = read(`src/${f}`);
+    assert.doesNotMatch(t, /MINTA_PARTNER|PARTNER\b|partnerFeeBps:/, `${f} names no partner of its own`);
+    assert.doesNotMatch(t, new RegExp('0x7293' + '8Daaf3c2Fa4bEf722E1263a5766755788392', 'i'), `${f} writes out no payout address`);
+    assert.doesNotMatch(t, /per trade|MINTA fee/, `${f} has no fee sum`);
+  }
+  assert.doesNotMatch(tokenPage, /Platform fee|platform fee|VYRE’s 1%/, 'the token page has no platform-fee sentence');
+  assert.match(tokenPage, /Buy tax/);
+  assert.match(launchPage, /NETWORK\.minTaxBps/, 'the wizard’s tax limits come from the network');
 });

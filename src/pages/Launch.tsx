@@ -15,7 +15,7 @@ import { ConnectButton, EmailTradeNote } from '../components/ui';
 import { MintaMark, VyreGlyph } from '../components/Brand';
 import { LaunchFileFields, emptyLaunchFile, hasPicture, keptPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
-import { FEES, NETWORK, PARTNER, scoped } from '../lib/network';
+import { NETWORK, scoped } from '../lib/network';
 import { useLaunchesOpen } from '../lib/launches';
 
 /** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself */
@@ -35,7 +35,10 @@ function launchIn(receipt: TransactionReceipt, creator: Address | null, op?: Has
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 /** A typed tax as it will be sent ("2.5%"), or a dash while it isn't a plain percent with at most two decimals */
 const taxText = (s: string) => (Number.isInteger(percentBps(s)) ? pct(percentBps(s)) : '—');
-const TAX_PROBLEM = 'Set a tax on buys and on sells: 0 to 10%, with at most two decimals (like 2.5).';
+/** The smallest tax on one side, in basis points, on this network (mainnet: 1%) and what the inputs say about the range */
+const MIN_TAX_BPS = NETWORK.minTaxBps;
+const TAX_RANGE = `${MIN_TAX_BPS / 100} to 10%`;
+const TAX_PROBLEM = `Set a tax on buys and on sells: ${TAX_RANGE}, with at most two decimals (like 2.5).`;
 /** 1,000,000,000 as 1B (a whole-token count from an 18-decimal amount), for a small box */
 const compact = (v: bigint) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(Number(v / E18));
 const TOOK_PLACE = 'That launch didn’t run: another transaction from your wallet took its place, so nothing was created by it. Check Portfolio for your launches before creating it again.';
@@ -157,8 +160,6 @@ export default function Launch() {
       name: tokenText(name), symbol: tokenText(symbol), totalSupply, startingMarketCap: OPENING_MARKET_CAP,
       buyTaxBps: percentBps(buyTax), sellTaxBps: percentBps(sellTax),
       firstBuyUsdc: fb || undefined,
-      // MINTA's own fee on mainnet launches: one pair, set in lib/network.ts (the testnet's launches name no partner)
-      ...(PARTNER ?? {}),
     };
   }, [name, symbol, supply, buyTax, sellTax, firstBuy]);
 
@@ -174,6 +175,7 @@ export default function Launch() {
     if (!Number.isInteger(params.buyTaxBps) || !Number.isInteger(params.sellTaxBps)) return TAX_PROBLEM;
     const fileProblem = launchFileProblem(meta);
     if (fileProblem) return fileProblem;
+    if (params.buyTaxBps < MIN_TAX_BPS || params.sellTaxBps < MIN_TAX_BPS) return `Taxes can be ${TAX_RANGE}.`;
     try { checkLaunchParams(params); } catch (e) { return (e as Error).message; }
     return '';
   }, [params, meta, supply, firstBuy]);
@@ -198,7 +200,7 @@ export default function Launch() {
     if (ts === null) s2 = amountProblem(supply) ? `Supply: ${amountProblem(supply)}` : 'Fill in the supply.';
     else if (!Number.isInteger(percentBps(buyTax)) || !Number.isInteger(percentBps(sellTax))) s2 = TAX_PROBLEM;
     else if (ts < LAUNCH_LIMITS.minSupply || ts > LAUNCH_LIMITS.maxSupply) s2 = 'The supply must be 1,000 to 1,000,000,000,000,000 tokens.';
-    else if (percentBps(buyTax) < 0 || percentBps(sellTax) < 0 || percentBps(buyTax) > LAUNCH_LIMITS.maxTaxBps || percentBps(sellTax) > LAUNCH_LIMITS.maxTaxBps) s2 = 'Taxes can be 0 to 10%.';
+    else if (percentBps(buyTax) < MIN_TAX_BPS || percentBps(sellTax) < MIN_TAX_BPS || percentBps(buyTax) > LAUNCH_LIMITS.maxTaxBps || percentBps(sellTax) > LAUNCH_LIMITS.maxTaxBps) s2 = `Taxes can be ${TAX_RANGE}.`;
     else {
       try { checkLaunchParams({ name: 'x', symbol: 'x', totalSupply: ts, startingMarketCap: OPENING_MARKET_CAP, buyTaxBps: percentBps(buyTax), sellTaxBps: percentBps(sellTax) }); } catch (e) { s2 = (e as Error).message; }
     }
@@ -320,7 +322,7 @@ export default function Launch() {
                 </dl>
                 <label className="field"><span>Dev buy <span className="muted">(optional, USDC)</span></span>
                   <input inputMode="decimal" value={firstBuy} onChange={(e) => setFirstBuy(e.target.value)} placeholder="0" />
-                  <small className="muted">Bought in the launch transaction, before anyone else can trade, at your own tax plus the fees ({FEES.text}). Leave it at 0 for none.</small>
+                  <small className="muted">Bought in the launch transaction, before anyone else can trade, at your own tax. Leave it at 0 for none.</small>
                 </label>
                 {showProblem(1)}
               </fieldset>
@@ -334,15 +336,15 @@ export default function Launch() {
                   <div className="field"><span>Price at launch</span><b className="block">{price(openPrice)}</b><small className="muted">Supply sets the price: {usd(Number(OPENING_MARKET_CAP / E18))} market cap divided by the supply.</small></div>
                 </div>
                 <div className="field"><span>Your tax on each buy and sale</span>
-                  <small className="muted">Paid to you in USDC, 0 to 10% each. You can lower it later, never raise it. Every trade also pays the fees: {FEES.text}.</small>
+                  <small className="muted">Paid to you in USDC, {TAX_RANGE} each. You can lower it later, never raise it.</small>
                 </div>
                 <div className="tabs presets" role="group" aria-label="Tax preset">
-                  {PRESETS.map((p) => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => pick(p.key)}>{p.label}</button>)}
+                  {PRESETS.filter((p) => p.key === 'custom' || Number(p.buy) * 100 >= MIN_TAX_BPS).map((p) => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => pick(p.key)}>{p.label}</button>)}
                 </div>
                 {preset === 'custom' && (
                   <div className="two">
-                    <label className="field"><span>Buy tax (%)</span><input inputMode="decimal" value={buyTax} onChange={(e) => setBuyTax(e.target.value)} placeholder="0 to 10" /></label>
-                    <label className="field"><span>Sell tax (%)</span><input inputMode="decimal" value={sellTax} onChange={(e) => setSellTax(e.target.value)} placeholder="0 to 10" /></label>
+                    <label className="field"><span>Buy tax (%)</span><input inputMode="decimal" value={buyTax} onChange={(e) => setBuyTax(e.target.value)} placeholder={`${MIN_TAX_BPS / 100} to 10`} /></label>
+                    <label className="field"><span>Sell tax (%)</span><input inputMode="decimal" value={sellTax} onChange={(e) => setSellTax(e.target.value)} placeholder={`${MIN_TAX_BPS / 100} to 10`} /></label>
                   </div>
                 )}
                 <p className="small muted">After launch you can split the tax between up to 4 wallets, on the token’s Manage page.</p>
@@ -371,7 +373,6 @@ export default function Launch() {
                   <div><dt>Supply</dt><dd>{params ? `${exact(params.totalSupply)} tokens` : '—'}</dd></div>
                   <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))} ({price(openPrice)} a token)</dd></div>
                   <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, paid to you</dd></div>
-                  <div><dt>Trading fees</dt><dd>{FEES.text}, on top of the tax</dd></div>
                   <div><dt>Dev buy</dt><dd>{params?.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'}</dd></div>
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
                 </dl>
@@ -715,7 +716,6 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
     ['Supply', `${exact(params.totalSupply)} tokens`],
     ['Opening market cap', `about ${usd(Number(OPENING_MARKET_CAP / E18))} (${price(openPrice)} a token; the pool opens within about 1% of it)`],
     ['Buy / sell tax', `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, paid to you`],
-    ['Trading fees', `${FEES.text}, on top of the tax`],
     ['Dev buy', params.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'],
     ['Picture and links', meta.useOwn ? (meta.own ? 'Your own file' : 'None') : !(hasContent(meta.file) || meta.picture) ? 'None (add them any time)'
       : fileFailed ? 'Couldn’t be saved just now (add them any time)' : 'Saved with the launch (change them any time)'],

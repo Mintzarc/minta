@@ -61,9 +61,8 @@ MINTA needs the SDK released after that.
   what is offered all follow it. The page shows which network it is on (top bar, footer, network menu).
 - **Launches can be closed.** The launchpad contract has a switch (`launchesOpen`) its owner sets. While it is off, the Create page
   reads it from the chain and says "Launches open soon" instead of running the wizard; browsing and trading existing tokens is not affected.
-- **MINTA's launch fee.** Every launch made through the app on mainnet names MINTA as the contracts' partner with a fee in basis
-  points, both set in one place (`MINTA_PARTNER` in `src/lib/network.ts`), never above the contracts' maximum of 100 (1%), and the fee is
-  fixed for each token when it is launched. The wizard and the token page show the total in words, worked out from those constants.
+- **Taxes.** On mainnet the wizard limits a creator's tax to 1% to 10% a side (the testnet keeps 0 to 10% until the new launch contract is on it). The token page shows the token's tax as read from the chain and states no platform fee. The app sends no partner and no fee of its own with a launch.
+- **The mainnet launch contract will change.** The app takes its addresses from the SDK registry, so it must be rebuilt with the SDK released for the new contract. Until then the Create page stays behind the launches-closed notice.
 - **The app API must allow the site's address.** Picture upload, launch files and the check before signing are served by
   `api.vyrechain.com`, which answers browsers only from the pages on its allow-list: ask its operator to add the site's address.
 
