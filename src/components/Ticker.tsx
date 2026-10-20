@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { feedItems, loadFeed, type FeedItem, type FeedState } from '../lib/feed';
 import { ago, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
+import { NETWORK } from '../lib/network';
 
 const POLL_MS = 20_000;
 const SECONDS_PER_ITEM = 5;
@@ -65,10 +66,10 @@ export default function Ticker() {
   const dur = Math.max(30, items.length * SECONDS_PER_ITEM);
   return (
     <div className={`ticker${paused ? ' paused' : ''}`} role="region" aria-label="Latest activity on MINTA">
-      <span className="tk-live" title="Real trades on the VYRE testnet, made with test USDC"><span className="tk-pulse" aria-hidden="true" />Live<span className="tk-testnet"> · testnet</span></span>
+      <span className="tk-live" title={NETWORK.testnet ? 'Real trades on the VYRE testnet, made with test USDC' : 'Trades on VYRE Mainnet, made with USDC'}><span className="tk-pulse" aria-hidden="true" />Live<span className="tk-testnet"> · {NETWORK.testnet ? 'testnet' : 'mainnet'}</span></span>
       <div className="tk-view">
         {items.length === 0 ? (
-          <p className="tk-empty muted">Buys, sales and new launches show here as they happen. Test USDC, no real money.</p>
+          <p className="tk-empty muted">Buys, sales and new launches show here as they happen.{NETWORK.testnet ? ' Test USDC, no real money.' : ''}</p>
         ) : (
           <div className="tk-track" style={{ ['--tk-dur' as string]: `${dur}s` }}>
             <div className="tk-run">{items.map((it) => <Item key={it.id} it={it} />)}</div>

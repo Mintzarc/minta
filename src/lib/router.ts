@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { getAddress, type Address } from 'viem';
 import { isPromoterCode, promoterWallet } from './api';
+import { NETWORK } from './network';
 import { tokenText } from './format';
 
 export type Route =
@@ -60,6 +61,7 @@ const REF_CODE = 'vyre.refCode'; // the promoter's code, when the link used one 
 /** Remembers a ?ref= (a promoter's wallet, or their approved code) from the link the visitor arrived by; pages showing
  * the promoter hear about it through a 'vyre-ref' event, since a code is looked up after the page has drawn */
 export function captureRef(): void {
+  if (!NETWORK.promoters) return; // no promoter program on this network: a ?ref= is ignored and nothing is stored
   const q = new URLSearchParams(window.location.search || window.location.hash.split('?')[1] || '');
   const raw = q.get('ref') || '';
   const told = () => window.dispatchEvent(new Event('vyre-ref'));

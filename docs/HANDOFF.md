@@ -71,42 +71,26 @@ once it is there.
 address and the governing law are **not yet published**, and they must be completed (and read by a lawyer) before MINTA is offered
 with real money. The in-app Docs (`src/pages/Docs.tsx`) carry no contact address for the same reason.
 
-## 4. Another network
+## 4. The network
 
-Not live today. MINTA is built for the test network, and much of what it says and offers belongs to that network, so moving it is a
-change to the code and the words, not a setting. In order:
+MINTA is built for VYRE mainnet and for the testnet; the network is chosen **when the app is built** (`VITE_NETWORK=mainnet|testnet`,
+`src/lib/network.ts`; unset, a production build is mainnet and `npm run dev` is the testnet). What differs, all kept in that one file or
+read from it:
 
-1. **An SDK release** that carries the new network's definition and addresses (the launchpad's contracts, the outbox for moves out,
-   the networks USDC can come from), vendored in `vendor/` as today.
-2. **The network itself, chosen in one place:** `VYRE_CHAIN` and `ARC_CHAIN` in `src/lib/chain.ts`. Every other file reads them from
-   there: the launchpad's addresses (`addresses()` in `src/lib/market.ts`, used by the trade button, Create, Manage, the tax split's
-   list of refused addresses and the docs' contract table), the network a wallet is switched to before a send, the Arc side of
-   deposits, moves out and claims, the explorers, and the check before signing. A test keeps it that way: no other file names the
-   SDK's test networks (`src/lib/txcheck.ts` keeps the test network's id only as a fallback for its own unit tests; the app always
-   passes its own). The SDK sends trades and launches to its own records for the client's network, so these must be the same
-   network: if they weren't, a trade that went through could read as "only the approval" and be offered again, and Manage's changes
-   would go to an address with no contract. Check one buy, one sell and one Manage change on the new network before anyone else uses it.
-3. **The other addresses:** the RPC and the explorer come with the network's definition; set the app API (`VITE_API_URL`), the
-   promoter service (`VITE_PROMOTERS_URL`: its default in `src/lib/api.ts` is the test network's) and the site's own address
-   (`VITE_SITE_URL`).
-4. **What only the test network has**, taken out or switched off: the faucet (the Wallet page's Get test USDC and its status, and the
-   Faucet link in the network menu), the card checkout (`src/lib/features.ts`: off on any other network unless the build sets it;
-   leave it off until a live checkout has been tested for your domain), and the test networks USDC can come from (`CCTP_SOURCES`,
-   used by `src/lib/pending.ts`, `src/components/ui.tsx` and `src/pages/Wallet.tsx`).
-5. **What's stored in the browser** belongs to one network: the launch being sent (`vyre.launch`), transactions whose result is still
-   being checked (`minta.held.*`), transfers on their way (`vyre.fromChain.pending`) and the Face ID wallet's records (parked,
-   section 5). Give those keys the network's name, or clear them, so nothing from the test network is read as the new one's.
-6. **The words.** These files say "testnet", "test USDC", "no real money", "VYRE Testnet" or "chain 7357", or offer the faucet, and
-   each must be rewritten for real money: `src/App.tsx` (the footer and the network menu), `src/components/Ticker.tsx`,
-   `src/components/ui.tsx` (the wallet menu, the connect menu's help link, the email wallet's note), `src/pages/Docs.tsx`,
-   `src/pages/Explore.tsx` (the milestone note), `src/pages/Launch.tsx` (the review's network, the note about a reset),
-   `src/pages/Wallet.tsx`, `index.html`, `public/manifest.webmanifest`, `public/terms/index.html` and `public/privacy/index.html`
-   (which must be completed before real money anyway, section 3). A test fails for any file with such words that isn't named here.
-   Search the new build for those words before it is published.
-7. **The launch milestone:** the "graduated" line is $100 of USDC bought in on the testnet (`MILESTONE` in `src/lib/stats.ts`); pick
-   the figure for real money. The launchpad contract requires every launch to open at a $3,000 market cap on a new deployment; the
-   testnet's older contract still takes any value, so the app and SDK enforce $3,000 there.
-8. **A fresh review of everything that moves money,** then the walk-through in section 1 on the new network, with a small amount.
+1. **An SDK release** carries each network's definition and contract addresses (vendored in `vendor/`). After VYRE redeploys its contracts,
+   MINTA needs the SDK released after that.
+2. **The chains** (`VYRE_CHAIN`, `ARC_CHAIN` in `src/lib/chain.ts`) come from the selected network; every other file reads them from there. A
+   test keeps it that way: no file but `network.ts` names the SDK's networks.
+3. **The hosts:** the RPC and explorer come with the SDK's chain definition; the app API is in `network.ts` (`api`), and `VITE_API_URL`
+   overrides it. The promoter service exists on the testnet only.
+4. **Testnet only, off on mainnet:** (files that still carry testnet words behind the network setting: `public/privacy/index.html`, `public/terms/index.html`, `src/App.tsx`, `src/components/Ticker.tsx`, `src/components/ui.tsx`, `src/lib/features.ts`, `src/lib/network.ts`, `src/lib/pending.ts`, `src/lib/txcheck.ts`, `src/pages/Docs.tsx`, `src/pages/Explore.tsx`, `src/pages/Wallet.tsx`) the faucet, the "From another chain" (CCTP) form, the promoter program and its links, the card checkout
+   (unless `VITE_CARD_TOPUP=1`), and the testnet words. The browser check `test/mainnet.browser.cjs` fails if one appears.
+5. **What's stored in the browser** for a launch being sent and for held transactions has the network's name in its key on mainnet, so nothing kept for one network is read as the other's.
+6. **Every launch opens at $3,000** on both networks (the mainnet contract enforces it; the app and SDK hold it on the testnet). **New launches:** the launchpad contract starts closed; the Create page reads `launchesOpen` (`src/lib/launches.ts`).
+7. **MINTA's launch fee** (mainnet only): `MINTA_PARTNER` in `network.ts`.
+8. **Still to decide before real money** (not done in code): the terms and privacy pages (`public/terms/`, `public/privacy/`) still describe the
+   testnet, the faucet and the promoter service; the launch milestone ("graduated", `MILESTONE` in `src/lib/stats.ts`) is still the testnet's $100 figure; email
+   sign-in, card top-ups and real-wallet transactions on mainnet have not been tested.
 
 ## 5. Face ID wallets are parked
 

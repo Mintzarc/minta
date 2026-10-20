@@ -7,6 +7,7 @@ import { getLaunchCount } from '@vyrechain/sdk';
 import { oneAtATime, vyre } from '../lib/chain';
 import { ago, change, price, searchTerm, tokenText, usd, usdOf } from '../lib/format';
 import { listLaunches, marketOf, type Listed } from '../lib/market';
+import { NETWORK } from '../lib/network';
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { href } from '../lib/router';
 import { Loading, TokenPic } from '../components/ui';
@@ -190,7 +191,7 @@ export default function Explore({ q = '' }: { q?: string }) {
             </div>
           </div>
           {q && <p className="small filter-note">Showing tokens matching {term ? <>“<bdi>{term}</bdi>”</> : 'your search'}. <a href={href({ page: 'explore' })}>Clear</a></p>}
-          {tab !== 'trending' && <p className="muted small milestone-note">Milestone: {MILESTONE_TEXT} of USDC bought into a token’s pool, net of sales (a testnet figure). Graduated shows the tokens at or above it now.</p>}
+          {tab !== 'trending' && <p className="muted small milestone-note">Milestone: {MILESTONE_TEXT} of USDC bought into a token’s pool, net of sales{NETWORK.testnet ? ' (a testnet figure)' : ''}. Graduated shows the tokens at or above it now.</p>}
           {statsState === 'error' && <p className="err small">The 24-hour figures couldn’t load just now: retrying. Figures shown may be out of date.</p>}
         </>
       )}

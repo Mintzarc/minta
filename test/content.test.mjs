@@ -76,7 +76,7 @@ test('the card checkout is offered on a test network unless switched off, and el
   assert.equal(cardTopupOffered('0', true), false, 'switched off');
   assert.equal(cardTopupOffered('1', false), true, 'switched on');
   for (const odd of ['true', 'yes', ' 1', 'on', 1, true]) assert.equal(cardTopupOffered(odd, false), false, `${JSON.stringify(odd)} is not a setting`);
-  assert.match(wallet, /cardTopupOffered\(import\.meta\.env\.VITE_CARD_TOPUP, vyre\.chain\?\.testnet === true\)/, 'the Wallet page asks with the build setting and the app’s own network');
+  assert.match(wallet, /cardTopupOffered\(import\.meta\.env\.VITE_CARD_TOPUP, NETWORK\.testnet\)/, 'the Wallet page asks with the build setting and the app’s own network');
   assert.match(read('README.md'), /VITE_CARD_TOPUP/, 'the setting is documented');
 });
 
@@ -108,12 +108,14 @@ test('the privacy page names every call the pages make, and which stored things 
   assert.match(kept, /email sign-in[^.]*sign-in service/);
 });
 
-// The handover notes' section on another network is the checklist for that move: it names the one place the network is chosen,
-// and every file whose words or features belong to the test network (what such a file says or offers must change at the move).
+// The handover notes' section on the network is the checklist for it: it names the places the network is chosen, and every file
+// whose words or features belong to the test network (each must keep them behind the network setting).
 const section = (md, n) => { const from = md.indexOf(`\n## ${n}. `); assert.ok(from >= 0, `section ${n}`); const to = md.indexOf('\n## ', from + 1); return md.slice(from, to < 0 ? undefined : to); };
-test('the handover notes’ “Another network” section names where the network is chosen and every file tied to the test network', () => {
+test('the handover notes’ network section names where the network is chosen and every file tied to the test network', () => {
   const s4 = section(handoff, 4);
-  assert.match(s4, /Another network/);
+  assert.match(s4, /The network/);
+  assert.match(s4, /`src\/lib\/network\.ts`/, 'the build setting is read there');
+  assert.match(s4, /VITE_NETWORK/);
   assert.match(s4, /`VYRE_CHAIN`/, 'the one place the network is chosen');
   assert.match(s4, /`ARC_CHAIN`/, 'and the network USDC is moved to and from');
   assert.match(read('src/lib/chain.ts'), /^export const VYRE_CHAIN = /m, 'chain.ts chooses the network');
@@ -138,9 +140,9 @@ test('the handover notes list the faucet among the services a new domain must be
 // The network's services (its RPC, explorer and app API, each on a host under vyrechain.com) are reached at the addresses the SDK
 // and the build settings give, chosen in src/lib/chain.ts and src/lib/api.ts. A host written out anywhere else in the pages would
 // stay behind if those services moved to other names, and send a test-network build's visitors to whatever took the old ones.
-test('no page names a service host of the network outside src/lib/chain.ts and src/lib/api.ts', () => {
+test('no page names a service host of the network outside src/lib/network.ts, src/lib/chain.ts and src/lib/api.ts', () => {
   const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n')
-    .filter((f) => (/^src\/.+\.tsx?$/.test(f) || f === 'index.html') && f !== 'src/lib/chain.ts' && f !== 'src/lib/api.ts');
+    .filter((f) => (/^src\/.+\.tsx?$/.test(f) || f === 'index.html') && f !== 'src/lib/chain.ts' && f !== 'src/lib/api.ts' && f !== 'src/lib/network.ts');
   const comment = /^\s*(?:\/\/|\*|\/\*|\{\/\*)/;
   const host = /\b[a-z0-9-]+\.vyrechain\.com\b/i;
   const found = [];

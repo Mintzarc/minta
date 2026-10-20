@@ -19,13 +19,15 @@ const DEV_ACCOUNTS = new Set([
   '0x90f79bf6eb2c4f870365e785982e1f101e93b906',
   '0x15d34aaf54267db7d7c367839aaf71a00a2c6a65',
 ]);
+/** The one address a test may write out: MINTA's payout address for its launch fee (a public address, not a contract; the fee test pins it exactly) */
+const PAYOUT = '0x72938daaf3c2fa4bef722e1263a5766755788392';
 /** A stand-in address: one digit repeated (0x1111…), zeros then a small number (0x00…01), or a development account */
-const standIn = (a) => /^0x(?:([0-9a-f])\1{39}|0{30,}[0-9a-f]{1,10})$/i.test(a) || DEV_ACCOUNTS.has(a.toLowerCase());
+const standIn = (a) => /^0x(?:([0-9a-f])\1{39}|0{30,}[0-9a-f]{1,10})$/i.test(a) || DEV_ACCOUNTS.has(a.toLowerCase()) || a.toLowerCase() === PAYOUT;
 
 test('the tests use stand-in addresses only (contracts come from the SDK, never written out)', () => {
   const found = [];
   for (const f of files.filter((f) => f.startsWith('test/') && TEXT.test(f))) {
-    for (const [a] of text(f).matchAll(/(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g)) if (!standIn(a)) found.push(`${f}: ${a}`);
+    for (const [a] of text(f).matchAll(/(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g)) if (!standIn(a) || (a.toLowerCase() === PAYOUT && f !== 'test/network.test.mjs' && f !== 'test/repo.test.mjs')) found.push(`${f}: ${a}`);
   }
   assert.deepEqual(found, []);
 });
@@ -86,14 +88,15 @@ test('CI runs actions pinned to a full commit, and checkout keeps no token in .g
   }
 });
 
-// The network the app works on is chosen in src/lib/chain.ts (VYRE_CHAIN and ARC_CHAIN); every other file reads it from there,
-// so the launchpad's addresses, the wallet's network, the Arc side and the SDK's own clients can't point at different networks.
-// (txcheck.ts keeps the SDK's test network only as a fallback for its unit tests; the app always passes its own chain.)
-test('the network is chosen in one place: no file but src/lib/chain.ts names the SDK’s test networks', () => {
+// The network the app works on is chosen when it is built, in src/lib/network.ts (VITE_NETWORK); chain.ts reads its chains from
+// there and every other file from chain.ts, so the launchpad's addresses, the wallet's network, the Arc side and the SDK's own
+// clients can't point at different networks. (txcheck.ts keeps the SDK's test network only as a fallback for its unit tests; the
+// app always passes its own chain.)
+test('the network is chosen in one place: no file but src/lib/network.ts names the SDK’s networks', () => {
   const found = [];
-  for (const f of files.filter((f) => /^src\/.+\.tsx?$/.test(f) && f !== 'src/lib/chain.ts')) {
+  for (const f of files.filter((f) => /^src\/.+\.tsx?$/.test(f) && f !== 'src/lib/network.ts')) {
     text(f).split('\n').forEach((l, i) => {
-      if (!/\b(?:vyreTestnet|arcTestnet)\b/.test(l)) return;
+      if (!/\b(?:vyreTestnet|arcTestnet|vyreMainnet|arcMainnet)\b/.test(l)) return;
       if (f === 'src/lib/txcheck.ts' && (/^import \{[^}]*\bvyreTestnet\b[^}]*\} from '@vyrechain\/sdk';$/.test(l) || /\(o\.vyreChainId \?\? vyreTestnet\.id\)/.test(l))) return;
       found.push(`${f}:${i + 1}`);
     });

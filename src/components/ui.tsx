@@ -8,6 +8,7 @@ import { ARC_CHAIN, ARC_EXPLORER, EXPLORER, arc, reason, refreshWallets, sourceC
 import { EMAIL_TRADE_NOTE } from '../lib/circle';
 import { amount, short } from '../lib/format';
 import { href } from '../lib/router';
+import { NETWORK, scoped } from '../lib/network';
 import { metaOf, type Meta } from '../lib/market';
 import { useWallet } from '../lib/wallet';
 import TokenArt from './TokenArt';
@@ -39,7 +40,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
               <p className="muted small">{walletName}</p>
               <p className="small mono break">{account}</p>
               <a role="menuitem" href={href({ page: 'portfolio' })}>Portfolio</a>
-              <a role="menuitem" href={href({ page: 'wallet' })}>{faceId ? 'Wallet: get test USDC' : 'Wallet: add or move USDC'}</a>
+              <a role="menuitem" href={href({ page: 'wallet' })}>{faceId && NETWORK.testnet ? 'Wallet: get test USDC' : 'Wallet: add or move USDC'}</a>
               <a role="menuitem" href={`${EXPLORER}/address/${account}`} target="_blank" rel="noopener noreferrer">View on the explorer</a>
               <button role="menuitem" type="button" className="linkish" onClick={() => { disconnect(); setOpen(false); }}>{faceId ? 'Sign out on this device' : email ? 'Sign out' : 'Disconnect'}</button>
             </div>
@@ -95,7 +96,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
               <div className="small" role="status">
                 <p><b>No wallet found in this browser.</b></p>
                 <p className="muted">MINTA works with a browser wallet such as MetaMask, Rabby or Coinbase Wallet. On a phone, open this page in your wallet app’s own browser.</p>
-                <p><a href="https://vyrechain.com/docs/network/" target="_blank" rel="noopener noreferrer">How to add VYRE Testnet to your wallet</a></p>
+                <p><a href="https://vyrechain.com/docs/network/" target="_blank" rel="noopener noreferrer">How to add {NETWORK.label} to your wallet</a></p>
               </div>
             )}
             {available.map((w, i) => (
@@ -181,7 +182,7 @@ function EmailSignIn({ onClose }: { onClose: () => void }) {
           <button className="linkish small" type="button" onClick={onClose} disabled={busy}>Cancel</button>
         </div>
         {st.text && <p className={`status ${st.kind}`} role="status" aria-live="polite">{st.text}</p>}
-        <p className="small muted fine">Your wallet is made and kept by Circle (its user-controlled wallets): only you can move its money, by confirming in Circle’s window, and VYRE never holds a key. Keep access to this email: it’s how you get back in. On the testnet the wallet holds USDC on Arc and can move it to VYRE; trading with it on VYRE opens when Circle supports VYRE.</p>
+        <p className="small muted fine">Your wallet is made and kept by Circle (its user-controlled wallets): only you can move its money, by confirming in Circle’s window, and VYRE never holds a key. Keep access to this email: it’s how you get back in. {NETWORK.testnet ? 'On the testnet the wallet holds USDC on Arc and can move it to VYRE; trading with it on VYRE opens when Circle supports VYRE.' : 'Trading with it on VYRE opens when Circle supports VYRE.'}</p>
       </form>
     </div>,
     document.body,
@@ -220,7 +221,7 @@ function clientFor(chainId?: number): PublicClient {
 type Held = { hash: Hash; chainId?: number; looked: boolean; deposit?: DepositWait };
 
 /** Held transactions are kept for this tab under this prefix and the button's `keepAs`, so leaving the page or reloading it doesn't re-arm the button */
-const HELD_KEY = 'minta.held.';
+const HELD_KEY = scoped('minta.held.');
 function readHeld(keepAs?: string): Held | null {
   if (!keepAs) return null;
   try {

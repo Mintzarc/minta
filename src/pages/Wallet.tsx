@@ -9,6 +9,7 @@ import {
   type CctpFees, type CctpStatus, type FaucetStatus, type Withdrawal,
 } from '@vyrechain/sdk';
 import { erc20Abi, getAddress, isAddress, zeroAddress, type Address, type EIP1193Provider, type Hash } from 'viem';
+import { NETWORK } from '../lib/network';
 import { ARC_CHAIN, VYRE_CHAIN, arc, reason, sourceClient, switchTo, vyre, walletOn } from '../lib/chain';
 import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
@@ -23,7 +24,7 @@ import { moveToVyre } from '../lib/circle';
 import { cardTopupOffered } from '../lib/features';
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC kept for the network fee
 /** Whether this build offers the card checkout: on the test network unless VITE_CARD_TOPUP=0, elsewhere only with VITE_CARD_TOPUP=1 */
-const CARD_TOPUP = cardTopupOffered(import.meta.env.VITE_CARD_TOPUP, vyre.chain?.testnet === true);
+const CARD_TOPUP = cardTopupOffered(import.meta.env.VITE_CARD_TOPUP, NETWORK.testnet);
 
 // the SDK refuses a deposit from an address with code on Arc (VYRE would credit it to an aliased address); the app
 // says so plainly and never offers the SDK's override
@@ -50,7 +51,7 @@ export default function Wallet() {
   const [amountIn, setAmountIn] = useState('');
 
   const load = async () => {
-    getFaucetStatus().then(setFaucet).catch(() => setFaucet(null));
+    if (NETWORK.testnet) getFaucetStatus().then(setFaucet).catch(() => setFaucet(null));
     if (!account) return;
     usdcBalance(account).then(setUsdc).catch(() => {});
     // a Face ID wallet's address on Arc isn't a wallet of its own (yet): nothing to show there
@@ -77,12 +78,12 @@ export default function Wallet() {
     <section className="narrow">
       <p className="eyebrow">Wallet</p>
       <h1 className="display">Your <em>USDC.</em></h1>
-      <p className="lede">{faceId ? 'Get USDC into your Face ID wallet, send it, or move it to Arc.' : 'Add USDC to VYRE, or move it back to Arc.'} USDC pays for everything on VYRE: gas and trades. On the testnet it’s test money with no value.</p>
+      <p className="lede">{faceId ? 'Get USDC into your Face ID wallet, send it, or move it to Arc.' : 'Add USDC to VYRE, or move it back to Arc.'} USDC pays for everything on VYRE: gas and trades.{NETWORK.testnet ? ' On the testnet it’s test money with no value.' : ''}</p>
       {!account && <ConnectButton />}
       {account && (
         <div className="card row-between">
           <div><p className="muted small">On VYRE</p><p className="big">{usdc === null ? '…' : amount(usdc)} USDC</p></div>
-          {!faceId && <div className="right"><p className="muted small">On Arc testnet</p><p>{onArc === null ? '—' : `${amount(onArc)} USDC`}</p></div>}
+          {!faceId && <div className="right"><p className="muted small">On {ARC_CHAIN.name}</p><p>{onArc === null ? '—' : `${amount(onArc)} USDC`}</p></div>}
         </div>
       )}
 
@@ -91,7 +92,7 @@ export default function Wallet() {
 
       {CARD_TOPUP && account && !faceId && <CardTopup account={account} onArc={onArc} />}
 
-      <div className="card">
+      {NETWORK.testnet && <div className="card">
         <h2 className="h3">The faucet</h2>
         <p className="small">{faucet ? `${faucet.drip} test USDC per wallet and per network, every ${faucet.cooldownHours} hours${faucet.returnCooldownHours ? `, or every ${faucet.returnCooldownHours} if you’ve sent back at least ${faucet.drip} since your last one` : ''}. ${faucet.open ? '' : 'It’s being refilled right now.'}` : 'Free test USDC once a day.'}</p>
         {faucet?.open && faucet.dripsLeftToday === 0 && <p className="small">Today’s test USDC is all given out. More: Circle’s faucet gives 20 at a time on Arc, and <a href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">the faucet page</a> brings it here{faceId ? ' (with a browser wallet)' : ''}.</p>}
@@ -101,13 +102,15 @@ export default function Wallet() {
             run={async () => { const r = await requestTestUsdc(account); return { hash: r.tx, text: `Sent ${r.amount} test USDC.` }; }} />
         )}
         {account && !email && faucet && <SendBack faucet={faucet} held={usdc} onDone={load} />}
-      </div>
+      </div>}
 
-      {!faceId && <FromChain account={account} provider={provider} email={!!email} onLanded={load} onMove={prefillMove} />}
+      {!faceId && NETWORK.testnet && <FromChain account={account} provider={provider} email={!!email} onLanded={load} onMove={prefillMove} />}
 
       {!faceId && <div className="card" id="from-arc">
         <h2 className="h3">Bring it from Arc</h2>
-        <p className="small">Get 20 test USDC at a time from <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a> (pick Arc Testnet), then move it here. It arrives in about 3 seconds.</p>
+        {NETWORK.testnet
+          ? <p className="small">Get 20 test USDC at a time from <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a> (pick Arc Testnet), then move it here. It arrives in about 3 seconds.</p>
+          : <p className="small">Send USDC to your address on {ARC_CHAIN.name} from an exchange or another wallet, then move it here. It arrives in a few seconds.</p>}
         {email && <p className="note small">With an email wallet you confirm the move in Circle’s window, and Circle sends it on Arc. The USDC arrives at the same address on VYRE, where it stays for now: trading it, or moving it back, with an email wallet opens when Circle supports VYRE.</p>}
         {account && (
           <>
@@ -124,7 +127,7 @@ export default function Wallet() {
                   return { text: `Arrived on VYRE in ${secs.toFixed(1)} s.${r.arcTx ? ` (Arc transaction ${short(r.arcTx)})` : ''}` };
                 }
                 if (!provider) throw new Error('Connect a wallet first.');
-                say('Switching your wallet to Arc testnet…');
+                say(`Switching your wallet to ${ARC_CHAIN.name}…`);
                 await switchTo(provider, ARC_CHAIN);
                 const before = await vyre.getBalance({ address: account });
                 say('Confirm in your wallet…');
@@ -137,7 +140,7 @@ export default function Wallet() {
                 const secs = await arrival(vyre, ARC_CHAIN.id, account, before, value!, r.hash);
                 return { text: `Arrived on VYRE in ${secs.toFixed(1)} s. (Arc transaction ${short(r.hash)})` };
               }} />
-            {value && onArc !== null && value >= onArc && <p className="err small">You have {amount(onArc)} USDC on Arc testnet; keep a little for its gas.</p>}
+            {value && onArc !== null && value >= onArc && <p className="err small">You have {amount(onArc)} USDC on {ARC_CHAIN.name}; keep a little for its gas.</p>}
           </>
         )}
       </div>}
@@ -147,7 +150,7 @@ export default function Wallet() {
       {account && !faceId && <CashOut account={account} provider={provider} isEmail={!!email} onDone={load} />}
       {account && faceId && <MoveOut account={account} held={usdc} onDone={load} />}
 
-      {account && <Promoter account={account} />}
+      {account && NETWORK.promoters && <Promoter account={account} />}
     </section>
   );
 }
@@ -397,7 +400,7 @@ function Transfer({ t, account, provider, onLanded, onMove, onForget }: {
           <TxButton className="btn btn-line btn-sm" label="Finish it on Arc yourself"
             run={async (say) => {
               if (!provider || !account || !signed?.message || !signed.attestation) throw new Error('Circle hasn’t given its signature for this transfer yet.');
-              say('Switching your wallet to Arc testnet…');
+              say(`Switching your wallet to ${ARC_CHAIN.name}…`);
               await switchTo(provider, ARC_CHAIN);
               say('Confirm in your wallet…');
               const r = await mintOnArc(walletOn(provider, account, ARC_CHAIN), arc, { message: signed.message, attestation: signed.attestation });
@@ -470,7 +473,7 @@ function EmailWalletCard({ account, emailAddress }: { account: Address; emailAdd
   return (
     <div className="card">
       <h2 className="h3">Your email wallet</h2>
-      <p className="small">Signed in as {emailAddress}. Your wallet has the same address on Arc and on VYRE. For free test USDC on Arc, paste it into Circle’s faucet.</p>
+      <p className="small">Signed in as {emailAddress}. Your wallet has the same address on Arc and on VYRE. {NETWORK.testnet ? 'For free test USDC on Arc, paste it into Circle’s faucet.' : ''}</p>
       <div className="copy-row">
         <input readOnly value={account} aria-label="Your wallet’s address" onFocus={(e) => e.target.select()} />
         <button type="button" className="btn btn-line btn-sm" onClick={() => { navigator.clipboard?.writeText(account).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }}>{copied ? 'Copied' : 'Copy'}</button>
@@ -582,7 +585,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
   return (
     <div className="card">
       <h2 className="h3">Move to Arc</h2>
-      <p className="small">Moves USDC from VYRE back to your address on Arc through VYRE’s own bridge, in two steps: start it here, then claim it on Arc once VYRE’s state covering it is confirmed there (usually under half an hour on the testnet).</p>
+      <p className="small">Moves USDC from VYRE back to your address on Arc through VYRE’s own bridge, in two steps: start it here, then claim it on Arc once VYRE’s state covering it is confirmed there ({NETWORK.withdrawal}).</p>
       {isEmail ? <EmailTradeNote /> : (
         <>
           <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="1" aria-invalid={!!amountProblem(amountIn)} /></label>
@@ -611,7 +614,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
                 <TxButton className="btn btn-accent btn-sm" label="Claim on Arc" onDone={() => { load(); onDone(); }}
                   run={async (say) => {
                     if (!provider) throw new Error('Connect a wallet first.');
-                    say('Switching your wallet to Arc testnet…');
+                    say(`Switching your wallet to ${ARC_CHAIN.name}…`);
                     await switchTo(provider, ARC_CHAIN);
                     say('Confirm in your wallet…');
                     const r = await claimWithdrawal(walletOn(provider, account, ARC_CHAIN), arc, vyre, w);
@@ -723,7 +726,7 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
   return (
     <div className="card">
       <h2 className="h3">Move to Arc</h2>
-      <p className="small">Moves USDC from this wallet to your own wallet on Arc (MetaMask, Rabby or any other). It goes through VYRE’s own bridge and can be paid out on Arc once it’s confirmed there (usually under half an hour on the testnet). VYRE pays it out for you, Arc’s gas included, for moves of 1 USDC or more to an ordinary wallet address, up to 3 a day to one address; otherwise, or if it hasn’t arrived within a day, claim it yourself below with that wallet (it needs a little USDC on Arc for gas).</p>
+      <p className="small">Moves USDC from this wallet to your own wallet on Arc (MetaMask, Rabby or any other). It goes through VYRE’s own bridge and can be paid out on Arc once it’s confirmed there ({NETWORK.withdrawal}). VYRE pays it out for you, Arc’s gas included, for moves of 1 USDC or more to an ordinary wallet address, up to 3 a day to one address; otherwise, or if it hasn’t arrived within a day, claim it yourself below with that wallet (it needs a little USDC on Arc for gas).</p>
       <p className="small"><b>Not this wallet’s own address, or another Face ID wallet’s:</b> a Face ID wallet has no key on Arc. Check the address: once started, a move can’t be undone.</p>
       <label className="field"><span>To (an address on Arc)</span><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!addressProblem(to, account)} /></label>
       <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="1" aria-invalid={!!amountProblem(amountIn)} /></label>
@@ -765,7 +768,7 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
                       const p = injected();
                       if (!p) throw new Error('Open this page in a browser with a wallet (MetaMask, Rabby…) to claim it yourself, or wait for VYRE to pay it out.');
                       const [who] = (await p.request({ method: 'eth_requestAccounts' })) as Address[];
-                      say('Switching your wallet to Arc testnet…');
+                      say(`Switching your wallet to ${ARC_CHAIN.name}…`);
                       await switchTo(p, ARC_CHAIN);
                       say('Confirm in your wallet (it pays Arc’s gas; the USDC goes to the move’s own address)…');
                       const r = await claimWithdrawal(walletOn(p, getAddress(who), ARC_CHAIN), arc, vyre, w);

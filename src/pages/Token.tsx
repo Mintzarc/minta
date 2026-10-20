@@ -2,7 +2,7 @@
 // volume, market cap, holders, the chart and the latest trades), its settings (taxes and where they go), and the
 // buy/sell panel.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Address } from 'viem';
+import { isAddressEqual, type Address } from 'viem';
 import { buy, getLaunch, getPromoter, getTaxWallets, quoteBuy, quoteSell, sell, setPromoter, vyreTokenAbi, type Launch, type TaxWallets } from '@vyrechain/sdk';
 import { EXPLORER, oneAtATime, vyre } from '../lib/chain';
 import { ago, amount, amountProblem, change, exact, iso, parse, pct, plainText, price, short, tokenText, usd, usdOf } from '../lib/format';
@@ -10,6 +10,7 @@ import { addresses, marketOf, recentTrades, tokenBalance, usdcBalance, type Mark
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { clearRef, href, storedRef, storedRefCode } from '../lib/router';
 import { promoterWallet } from '../lib/api';
+import { MINTA_PARTNER, NETWORK, PLATFORM_FEE_BPS, percentOf, tradeFees } from '../lib/network';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { sendVyreTx, type EmailSession } from '../lib/circle';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
@@ -126,6 +127,9 @@ export default function Token({ token }: { token: Address }) {
   if (launch === null) return <div className="empty"><p>No token at this address on MINTA. Check the full link and address. Just launched it? Check the transaction in your wallet: a missing page doesn’t mean the launch failed.</p><a href={href({ page: 'explore' })}>Back to all tokens</a></div>;
 
   const after = () => { refresh(true); refreshBalances().catch(() => {}); };
+  // the fees this token's trades pay besides its creator's tax, from the token's own launch record (a partner launchpad's fee is fixed per token)
+  const isMinta = !!launch.partner && isAddressEqual(launch.partner, MINTA_PARTNER.address);
+  const fees = tradeFees(launch.partner && launch.partnerFeeBps > 0 ? { partner: launch.partner, partnerFeeBps: Number(launch.partnerFeeBps) } : null, isMinta ? 'MINTA' : 'partner');
   const sym = tokenText(launch.symbol);
   return (
     <section className="token-page">
@@ -171,8 +175,9 @@ export default function Token({ token }: { token: Address }) {
           <h2 className="h3 span-all">Settings</h2>
           <div><span>Buy tax</span><b>{pct(launch.buyTaxBps)}</b></div>
           <div><span>Sell tax</span><b>{pct(launch.sellTaxBps)}</b></div>
-          <div><span>Platform fee</span><b>1% buy and sell</b></div>
-          {launch.partner && <div><span>Partner fee</span><b>{pct(launch.partnerFeeBps)} (<AddressLink address={launch.partner} />)</b></div>}
+          <div><span>Platform fee</span><b>{percentOf(PLATFORM_FEE_BPS)} buy and sell</b></div>
+          {launch.partner && <div><span>{isMinta ? 'MINTA fee' : 'Partner fee'}</span><b>{pct(launch.partnerFeeBps)} (<AddressLink address={launch.partner} />)</b></div>}
+          <div className="span-all"><span>Fees on every trade</span><b>{fees.text}</b></div>
           <div><span>Supply</span><b>{amount(launch.totalSupply, 0)}</b></div>
           <div><span>Liquidity</span><b>Locked for good</b></div>
           <div className="span-all"><span>Tax goes to</span>
@@ -288,7 +293,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
         )}
         <p className="small slip">Leeway: {[100, 200, 500].map((s) => <button key={s} type="button" className={`chip ${slippage === s ? 'on' : ''}`} onClick={() => setSlippage(s)}>{s / 100}%</button>)}</p>
       </div>
-      {!email && <PromoterNote account={account} onVyre={onVyre} />}
+      {!email && NETWORK.promoters && <PromoterNote account={account} onVyre={onVyre} />}
       {!account ? <ConnectButton /> : emailCantTrade ? <EmailTradeNote /> : (
         <TxButton
           label={label}

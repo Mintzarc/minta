@@ -38,7 +38,7 @@ test('an install line that names a file not vendored here holds a publish too, w
   const p = await checkPublished({ read: other, fetch: async () => assert.fail('nothing to ask') });
   assert.equal(p.length, 1);
   assert.match(p[0], /isn’t the SDK vendored here/);
-  assert.throws(() => docsSdkFile("const SDK_FILE = 'http://vyrechain.com/sdk/vyrechain-sdk-0.5.6.tgz';"), /SDK_FILE/, 'only an https address counts');
+  assert.throws(() => docsSdkFile("const SDK_FILE = 'http://vyrechain.com/sdk/vyrechain-sdk-0.6.0.tgz';"), /SDK_FILE/, 'only an https address counts');
 });
 
 test('the check is a script of its own, named in the handover notes’ publishing steps', () => {

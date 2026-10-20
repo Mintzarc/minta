@@ -1,6 +1,6 @@
 # MINTA
 
-Launch, trade and explore tokens on [VYRE](https://vyrechain.com), the people's layer. **Testnet:** test USDC, no real money.
+Launch, trade and explore tokens on [VYRE](https://vyrechain.com), the people's layer. A production build is for **VYRE mainnet** (real USDC); a build for the testnet (test USDC, no real money) is chosen with `VITE_NETWORK=testnet`.
 
 MINTA is a launchpad app: a static website (React, Vite, TypeScript, [viem](https://viem.sh)) with no server of its own.
 Anyone launches a token with one transaction, trades it with USDC, and watches launches, trades and a live ticker. Creators pick
@@ -14,7 +14,7 @@ npm ci               # exactly what package-lock.json says; no install scripts r
 npm run dev          # http://localhost:5173
 npm run build        # typecheck, then the site into dist/
 npm run typecheck && npm test
-npm run test:browser # a real-browser check of the wizard, docs, ticker, splash, the check before signing; needs `npx playwright install chromium`
+npm run test:browser # real-browser checks: the testnet build (wizard, docs, ticker, splash, the check before signing) and the mainnet build (network shown, nothing testnet-only, launches-closed notice); needs `npx playwright install chromium`
 npm run check:published # before publishing: vyrechain.com serves the SDK release the in-app docs tell builders to install
 ```
 
@@ -26,21 +26,22 @@ Set these when building (`VITE_…` values are public: they end up in the page):
 
 | Variable | What | Default |
 |---|---|---|
+| `VITE_NETWORK` | `mainnet` or `testnet` (anything else stops the build). It picks the chains, contracts, hosts and words: the faucet, test USDC and the promoter program exist on the testnet only | `mainnet` for a production build (`npm run build`, Vercel), `testnet` for `npm run dev` |
 | `VITE_SITE_URL` | the site's own address, for the link-preview image (`https://example.com`, no slash at the end). On Vercel its production domain is used when this isn't set | none: the preview image address stays relative |
-| `VITE_API_URL` | the app API: picture upload, token details files, card checkout links, email sign-in, the check before signing | the test network's API as the SDK records it (`https://api.vyrechain.com` today) |
-| `VITE_PROMOTERS_URL` | the promoter-code lookup | `https://testnet-rpc.vyrechain.com/promoters` |
+| `VITE_API_URL` | the app API: picture upload, token details files, card checkout links, email sign-in, the check before signing | the selected network's API (`https://api.vyrechain.com` on mainnet, `https://testnet-api.vyrechain.com` on the testnet) |
+| `VITE_PROMOTERS_URL` | the promoter-code lookup (testnet only; mainnet has no promoter program) | `https://testnet-rpc.vyrechain.com/promoters` |
 | `VITE_CARD_TOPUP` | `1` shows the card checkout on the Wallet page, `0` hides it. Turn it on for a network other than the testnet only once a live checkout works for your site | shown on the test network only |
 
 ## What it depends on
 
 | What | Where | For |
 |---|---|---|
-| VYRE Testnet (chain ID 7357) | `https://testnet-rpc.vyrechain.com` | every read and every transaction |
+| VYRE Mainnet (chain ID 3045) or VYRE Testnet (7357) | `https://rpc.vyrechain.com` or `https://testnet-rpc.vyrechain.com` | every read and every transaction |
 | The contracts (launchpad, fee splitter, app router, …) | addresses and ABIs inside the SDK | launching, trading, promoters |
-| `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.5.6.tgz` | chain definition, addresses, typed calls |
+| `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.6.0.tgz` | chain definition, addresses, typed calls |
 | The VYRE app API | `https://api.vyrechain.com` | token pictures (`POST /image`), details files, card checkout links, email sign-in, and the advisory check before a wallet signs (`POST /txcheck`) |
 | The explorer | `https://explorer.vyrechain.com` | links, holder counts, the block at a given time (called from the visitor’s browser) |
-| The faucet | `https://vyrechain.com/faucet` | test USDC |
+| The faucet (testnet only) | `https://vyrechain.com/faucet` | test USDC |
 | Circle, Transak | their own services | email sign-in; card purchases of USDC (testnet staging) |
 
 Each endpoint can be pointed elsewhere at build time (the `VITE_…` settings above). `docs/HANDOFF.md` says what to do when MINTA
@@ -53,6 +54,18 @@ gets a domain of its own or moves to another network.
 lockfile agree). The in-app docs' install line (`SDK_FILE` in `src/pages/Docs.tsx`) names the same release on vyrechain.com: change
 it with the vendored file, and publish a build only once `npm run check:published` finds that file served there. A new SDK always comes as a new version: never replace a vendored file with different contents under the same name. The SDK carries the contract addresses: after VYRE redeploys its contracts,
 MINTA needs the SDK released after that.
+
+## Mainnet
+
+- **The network** is chosen when the app is built (`src/lib/network.ts`): the chains, hosts, contract records (from the SDK), words and
+  what is offered all follow it. The page shows which network it is on (top bar, footer, network menu).
+- **Launches can be closed.** The launchpad contract has a switch (`launchesOpen`) its owner sets. While it is off, the Create page
+  reads it from the chain and says "Launches open soon" instead of running the wizard; browsing and trading existing tokens is not affected.
+- **MINTA's launch fee.** Every launch made through the app on mainnet names MINTA as the contracts' partner with a fee in basis
+  points, both set in one place (`MINTA_PARTNER` in `src/lib/network.ts`), never above the contracts' maximum of 100 (1%), and the fee is
+  fixed for each token when it is launched. The wizard and the token page show the total in words, worked out from those constants.
+- **The app API must allow the site's address.** Picture upload, launch files and the check before signing are served by
+  `api.vyrechain.com`, which answers browsers only from the pages on its allow-list: ask its operator to add the site's address.
 
 ## Layout
 
@@ -75,7 +88,7 @@ visitor's wallet safe from a script injected from elsewhere.
 
 ## Status
 
-Testnet only. MINTA has had internal review rounds, **no outside security audit**. It shows no token, price or number it can't
+Built for mainnet and the testnet. MINTA has had internal review rounds, **no outside security audit**. It shows no token, price or number it can't
 read from the chain, and doesn't promise returns. Not built on purpose: staking or any token rewards (there is no MINTA
 token), "fair launch" rounds (launches here are instant), a whitepaper.
 

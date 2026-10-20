@@ -12,20 +12,21 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
-import { arcTestnet, cctpSource, vyreTestnet } from '@vyrechain/sdk';
+import { cctpSource } from '@vyrechain/sdk';
+import { NETWORK } from './network';
 import { tokenText } from './format';
 import { fetchSplit } from './fetchSplit';
 import { vyreTransport } from './transport';
 import { API_URL } from './api';
 import { guardProvider, wasCancelledByCheck } from './txcheck';
 
-/** The network the app works on, and the network USDC is moved to and from. The only place either is chosen: every other file
- * reads them from here (moving MINTA to another network: docs/HANDOFF.md, section 4). */
-export const VYRE_CHAIN = vyreTestnet;
-export const ARC_CHAIN = arcTestnet;
+/** The network the app works on, and the network USDC is moved to and from: chosen when the app is built (lib/network.ts,
+ * VITE_NETWORK); every other file reads them from here (docs/HANDOFF.md, section 4). */
+export const VYRE_CHAIN = NETWORK.vyre;
+export const ARC_CHAIN = NETWORK.arc;
 
-export const EXPLORER = VYRE_CHAIN.blockExplorers.default.url;
-export const ARC_EXPLORER = ARC_CHAIN.blockExplorers.default.url;
+export const EXPLORER = VYRE_CHAIN.blockExplorers!.default.url;
+export const ARC_EXPLORER = ARC_CHAIN.blockExplorers!.default.url;
 
 export const vyre: PublicClient = createPublicClient({
   chain: VYRE_CHAIN,
@@ -42,7 +43,7 @@ export const vyre: PublicClient = createPublicClient({
 export const arc: PublicClient = createPublicClient({ chain: ARC_CHAIN, transport: http() }) as PublicClient;
 
 const sources = new Map<number, PublicClient>();
-/** A client on a chain USDC can come from (Ethereum, Base or Arbitrum Sepolia), over its free public RPC */
+/** A client on a chain USDC can come from (the testnet's: Ethereum, Base or Arbitrum Sepolia), over its free public RPC */
 export function sourceClient(chainId: number): PublicClient {
   let c = sources.get(chainId);
   if (!c) {
