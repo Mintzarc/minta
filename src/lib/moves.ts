@@ -18,7 +18,8 @@ export const LOOK_BACK_BLOCKS = 3_500_000n;
 /** Blocks per log query for those looks (a fifth of them: 7 queries) */
 export const LOOK_PAGE_BLOCKS = 500_000n;
 
-export const movesKey = (account: string) => `vyre:moves:${account.toLowerCase()}`;
+/** Same shape as `storeKey` in storeKey.ts: scoped to the app's VYRE chain id */
+export const movesKey = (vyreChainId: number, account: string) => `vyre:moves:${account.toLowerCase()}:${vyreChainId}`;
 
 /** The first VYRE block to read from for `m`, when the newest block is `head` */
 export function fromBlockOf(m: Move, head: bigint): bigint {
@@ -73,19 +74,19 @@ const local = (): KeyValue | null => {
   }
 };
 
-export function loadMoves(account: string, store: KeyValue | null = local()): Move[] {
+export function loadMoves(vyreChainId: number, account: string, store: KeyValue | null = local()): Move[] {
   try {
-    return parseMoves(store?.getItem(movesKey(account)) ?? null);
+    return parseMoves(store?.getItem(movesKey(vyreChainId, account)) ?? null);
   } catch {
     return [];
   }
 }
 
 /** Keeps `m` (see withMove) and returns the list now; the list is returned even if this browser won't keep it */
-export function keepMove(account: string, m: Move, store: KeyValue | null = local()): Move[] {
-  const list = withMove(loadMoves(account, store), m);
+export function keepMove(vyreChainId: number, account: string, m: Move, store: KeyValue | null = local()): Move[] {
+  const list = withMove(loadMoves(vyreChainId, account, store), m);
   try {
-    store?.setItem(movesKey(account), serializeMoves(list));
+    store?.setItem(movesKey(vyreChainId, account), serializeMoves(list));
   } catch {
     /* site data blocked: shown until the page reloads */
   }

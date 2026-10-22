@@ -6,6 +6,8 @@
 // VYRE transactions yet: Circle's testnet wallets sign only for a fixed list of chain IDs, which lacks VYRE's 7357.
 import { getAddress, parseTransaction, recoverTransactionAddress, type Address, type Hash, type PublicClient } from 'viem';
 import { API_URL } from './api';
+import { VYRE_CHAIN } from './chain';
+import { storeKey } from './storeKey';
 
 export const EMAIL_TRADE_NOTE = 'Trading with an email wallet opens when Circle supports VYRE; for now connect a browser wallet.';
 
@@ -65,7 +67,7 @@ export function walletConfig(): Promise<WalletConfig> {
 // can't live in an httpOnly cookie; they're kept in this site's storage until sign-out, and Circle ends the session
 // after 14 days at most. Every money move still needs the user's OK in Circle's window.
 // ---------------------------------------------------------------------------------------------------------------
-const KEY = 'vyre.email';
+const KEY = storeKey('vyre.email', VYRE_CHAIN.id);
 export function loadSession(): EmailSession | null {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || 'null') as EmailSession | null;

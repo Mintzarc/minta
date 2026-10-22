@@ -14,7 +14,12 @@ const require = createRequire(import.meta.url);
 function router() {
   const src = fs.readFileSync(new URL('../src/lib/router.ts', import.meta.url), 'utf8');
   const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const stubs = { './api': { isPromoterCode: () => false, promoterWallet: async () => null }, './format': format };
+  const stubs = {
+    './api': { isPromoterCode: () => false, promoterWallet: async () => null },
+    './format': format,
+    './chain': { VYRE_CHAIN: { id: 7357 } },
+    './storeKey': { storeKey: (base, chainId) => `${base}:${chainId}` },
+  };
   const module = { exports: {} };
   new Function('require', 'module', 'exports', js)((id) => stubs[id] || require(id), module, module.exports);
   return module.exports;

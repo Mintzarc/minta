@@ -4,15 +4,16 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { createPortal } from 'react-dom';
 import type { Address, Hash, PublicClient, TransactionReceipt } from 'viem';
 import { CCTP_SOURCES, SentButUnconfirmedError } from '@vyrechain/sdk';
-import { ARC_CHAIN, ARC_EXPLORER, EXPLORER, arc, reason, refreshWallets, sourceClient, vyre } from '../lib/chain';
+import { ARC_CHAIN, ARC_EXPLORER, EXPLORER, VYRE_CHAIN, arc, reason, refreshWallets, sourceClient, vyre } from '../lib/chain';
 import { EMAIL_TRADE_NOTE } from '../lib/circle';
+import { depositWaitOf, type DepositWait } from '../lib/deposit';
+import { FACE_ID_OFFERED, kept, useConfirmRequest } from '../lib/faceid';
 import { amount, short } from '../lib/format';
-import { href } from '../lib/router';
 import { metaOf, type Meta } from '../lib/market';
+import { href } from '../lib/router';
+import { storeKey } from '../lib/storeKey';
 import { useWallet } from '../lib/wallet';
 import TokenArt from './TokenArt';
-import { FACE_ID_OFFERED, kept, useConfirmRequest } from '../lib/faceid';
-import { depositWaitOf, type DepositWait } from '../lib/deposit';
 
 const WalletIcon = () => (
   <svg className="ic cb-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="4" y="8" width="16" height="11" rx="2.5" /><path d="M16 13.5h4" /></svg>
@@ -95,7 +96,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
               <div className="small" role="status">
                 <p><b>No wallet found in this browser.</b></p>
                 <p className="muted">MINTA works with a browser wallet such as MetaMask, Rabby or Coinbase Wallet. On a phone, open this page in your wallet app’s own browser.</p>
-                <p><a href="https://vyrechain.com/docs/network/" target="_blank" rel="noopener noreferrer">How to add VYRE Testnet to your wallet</a></p>
+                <p><a href="https://vyrechain.com/docs/network/" target="_blank" rel="noopener noreferrer">How to add {VYRE_CHAIN.name} to your wallet</a></p>
               </div>
             )}
             {available.map((w, i) => (
@@ -181,7 +182,7 @@ function EmailSignIn({ onClose }: { onClose: () => void }) {
           <button className="linkish small" type="button" onClick={onClose} disabled={busy}>Cancel</button>
         </div>
         {st.text && <p className={`status ${st.kind}`} role="status" aria-live="polite">{st.text}</p>}
-        <p className="small muted fine">Your wallet is made and kept by Circle (its user-controlled wallets): only you can move its money, by confirming in Circle’s window, and VYRE never holds a key. Keep access to this email: it’s how you get back in. On the testnet the wallet holds USDC on Arc and can move it to VYRE; trading with it on VYRE opens when Circle supports VYRE.</p>
+        <p className="small muted fine">Your wallet is made and kept by Circle (its user-controlled wallets): only you can move its money, by confirming in Circle’s window, and VYRE never holds a key. Keep access to this email: it’s how you get back in. The wallet holds USDC on {ARC_CHAIN.name} and can move it to VYRE; trading with it on VYRE opens when Circle supports VYRE.</p>
       </form>
     </div>,
     document.body,
@@ -220,7 +221,7 @@ function clientFor(chainId?: number): PublicClient {
 type Held = { hash: Hash; chainId?: number; looked: boolean; deposit?: DepositWait };
 
 /** Held transactions are kept for this tab under this prefix and the button's `keepAs`, so leaving the page or reloading it doesn't re-arm the button */
-const HELD_KEY = 'minta.held.';
+const HELD_KEY = `${storeKey('minta.held', VYRE_CHAIN.id)}.`;
 function readHeld(keepAs?: string): Held | null {
   if (!keepAs) return null;
   try {

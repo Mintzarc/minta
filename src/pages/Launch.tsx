@@ -5,9 +5,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
 import { LAUNCH_LIMITS, SentButUnconfirmedError, checkLaunchParams, getLaunch, launch, operationIn, vyrePadAbi, type LaunchParams } from '@vyrechain/sdk';
 import { getAddress, isAddress, isAddressEqual, parseEventLogs, type Hash, type TransactionReceipt } from 'viem';
-import { EXPLORER, reason, vyre } from '../lib/chain';
+import { EXPLORER, VYRE_CHAIN, reason, vyre } from '../lib/chain';
 import { amountProblem, exact, iso, parse, pct, percentBps, plainText, price, short, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
+import { storeKey } from '../lib/storeKey';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { addresses } from '../lib/market';
 import { forgetLaunch, kept, mayTakePlace, onLaunchMemory, placeOf, recentLaunch, resolveEarlier, type Place } from '../lib/faceid';
@@ -71,7 +72,7 @@ let inWallet = false;
 type Aside = { symbol: string; sender: string };
 let aside: Aside | null = null;
 // all three are kept for this tab across a reload too (checked field by field when read back)
-const KEEP = 'vyre.launch';
+const KEEP = storeKey('vyre.launch', VYRE_CHAIN.id);
 function keep(): void {
   try { sessionStorage.setItem(KEEP, JSON.stringify({ unconfirmed, launched, aside })); } catch { /* private mode */ }
 }

@@ -8,11 +8,13 @@
 // regardless, to show it off. Assets: `brand/splash/make-assets.sh` (public/splash/).
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { parseRoute } from '../lib/router';
+import { VYRE_CHAIN } from '../lib/chain';
 import { FILMS, nextFilm } from '../lib/films';
+import { parseRoute } from '../lib/router';
+import { storeKey } from '../lib/storeKey';
 
-const KEY = 'minta.splash'; // when it last played (ms since 1970)
-const FILM_KEY = 'minta.splash.film'; // which film played last (an index into FILMS), so the next play shows the other
+const KEY = storeKey('minta.splash', VYRE_CHAIN.id); // when it last played (ms since 1970)
+const FILM_KEY = storeKey('minta.splash.film', VYRE_CHAIN.id); // which film played last (an index into FILMS), so the next play shows the other
 const EVERY = 6 * 3600_000;
 const START_BY = 4000; // not playing by then: leave
 const STALL_BY = 4000; // stalled this long: leave

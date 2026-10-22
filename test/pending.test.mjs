@@ -2,7 +2,9 @@
 // well-formed transfers from the source chains, whatever else the browser's storage holds. `npm test` here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_PENDING, PENDING_KEY, addPending, loadPending, parsePending, removePending, serializePending } from '../src/lib/pending.ts';
+import { MAX_PENDING, addPending, loadPending, parsePending, pendingKey, removePending, serializePending } from '../src/lib/pending.ts';
+
+const CHAIN = 7357;
 
 const A = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
 const hash = (n) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -61,17 +63,18 @@ test('one entry per transfer, the newest kept', () => {
 test('add and remove, and a browser that keeps nothing', () => {
   const store = memory();
   const t = parsePending(JSON.stringify([good]))[0];
-  assert.equal(addPending(t, store), true);
-  assert.equal(addPending({ ...t, hash: hash(2) }, store), true);
-  assert.equal(addPending(t, store), true); // again: still once
-  assert.deepEqual(loadPending(store).map((x) => x.hash), [hash(2), hash(1)]);
-  assert.equal(removePending(hash(2).toUpperCase().replace('0X', '0x'), store), true);
-  assert.deepEqual(loadPending(store).map((x) => x.hash), [hash(1)]);
-  assert.ok(store.m.get(PENDING_KEY).includes('"amount":"10000000"'));
+  assert.equal(addPending(CHAIN, t, store), true);
+  assert.equal(addPending(CHAIN, { ...t, hash: hash(2) }, store), true);
+  assert.equal(addPending(CHAIN, t, store), true); // again: still once
+  assert.deepEqual(loadPending(CHAIN, store).map((x) => x.hash), [hash(2), hash(1)]);
+  assert.equal(removePending(CHAIN, hash(2).toUpperCase().replace('0X', '0x'), store), true);
+  assert.deepEqual(loadPending(CHAIN, store).map((x) => x.hash), [hash(1)]);
+  assert.ok(store.m.get(pendingKey(CHAIN)).includes('"amount":"10000000"'));
+  assert.equal(store.m.has(pendingKey(9999)), false, 'another chain’s key is separate');
   // storage that's missing or refuses: nothing kept, and it says so
-  assert.equal(addPending(t, null), false);
-  assert.deepEqual(loadPending(null), []);
+  assert.equal(addPending(CHAIN, t, null), false);
+  assert.deepEqual(loadPending(CHAIN, null), []);
   const refusing = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
-  assert.equal(addPending(t, refusing), false);
-  assert.deepEqual(loadPending(refusing), []);
+  assert.equal(addPending(CHAIN, t, refusing), false);
+  assert.deepEqual(loadPending(CHAIN, refusing), []);
 });

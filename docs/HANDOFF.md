@@ -89,23 +89,27 @@ change to the code and the words, not a setting. In order:
 3. **The other addresses:** the RPC and the explorer come with the network's definition; set the app API (`VITE_API_URL`), the
    promoter service (`VITE_PROMOTERS_URL`: its default in `src/lib/api.ts` is the test network's) and the site's own address
    (`VITE_SITE_URL`).
-4. **What only the test network has**, taken out or switched off: the faucet (the Wallet page's Get test USDC and its status, and the
-   Faucet link in the network menu), the card checkout (`src/lib/features.ts`: off on any other network unless the build sets it;
-   leave it off until a live checkout has been tested for your domain), and the test networks USDC can come from (`CCTP_SOURCES`,
-   used by `src/lib/pending.ts`, `src/components/ui.tsx` and `src/pages/Wallet.tsx`).
-5. **What's stored in the browser** belongs to one network: the launch being sent (`vyre.launch`), transactions whose result is still
-   being checked (`minta.held.*`), transfers on their way (`vyre.fromChain.pending`) and the Face ID wallet's records (parked,
-   section 5). Give those keys the network's name, or clear them, so nothing from the test network is read as the new one's.
-6. **The words.** These files say "testnet", "test USDC", "no real money", "VYRE Testnet" or "chain 7357", or offer the faucet, and
-   each must be rewritten for real money: `src/App.tsx` (the footer and the network menu), `src/components/Ticker.tsx`,
-   `src/components/ui.tsx` (the wallet menu, the connect menu's help link, the email wallet's note), `src/pages/Docs.tsx`,
-   `src/pages/Explore.tsx` (the milestone note), `src/pages/Launch.tsx` (the review's network, the note about a reset),
+4. **What only the test network has**, taken out or switched off: the faucet is already gated behind `FAUCET_OFFERED` in
+   `src/lib/network.ts` (Wallet card + App menu links). The card checkout (`src/lib/features.ts`: `LIVE_CARD_TOPUP_READY` must be
+   flipped true and the build must set `VITE_CARD_TOPUP=1` on a non-test network; leave it off until a live checkout has been
+   tested for your domain). The chains USDC can come from (`CCTP_SOURCES`, used by `src/lib/pending.ts`, `src/components/ui.tsx`
+   and `src/pages/Wallet.tsx`) still come from the SDK's testnet list until a mainnet SDK is vendored.
+5. **What's stored in the browser** is already scoped by VYRE chain id via `storeKey` in `src/lib/storeKey.ts` (e.g.
+   `vyre.launch:7357`, `minta.held:7357.*`, `vyre.fromChain.pending:7357`, Face ID / email / wallet / splash / ref / moves keys).
+   After switching `VYRE_CHAIN`, old keys are simply unused; clear them from browsers if you want a clean slate. Callers:
+   `src/lib/pending.ts`, `src/lib/moves.ts`, `src/lib/faceid.ts`, `src/lib/circle.ts`, `src/lib/wallet.tsx`, `src/lib/router.ts`,
+   `src/components/Splash.tsx`, `src/components/ui.tsx`, `src/pages/Launch.tsx`, `src/pages/Explore.tsx`.
+6. **The words.** Copy that still mentions the test network is mostly driven by `IS_TESTNET` / `USDC_LABEL` / `VYRE_NAME` in
+   `src/lib/network.ts`. These files still carry testnet-tied words or faucet/CCTP paths and must be checked when publishing
+   real money: `src/App.tsx`, `src/lib/network.ts`, `src/lib/features.ts`, `src/lib/stats.ts`, `src/lib/feed.ts`,
+   `src/components/Ticker.tsx`, `src/components/ui.tsx`, `src/pages/Docs.tsx`, `src/pages/Explore.tsx`, `src/pages/Launch.tsx`,
    `src/pages/Wallet.tsx`, `index.html`, `public/manifest.webmanifest`, `public/terms/index.html` and `public/privacy/index.html`
    (which must be completed before real money anyway, section 3). A test fails for any file with such words that isn't named here.
    Search the new build for those words before it is published.
-7. **The launch milestone:** the "graduated" line is $100 of USDC bought in on the testnet (`MILESTONE` in `src/lib/stats.ts`); pick
-   the figure for real money. The launchpad contract requires every launch to open at a $3,000 market cap on a new deployment; the
-   testnet's older contract still takes any value, so the app and SDK enforce $3,000 there.
+7. **The launch milestone:** `MILESTONE` in `src/lib/stats.ts` is `$100` on a test network (`MILESTONE_TESTNET`) and `$10,000` on
+   any other (`MILESTONE_MAINNET` — confirm with product before a mainnet publish for chain 3045). The launchpad contract requires
+   every launch to open at a $3,000 market cap on a new deployment; the testnet's older contract still takes any value, so the app
+   and SDK enforce $3,000 there.
 8. **A fresh review of everything that moves money,** then the walk-through in section 1 on the new network, with a small amount.
 
 ## 5. Face ID wallets are parked

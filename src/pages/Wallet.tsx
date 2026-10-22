@@ -15,6 +15,7 @@ import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
 import { burnSentError } from '../lib/fromchain';
 import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
+import { FAUCET_OFFERED, IS_TESTNET, USDC_LABEL } from '../lib/network';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
 import { useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
@@ -22,8 +23,9 @@ import { promoterStatus, topupLink } from '../lib/api';
 import { moveToVyre } from '../lib/circle';
 import { cardTopupOffered } from '../lib/features';
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC kept for the network fee
-/** Whether this build offers the card checkout: on the test network unless VITE_CARD_TOPUP=0, elsewhere only with VITE_CARD_TOPUP=1 */
+/** Card checkout: testnet by default; on any other network only after LIVE_CARD_TOPUP_READY and VITE_CARD_TOPUP=1 */
 const CARD_TOPUP = cardTopupOffered(import.meta.env.VITE_CARD_TOPUP, vyre.chain?.testnet === true);
+const CHAIN = VYRE_CHAIN.id;
 
 // the SDK refuses a deposit from an address with code on Arc (VYRE would credit it to an aliased address); the app
 // says so plainly and never offers the SDK's override
@@ -50,7 +52,8 @@ export default function Wallet() {
   const [amountIn, setAmountIn] = useState('');
 
   const load = async () => {
-    getFaucetStatus().then(setFaucet).catch(() => setFaucet(null));
+    if (FAUCET_OFFERED) getFaucetStatus().then(setFaucet).catch(() => setFaucet(null));
+    else setFaucet(null);
     if (!account) return;
     usdcBalance(account).then(setUsdc).catch(() => {});
     // a Face ID wallet's address on Arc isn't a wallet of its own (yet): nothing to show there
@@ -77,12 +80,12 @@ export default function Wallet() {
     <section className="narrow">
       <p className="eyebrow">Wallet</p>
       <h1 className="display">Your <em>USDC.</em></h1>
-      <p className="lede">{faceId ? 'Get USDC into your Face ID wallet, send it, or move it to Arc.' : 'Add USDC to VYRE, or move it back to Arc.'} USDC pays for everything on VYRE: gas and trades. On the testnet it’s test money with no value.</p>
+      <p className="lede">{faceId ? 'Get USDC into your Face ID wallet, send it, or move it to Arc.' : 'Add USDC to VYRE, or move it back to Arc.'} USDC pays for everything on VYRE: gas and trades.{IS_TESTNET ? ` On the testnet it’s ${USDC_LABEL} with no value.` : ''}</p>
       {!account && <ConnectButton />}
       {account && (
         <div className="card row-between">
           <div><p className="muted small">On VYRE</p><p className="big">{usdc === null ? '…' : amount(usdc)} USDC</p></div>
-          {!faceId && <div className="right"><p className="muted small">On Arc testnet</p><p>{onArc === null ? '—' : `${amount(onArc)} USDC`}</p></div>}
+          {!faceId && <div className="right"><p className="muted small">On {ARC_CHAIN.name}</p><p>{onArc === null ? '—' : `${amount(onArc)} USDC`}</p></div>}
         </div>
       )}
 
@@ -91,23 +94,23 @@ export default function Wallet() {
 
       {CARD_TOPUP && account && !faceId && <CardTopup account={account} onArc={onArc} />}
 
-      <div className="card">
+      {FAUCET_OFFERED && <div className="card">
         <h2 className="h3">The faucet</h2>
-        <p className="small">{faucet ? `${faucet.drip} test USDC per wallet and per network, every ${faucet.cooldownHours} hours${faucet.returnCooldownHours ? `, or every ${faucet.returnCooldownHours} if you’ve sent back at least ${faucet.drip} since your last one` : ''}. ${faucet.open ? '' : 'It’s being refilled right now.'}` : 'Free test USDC once a day.'}</p>
-        {faucet?.open && faucet.dripsLeftToday === 0 && <p className="small">Today’s test USDC is all given out. More: Circle’s faucet gives 20 at a time on Arc, and <a href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">the faucet page</a> brings it here{faceId ? ' (with a browser wallet)' : ''}.</p>}
-        {email && <p className="small muted">It sends test USDC on VYRE, which an email wallet can’t use yet: for now get test USDC on Arc from Circle’s faucet (below).</p>}
+        <p className="small">{faucet ? `${faucet.drip} ${USDC_LABEL} per wallet and per network, every ${faucet.cooldownHours} hours${faucet.returnCooldownHours ? `, or every ${faucet.returnCooldownHours} if you’ve sent back at least ${faucet.drip} since your last one` : ''}. ${faucet.open ? '' : 'It’s being refilled right now.'}` : `Free ${USDC_LABEL} once a day.`}</p>
+        {faucet?.open && faucet.dripsLeftToday === 0 && <p className="small">Today’s {USDC_LABEL} is all given out. More: Circle’s faucet gives 20 at a time on Arc, and <a href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">the faucet page</a> brings it here{faceId ? ' (with a browser wallet)' : ''}.</p>}
+        {email && <p className="small muted">It sends {USDC_LABEL} on VYRE, which an email wallet can’t use yet: for now get {USDC_LABEL} on Arc from Circle’s faucet (below).</p>}
         {account && !email && (
-          <TxButton className="btn btn-line" label="Get test USDC" disabled={faucet ? !faucet.open : false} onDone={load}
-            run={async () => { const r = await requestTestUsdc(account); return { hash: r.tx, text: `Sent ${r.amount} test USDC.` }; }} />
+          <TxButton className="btn btn-line" label={`Get ${USDC_LABEL}`} disabled={faucet ? !faucet.open : false} onDone={load}
+            run={async () => { const r = await requestTestUsdc(account); return { hash: r.tx, text: `Sent ${r.amount} ${USDC_LABEL}.` }; }} />
         )}
         {account && !email && faucet && <SendBack faucet={faucet} held={usdc} onDone={load} />}
-      </div>
+      </div>}
 
       {!faceId && <FromChain account={account} provider={provider} email={!!email} onLanded={load} onMove={prefillMove} />}
 
       {!faceId && <div className="card" id="from-arc">
         <h2 className="h3">Bring it from Arc</h2>
-        <p className="small">Get 20 test USDC at a time from <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a> (pick Arc Testnet), then move it here. It arrives in about 3 seconds.</p>
+        <p className="small">{IS_TESTNET ? <>Get 20 {USDC_LABEL} at a time from <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a> (pick {ARC_CHAIN.name}), then move it here.</> : <>Move USDC from {ARC_CHAIN.name} here.</>} It arrives in about 3 seconds.</p>
         {email && <p className="note small">With an email wallet you confirm the move in Circle’s window, and Circle sends it on Arc. The USDC arrives at the same address on VYRE, where it stays for now: trading it, or moving it back, with an email wallet opens when Circle supports VYRE.</p>}
         {account && (
           <>
@@ -124,7 +127,7 @@ export default function Wallet() {
                   return { text: `Arrived on VYRE in ${secs.toFixed(1)} s.${r.arcTx ? ` (Arc transaction ${short(r.arcTx)})` : ''}` };
                 }
                 if (!provider) throw new Error('Connect a wallet first.');
-                say('Switching your wallet to Arc testnet…');
+                say(`Switching your wallet to ${ARC_CHAIN.name}…`);
                 await switchTo(provider, ARC_CHAIN);
                 const before = await vyre.getBalance({ address: account });
                 say('Confirm in your wallet…');
@@ -137,7 +140,7 @@ export default function Wallet() {
                 const secs = await arrival(vyre, ARC_CHAIN.id, account, before, value!, r.hash);
                 return { text: `Arrived on VYRE in ${secs.toFixed(1)} s. (Arc transaction ${short(r.hash)})` };
               }} />
-            {value && onArc !== null && value >= onArc && <p className="err small">You have {amount(onArc)} USDC on Arc testnet; keep a little for its gas.</p>}
+            {value && onArc !== null && value >= onArc && <p className="err small">You have {amount(onArc)} USDC on {ARC_CHAIN.name}; keep a little for its gas.</p>}
           </>
         )}
       </div>}
@@ -171,7 +174,7 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
   const [balance, setBalance] = useState<bigint | null>(null);
   const [balFailed, setBalFailed] = useState(false);
   const [balTick, setBalTick] = useState(0);
-  const [transfers, setTransfers] = useState<PendingTransfer[]>(() => loadPending());
+  const [transfers, setTransfers] = useState<PendingTransfer[]>(() => loadPending(CHAIN));
   const [unsaved, setUnsaved] = useState(false);
 
   // Circle's fees for the chosen chain, read again every 15 s (its delivery fee moves every few seconds with Arc's gas)
@@ -208,11 +211,11 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
   const tooMuch = units !== null && balance !== null && units > balance;
 
   const keep = (t: PendingTransfer) => {
-    setUnsaved(!addPending(t));
+    setUnsaved(!addPending(CHAIN, t));
     setTransfers((l) => [...l.filter((x) => x.hash !== t.hash), t]);
   };
   const forget = (hash: Hash) => {
-    removePending(hash);
+    removePending(CHAIN, hash);
     setTransfers((l) => l.filter((x) => x.hash !== hash));
   };
 
@@ -281,7 +284,7 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
   return (
     <div className="card" id="from-chain">
       <h2 className="h3">From another chain</h2>
-      <p className="small">Bring USDC from Ethereum Sepolia, Base Sepolia or Arbitrum Sepolia. Circle’s CCTP burns it there and mints it to your address on Arc, paying Arc’s gas itself, usually within a minute; then move it to VYRE below. You pay a little Sepolia ETH for gas on the chain it leaves. Test USDC for those chains: <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a>.</p>
+      <p className="small">Bring USDC from {CCTP_SOURCES.map((s) => s.name).join(', ').replace(/, ([^,]*)$/, ' or $1')}. Circle’s CCTP burns it there and mints it to your address on Arc, paying Arc’s gas itself, usually within a minute; then move it to VYRE below. You pay a little gas on the chain it leaves.{IS_TESTNET ? <> {USDC_LABEL} for those chains: <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a>.</> : null}</p>
       {!account ? <ConnectButton /> : (
         <>
           <label className="field"><span>From</span>
@@ -335,7 +338,7 @@ function Transfer({ t, account, provider, onLanded, onMove, onForget }: {
 
   const arrived = (mint: Hash, received: bigint) => {
     watch.current?.abort();
-    removePending(t.hash);
+    removePending(CHAIN, t.hash);
     setEnd({ kind: 'arrived', mint, received });
     onLanded();
   };
@@ -348,7 +351,7 @@ function Transfer({ t, account, provider, onLanded, onMove, onForget }: {
       .then((m) => arrived(m.forwardTxHash, m.received ?? t.amount - t.maxFee))
       .catch((e) => {
         if (stop.signal.aborted) return;
-        if (e instanceof CctpBurnRevertedError) { removePending(t.hash); setEnd({ kind: 'reverted' }); }
+        if (e instanceof CctpBurnRevertedError) { removePending(CHAIN, t.hash); setEnd({ kind: 'reverted' }); }
         else if (e instanceof CctpDeliveryError) setEnd({ kind: 'failed', status: e.status });
         else setEnd({ kind: 'error', text: reason(e) });
       });
@@ -397,7 +400,7 @@ function Transfer({ t, account, provider, onLanded, onMove, onForget }: {
           <TxButton className="btn btn-line btn-sm" label="Finish it on Arc yourself"
             run={async (say) => {
               if (!provider || !account || !signed?.message || !signed.attestation) throw new Error('Circle hasn’t given its signature for this transfer yet.');
-              say('Switching your wallet to Arc testnet…');
+              say(`Switching your wallet to ${ARC_CHAIN.name}…`);
               await switchTo(provider, ARC_CHAIN);
               say('Confirm in your wallet…');
               const r = await mintOnArc(walletOn(provider, account, ARC_CHAIN), arc, { message: signed.message, attestation: signed.attestation });
@@ -470,7 +473,7 @@ function EmailWalletCard({ account, emailAddress }: { account: Address; emailAdd
   return (
     <div className="card">
       <h2 className="h3">Your email wallet</h2>
-      <p className="small">Signed in as {emailAddress}. Your wallet has the same address on Arc and on VYRE. For free test USDC on Arc, paste it into Circle’s faucet.</p>
+      <p className="small">Signed in as {emailAddress}. Your wallet has the same address on Arc and on VYRE.{IS_TESTNET ? ` For free ${USDC_LABEL} on Arc, paste it into Circle’s faucet.` : ''}</p>
       <div className="copy-row">
         <input readOnly value={account} aria-label="Your wallet’s address" onFocus={(e) => e.target.select()} />
         <button type="button" className="btn btn-line btn-sm" onClick={() => { navigator.clipboard?.writeText(account).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }}>{copied ? 'Copied' : 'Copy'}</button>
@@ -502,7 +505,7 @@ function CardTopup({ account, onArc }: { account: Address; onArc: bigint | null 
   return (
     <div className="card">
       <h2 className="h3">Card or Apple Pay</h2>
-      <p className="small">Buy USDC with a card or Apple Pay through Transak, delivered to your address on Arc; then move it to VYRE in one step. On the testnet it’s Transak’s test mode: use their test card, no real money moves.</p>
+      <p className="small">Buy USDC with a card or Apple Pay through Transak, delivered to your address on Arc; then move it to VYRE in one step.{IS_TESTNET ? ' On the testnet it’s Transak’s test mode: use their test card, no real money moves.' : ''}</p>
       <label className="field"><span>Amount (USD)</span><input inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} /></label>
       <div className="tx"><button className="btn btn-accent" type="button" disabled={!ok || busy} onClick={open}>{busy ? 'Opening…' : 'Buy USDC'}</button></div>
       {msg && <p className="status busy" role="status">{msg}</p>}
@@ -527,7 +530,7 @@ function Promoter({ account }: { account: Address }) {
   return (
     <div className="card">
       <h2 className="h3">Your promoter link</h2>
-      <p className="small">People who arrive by your link can name you as their promoter. Once you’ve signed up and been approved, you’re paid 30% of the 1% platform fee on their trades on MINTA, in USDC, in the same transaction. On the testnet that’s test USDC; the paid program opens on mainnet. Not available in the UK, the EU, Australia or Singapore.</p>
+      <p className="small">People who arrive by your link can name you as their promoter. Once you’ve signed up and been approved, you’re paid 30% of the 1% platform fee on their trades on MINTA, in USDC, in the same transaction.{IS_TESTNET ? ` On the testnet that’s ${USDC_LABEL}; the paid program opens on mainnet.` : ''} Not available in the UK, the EU, Australia or Singapore.</p>
       <div className="copy-row">
         <input readOnly value={link} aria-label="Your link" onFocus={(e) => e.target.select()} />
         <button type="button" className="btn btn-line btn-sm" onClick={() => { navigator.clipboard?.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }}>{copied ? 'Copied' : 'Copy'}</button>
@@ -611,7 +614,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
                 <TxButton className="btn btn-accent btn-sm" label="Claim on Arc" onDone={() => { load(); onDone(); }}
                   run={async (say) => {
                     if (!provider) throw new Error('Connect a wallet first.');
-                    say('Switching your wallet to Arc testnet…');
+                    say(`Switching your wallet to ${ARC_CHAIN.name}…`);
                     await switchTo(provider, ARC_CHAIN);
                     say('Confirm in your wallet…');
                     const r = await claimWithdrawal(walletOn(provider, account, ARC_CHAIN), arc, vyre, w);
@@ -685,7 +688,7 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
   const { onVyre, confirmHint } = useWallet();
   const [to, setTo] = useState('');
   const [amountIn, setAmountIn] = useState('');
-  const [dests, setDests] = useState<Move[]>(() => loadMoves(account));
+  const [dests, setDests] = useState<Move[]>(() => loadMoves(CHAIN, account));
   const [lookFor, setLookFor] = useState('');
   const [lookMsg, setLookMsg] = useState('');
   const [looking, setLooking] = useState(false);
@@ -745,7 +748,7 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
           say(confirmHint);
           // the destination and the block are saved before anything is sent: if the page is closed or the answer is lost
           // after the wallet signs, this browser still follows the move (and the claim can be made from it)
-          setDests(keepMove(account, { dest, from: await vyre.getBlockNumber().catch(() => null) }));
+          setDests(keepMove(CHAIN, account, { dest, from: await vyre.getBlockNumber().catch(() => null) }));
           const r = await withdrawToArc(w, vyre, { amount: value!, destination: dest });
           setTick((t) => t + 1);
           return { hash: r.hash, text: `Started: ${amount(r.withdrawal.value)} USDC to ${short(dest)} on Arc. It’s paid out there once confirmed.` };
@@ -765,7 +768,7 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
                       const p = injected();
                       if (!p) throw new Error('Open this page in a browser with a wallet (MetaMask, Rabby…) to claim it yourself, or wait for VYRE to pay it out.');
                       const [who] = (await p.request({ method: 'eth_requestAccounts' })) as Address[];
-                      say('Switching your wallet to Arc testnet…');
+                      say(`Switching your wallet to ${ARC_CHAIN.name}…`);
                       await switchTo(p, ARC_CHAIN);
                       say('Confirm in your wallet (it pays Arc’s gas; the USDC goes to the move’s own address)…');
                       const r = await claimWithdrawal(walletOn(p, getAddress(who), ARC_CHAIN), arc, vyre, w);
@@ -792,7 +795,7 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
               if (!found.length) setLookMsg('No moves from this wallet to that address in the last 10 days or so.');
               else {
                 const oldest = found.reduce((a, w) => (w.arbBlockNum < a ? w.arbBlockNum : a), found[0].arbBlockNum);
-                setDests(keepMove(account, { dest: d, from: oldest > 0n ? oldest - 1n : 0n }));
+                setDests(keepMove(CHAIN, account, { dest: d, from: oldest > 0n ? oldest - 1n : 0n }));
                 setLookFor(''); setLookMsg(`Found ${found.length} move${found.length === 1 ? '' : 's'}: listed above.`);
               }
             } catch { setLookMsg('Couldn’t look right now. Try again in a minute.'); }
