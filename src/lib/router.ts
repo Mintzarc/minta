@@ -4,7 +4,9 @@
 import { useEffect, useState } from 'react';
 import { getAddress, type Address } from 'viem';
 import { isPromoterCode, promoterWallet } from './api';
+import { VYRE_CHAIN } from './chain';
 import { tokenText } from './format';
+import { storeKey } from './storeKey';
 
 export type Route =
   | { page: 'explore'; q?: string }
@@ -55,8 +57,8 @@ export function useRoute(): Route {
   return route;
 }
 
-const REF = 'vyre.ref';
-const REF_CODE = 'vyre.refCode'; // the promoter's code, when the link used one (vyrechain.com/r/<code> sends the visitor here with ?ref=<code>)
+const REF = storeKey('vyre.ref', VYRE_CHAIN.id);
+const REF_CODE = storeKey('vyre.refCode', VYRE_CHAIN.id); // the promoter's code, when the link used one (vyrechain.com/r/<code> sends the visitor here with ?ref=<code>)
 /** Remembers a ?ref= (a promoter's wallet, or their approved code) from the link the visitor arrived by; pages showing
  * the promoter hear about it through a 'vyre-ref' event, since a code is looked up after the page has drawn */
 export function captureRef(): void {

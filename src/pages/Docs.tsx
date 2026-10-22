@@ -5,6 +5,8 @@ import { href } from '../lib/router';
 import { addresses } from '../lib/market';
 import { EXPLORER } from '../lib/chain';
 import { API_URL } from '../lib/api';
+import { FAUCET_OFFERED, IS_TESTNET, USDC_LABEL, VYRE_CHAIN_ID, VYRE_NAME } from '../lib/network';
+import { MILESTONE_TEXT } from '../lib/stats';
 import { VyreGlyph } from '../components/Brand';
 import './docs.css';
 
@@ -98,8 +100,10 @@ const ARTICLES: Article[] = [
         id: 'vyre-chain', title: 'Built on VYRE', label: 'The VYRE chain', nav: 'The VYRE chain',
         body: (
           <>
-            <p>MINTA runs on <Ext to="https://vyrechain.com">VYRE</Ext>, an EVM chain where gas is paid in USDC, so there’s no other token to buy first. Blocks are made as soon as a trade arrives (about a quarter of a second), and on the testnet a buy has cost about six millionths of a dollar in gas: <Ext to="https://vyrechain.com/gas">see the measurements and the transactions behind them</Ext>.</p>
-            <p>This is a <b>testnet</b>: the USDC is test USDC with no value. Get some from the <Ext to="https://vyrechain.com/faucet/">faucet</Ext>.</p>
+            <p>MINTA runs on <Ext to="https://vyrechain.com">VYRE</Ext>, an EVM chain where gas is paid in USDC, so there’s no other token to buy first. Blocks are made as soon as a trade arrives (about a quarter of a second), and a buy has cost about six millionths of a dollar in gas on the public test network: <Ext to="https://vyrechain.com/gas">see the measurements and the transactions behind them</Ext>.</p>
+            {IS_TESTNET
+              ? <p>This is a <b>testnet</b>: the USDC is {USDC_LABEL} with no value.{FAUCET_OFFERED ? <> Get some from the <Ext to="https://vyrechain.com/faucet/">faucet</Ext>.</> : null}</p>
+              : <p>MINTA is configured for <b>{VYRE_NAME}</b> (chain {VYRE_CHAIN_ID}).</p>}
           </>
         ),
       },
@@ -107,7 +111,7 @@ const ARTICLES: Article[] = [
         id: 'how-it-works', title: 'From idea to trading', label: 'How it works', nav: 'How it works',
         body: (
           <ol className="steps-list">
-            <li><b>Get test USDC.</b> Take some from the faucet: the Wallet page has the button.</li>
+            <li><b>Get {USDC_LABEL}.</b> {FAUCET_OFFERED ? 'Take some from the faucet: the Wallet page has the button.' : 'Add USDC on the Wallet page.'}</li>
             <li><b>Create a token.</b> Pick its name, ticker, supply and tax. The launch happens in one transaction, with an optional first buy of your own in the same transaction.</li>
             <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. Every trade pays the platform fee and the creator’s tax in USDC.</li>
             <li><b>Collect.</b> The creator collects the tax whenever they like, and can split it between up to four wallets.</li>
@@ -172,7 +176,7 @@ const ARTICLES: Article[] = [
     sections: [
       { id: 'create', title: '1. Create', body: <p>The launch transaction creates the token, its pool and the locked liquidity, and makes your optional first buy.</p> },
       { id: 'trade', title: '2. Trade', body: <p>The token trades at once. Its page shows the price, market cap, volume, holders and the trades as they happen.</p> },
-      { id: 'milestone', title: '3. Milestone', body: <p>A token that has had enough USDC bought into its pool (net of sales) is marked <b>Graduated</b> on the Launchpad. It’s a label for browsing: nothing changes on chain when a token graduates. On the testnet the line is $100 of USDC bought in.</p> },
+      { id: 'milestone', title: '3. Milestone', body: <p>A token that has had enough USDC bought into its pool (net of sales) is marked <b>Graduated</b> on the Launchpad. It’s a label for browsing: nothing changes on chain when a token graduates. The line on this network is {MILESTONE_TEXT} of USDC bought in.</p> },
       { id: 'manage', title: '4. Manage', body: <p>On the token’s Manage page the creator can collect the tax, lower either tax, split the tax between up to four wallets, update the picture and links, and hand the creator role to another wallet (a two-step handover, so it can’t be sent to the wrong place by mistake).</p> },
     ],
   },
@@ -211,7 +215,7 @@ const ARTICLES: Article[] = [
       },
       {
         id: 'promoters', title: 'Promoters',
-        body: <p>A wallet can name the promoter who brought it, once. When it trades through MINTA (or any app using the app router), that promoter is paid 30% of the platform fee in the same transaction, in USDC. Promoters are paid only after signing up and being approved (<Ext to="https://vyrechain.com/promote/">sign up here</Ext>), and the program isn’t available in the UK, the EU, Australia or Singapore. On the testnet it all runs on test USDC.</p>,
+        body: <p>A wallet can name the promoter who brought it, once. When it trades through MINTA (or any app using the app router), that promoter is paid 30% of the platform fee in the same transaction, in USDC. Promoters are paid only after signing up and being approved (<Ext to="https://vyrechain.com/promote/">sign up here</Ext>), and the program isn’t available in the UK, the EU, Australia or Singapore.{IS_TESTNET ? ` On the testnet it all runs on ${USDC_LABEL}.` : ''}</p>,
       },
     ],
   },
@@ -219,10 +223,10 @@ const ARTICLES: Article[] = [
     slug: 'contracts',
     title: 'Smart contracts',
     sections: [
-      { id: 'addresses', title: 'Testnet addresses', body: <><p>These are the testnet deployment’s contracts (VYRE Testnet, chain 7357). Click an address to read the verified source on the explorer. Mainnet gets its own deployment.</p><ContractTable /></> },
+      { id: 'addresses', title: `${VYRE_NAME} addresses`, body: <><p>These are the contracts for {VYRE_NAME} (chain {VYRE_CHAIN_ID}), as this build of MINTA is configured. Click an address to read the verified source on the explorer.</p><ContractTable /></> },
       {
         id: 'review-status', title: 'Review status',
-        body: <p>The contracts have a large test suite (including trade-by-trade comparisons with Uniswap’s own v3 contracts) and have been through review rounds by the network’s operator, who deployed them. They have <b>not</b> had an outside audit yet. Treat the testnet accordingly.</p>,
+        body: <p>The contracts have a large test suite (including trade-by-trade comparisons with Uniswap’s own v3 contracts) and have been through review rounds by the network’s operator, who deployed them. They have <b>not</b> had an outside audit yet.{IS_TESTNET ? ' Treat the testnet accordingly.' : ' Treat real funds accordingly.'}</p>,
       },
     ],
   },
@@ -274,10 +278,10 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
         id: 'links', title: 'Where to start',
         body: (
           <ul className="plain">
-            <li><Ext to="https://vyrechain.com/docs/network/">Add VYRE Testnet to your wallet</Ext></li>
-            <li><Ext to="https://vyrechain.com/docs/get-usdc/">Get test USDC and move it in and out</Ext></li>
+            <li><Ext to="https://vyrechain.com/docs/network/">Add {VYRE_NAME} to your wallet</Ext></li>
+            <li><Ext to="https://vyrechain.com/docs/get-usdc/">Get {USDC_LABEL} and move it in and out</Ext></li>
             <li><Ext to="https://vyrechain.com/docs/deploy/">Deploy a contract on VYRE</Ext></li>
-            <li><Ext to="https://vyrechain.com/faucet/">The faucet</Ext></li>
+            {FAUCET_OFFERED && <li><Ext to="https://vyrechain.com/faucet/">The faucet</Ext></li>}
           </ul>
         ),
       },
@@ -291,13 +295,13 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
         id: 'questions', title: 'Common questions',
         body: (
           <div className="faq">
-            <details open><summary>What do I need to start?</summary><p>Test USDC (from the faucet) and a browser wallet such as MetaMask, Rabby or Coinbase Wallet, set to VYRE Testnet. It’s a testnet, so nothing costs real money.</p></details>
+            <details open><summary>What do I need to start?</summary><p>{USDC_LABEL}{FAUCET_OFFERED ? ' (from the faucet)' : ''} and a browser wallet such as MetaMask, Rabby or Coinbase Wallet, set to {VYRE_NAME}.{IS_TESTNET ? ' It’s a testnet, so nothing costs real money.' : ''}</p></details>
             <details><summary>Can the liquidity be pulled?</summary><p>No. Each pool’s liquidity is locked in the contract and only the launchpad can add to it; nobody can remove it.</p></details>
             <details><summary>Can a creator raise the tax?</summary><p>No. A creator can lower either tax at any time and can never raise it.</p></details>
-            <details><summary>What does a trade cost in gas?</summary><p>On the testnet, a buy has cost about six millionths of a dollar. <Ext to="https://vyrechain.com/gas">Every number links to a real transaction.</Ext></p></details>
+            <details><summary>What does a trade cost in gas?</summary><p>On the public test network, a buy has cost about six millionths of a dollar. <Ext to="https://vyrechain.com/gas">Every number links to a real transaction.</Ext></p></details>
             <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service ({API_HOST}) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href="/privacy/">privacy policy</a>.</p></details>
-            <details><summary>Has it had an outside audit?</summary><p>Not yet. The contracts have been through tests and review rounds by the network’s operator, who deployed them, and this is a testnet.</p></details>
-            <details><summary>Can I lose money?</summary><p>On the testnet there is no real money. On any chain, launch tokens can go to zero and nothing here is financial advice.</p></details>
+            <details><summary>Has it had an outside audit?</summary><p>Not yet. The contracts have been through tests and review rounds by the network’s operator, who deployed them{IS_TESTNET ? ', and this is a testnet' : ''}.</p></details>
+            <details><summary>Can I lose money?</summary><p>{IS_TESTNET ? 'On the testnet there is no real money. ' : ''}On any chain, launch tokens can go to zero and nothing here is financial advice.</p></details>
           </div>
         ),
       },

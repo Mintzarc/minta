@@ -68,13 +68,14 @@ test('no settings of other services, internal paths, dated decisions or business
   assert.deepEqual(found, []);
 });
 
-test('the card checkout is offered on a test network unless switched off, and elsewhere only when switched on', async () => {
-  const { cardTopupOffered } = await import('../src/lib/features.ts');
+test('the card checkout is offered on a test network unless switched off, and elsewhere only when live-ready and switched on', async () => {
+  const { cardTopupOffered, LIVE_CARD_TOPUP_READY } = await import('../src/lib/features.ts');
+  assert.equal(LIVE_CARD_TOPUP_READY, false, 'live checkout is not marked ready yet');
   assert.equal(cardTopupOffered(undefined, true), true, 'the test network, by default');
   assert.equal(cardTopupOffered(undefined, false), false, 'any other network, by default');
   assert.equal(cardTopupOffered('', false), false);
   assert.equal(cardTopupOffered('0', true), false, 'switched off');
-  assert.equal(cardTopupOffered('1', false), true, 'switched on');
+  assert.equal(cardTopupOffered('1', false), false, 'VITE_CARD_TOPUP=1 alone is not enough until LIVE_CARD_TOPUP_READY');
   for (const odd of ['true', 'yes', ' 1', 'on', 1, true]) assert.equal(cardTopupOffered(odd, false), false, `${JSON.stringify(odd)} is not a setting`);
   assert.match(wallet, /cardTopupOffered\(import\.meta\.env\.VITE_CARD_TOPUP, vyre\.chain\?\.testnet === true\)/, 'the Wallet page asks with the build setting and the app’s own network');
   assert.match(read('README.md'), /VITE_CARD_TOPUP/, 'the setting is documented');

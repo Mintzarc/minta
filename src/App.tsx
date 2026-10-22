@@ -11,6 +11,7 @@ import Wallet from './pages/Wallet';
 import Docs from './pages/Docs';
 import { MintaLogo, VyreGlyph } from './components/Brand';
 import { EXPLORER } from './lib/chain';
+import { FAUCET_OFFERED, MONEY_FOOTNOTE, VYRE_CHAIN_ID, VYRE_NAME } from './lib/network';
 import Ticker from './components/Ticker';
 import TxCheckDialog from './components/TxCheckDialog';
 
@@ -67,7 +68,7 @@ export default function App() {
       <FaceIdConfirm />
       <TxCheckDialog />
       <footer className="foot">
-        <p>MINTA on the VYRE testnet: test USDC, no real money. Trading is risky and launch tokens can go to zero; nothing here is advice.
+        <p>MINTA on {MONEY_FOOTNOTE} Trading is risky and launch tokens can go to zero; nothing here is advice.
           USDC is issued by Circle, which isn’t affiliated with MINTA or VYRE. <a href={href({ page: 'docs' })}>Docs</a> · <a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href={EXPLORER} target="_blank" rel="noopener noreferrer">Explorer</a></p>
       </footer>
       {searching && <SearchPanel initial={route.page === 'explore' ? route.q : ''} onClose={() => setSearching(false)} />}
@@ -89,24 +90,24 @@ function ChainSelect() {
   return (
     <div className="chain-select" ref={box}>
       <button type="button" className="chain-pill" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <VyreGlyph size={26} /><span className="chain-name">VYRE Testnet</span>
+        <VyreGlyph size={26} /><span className="chain-name">{VYRE_NAME}</span>
         <span className="chain-sep" aria-hidden="true" />
         <svg className="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
       </button>
       {open && (
         <div className="menu chain-menu" role="menu" onClick={() => setOpen(false)}>
           <p className="muted small">MINTA runs on</p>
-          <p className="chain-current"><VyreGlyph size={18} /><b>VYRE Testnet</b><span className="muted small">chain 7357</span></p>
+          <p className="chain-current"><VyreGlyph size={18} /><b>{VYRE_NAME}</b><span className="muted small">chain {VYRE_CHAIN_ID}</span></p>
           <a role="menuitem" href="https://vyrechain.com" target="_blank" rel="noopener noreferrer">About VYRE</a>
           <a role="menuitem" href={EXPLORER} target="_blank" rel="noopener noreferrer">Explorer</a>
-          <a role="menuitem" href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">Faucet</a>
+          {FAUCET_OFFERED && <a role="menuitem" href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">Faucet</a>}
         </div>
       )}
     </div>
   );
 }
 
-/** The phone's menu: every page, the docs and the faucet (the top bar's links are hidden on small screens) */
+/** The phone's menu: every page, the docs and (on a test network) the faucet */
 function Menu({ at }: { at: (r: Route) => boolean }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -128,7 +129,7 @@ function Menu({ at }: { at: (r: Route) => boolean }) {
         <nav className="menu drawer" aria-label="Menu">
           {NAV.map((n) => <a key={n.label} href={href(n.route)} aria-current={at(n.route) ? 'page' : undefined}>{n.label}</a>)}
           <hr />
-          <a href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">Faucet</a>
+          {FAUCET_OFFERED && <a href="https://vyrechain.com/faucet/" target="_blank" rel="noopener noreferrer">Faucet</a>}
           <a href={EXPLORER} target="_blank" rel="noopener noreferrer">Explorer</a>
           <a href="https://vyrechain.com" target="_blank" rel="noopener noreferrer">VYRE</a>
         </nav>

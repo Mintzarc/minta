@@ -18,13 +18,14 @@ import {
 import { addresses } from './market';
 import { API_URL } from './api';
 import { VYRE_CHAIN, faceIdReason, vyre } from './chain';
+import { storeKey } from './storeKey';
 
 export interface FaceIdSession {
   passkey: Passkey;
   address: Address;
 }
 
-export const FACEID_KEY = 'vyre.faceid';
+export const FACEID_KEY = storeKey('vyre.faceid', VYRE_CHAIN.id);
 /**
  * Face ID wallets are on the roadmap, not in MINTA, for now: a card purchase can't be delivered to a smart
  * wallet, so MINTA uses plain EVM wallets (a browser wallet) like other chains until the card top-up is sorted out. All the code
@@ -65,7 +66,7 @@ export function forgetFaceId() {
 // here first: went through (say so, send nothing), gone (another took its place), or still going (wait; after two
 // minutes the next one takes the same place in the wallet's sequence, so only one of them can ever run)
 // ---------------------------------------------------------------------------------------------------------------
-const INFLIGHT_KEY = 'vyre.faceid.inflight';
+const INFLIGHT_KEY = storeKey('vyre.faceid.inflight', VYRE_CHAIN.id);
 const TAKE_PLACE_AFTER_MS = 2 * 60_000;
 const MAX_WALLETS = 32;
 const ENTRY_POINT = '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789';
@@ -142,7 +143,7 @@ const tracker: OperationTracker = {
 
 // A launch found this way (by whatever the wallet did next, maybe on another page or in another tab) is remembered on
 // this device for an hour, so the Launch page says so and asks before launching again, as it does after any launch
-const LAUNCHED_KEY = 'vyre.faceid.launched';
+const LAUNCHED_KEY = storeKey('vyre.faceid.launched', VYRE_CHAIN.id);
 const REMEMBER_MS = 3600e3;
 export interface RecentLaunch { token: Address; symbol: string; hash: Hash }
 let launchedMemory: Record<string, RecentLaunch & { at: number }> = {};
