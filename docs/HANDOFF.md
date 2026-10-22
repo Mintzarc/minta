@@ -58,18 +58,23 @@ once it is there.
   else: until then the pages would send pictures, launch files and the check before signing, and open explorer links, at whatever
   answers at the old names. Then change by hand what doesn't come from the SDK: the promoter service's address
   (`VITE_PROMOTERS_URL`, or its default in `src/lib/api.ts`) and the hosts the terms and privacy pages name
-  (`public/terms/index.html`, `public/privacy/index.html`). A test keeps every other page free of written-out host names.
-- **Fees:** the 1% platform fee and the promoters' share are set in the launchpad contracts and paid by the fee splitter contract.
+  (`public/terms/index.html`, `public/privacy/index.html`, `public/terms-testnet/index.html`, `public/privacy-testnet/index.html`). A test keeps every other page free of written-out host names.
+- **Fees (testnet):** the 1% platform fee and the promoters' share are set in the launchpad contracts and paid by the fee splitter contract.
   A launchpad fee on top (0 to 1% per side) is named by the launch itself: any launch can name a partner address and its fee, with
   no registration or approval, and the fee splitter pays that address its part in USDC. The partner can move where its part is paid
   (`offerPartnerPayout` from the address paid now, then `acceptPartnerPayout` from the new one). MINTA names no partner today. The
   app shows every fee before a trade is confirmed.
+- **Fees (mainnet):** the trader pays only the creator's tax (1% to 10% a side). A tenth of the creator's tax goes to the platform when
+  tax is paid out (`collectCreatorFees`); there is no separate platform fee, no MINTA fee and no promoter share. The pad contract
+  enforces the split; MINTA only states it in words and refuses unsafe tax wallets. The network's payout collector calls the payout;
+  MINTA does not need to.
 
 ## 3. Pages to complete before anything but test money
 
-`public/terms/` and `public/privacy/` are drafts for the test network. They say honestly that the operator's name, a contact
-address and the governing law are **not yet published**, and they must be completed (and read by a lawyer) before MINTA is offered
-with real money. The in-app Docs (`src/pages/Docs.tsx`) carry no contact address for the same reason.
+`public/terms/` and `public/privacy/` are the mainnet pages; the testnet keeps `public/terms-testnet/` and `public/privacy-testnet/`.
+The app footer links by network (`src/App.tsx`). Both say honestly that the operator's name, a contact address and the governing law
+are **not yet published** (placeholders for the owner to fill; do not invent them), and they must be completed (and read by a lawyer)
+before launches open with real money. The in-app Docs (`src/pages/Docs.tsx`) carry no contact address for the same reason.
 
 ## 4. The network
 
@@ -83,14 +88,13 @@ read from it:
    test keeps it that way: no file but `network.ts` names the SDK's networks.
 3. **The hosts:** the RPC and explorer come with the SDK's chain definition; the app API is in `network.ts` (`api`), and `VITE_API_URL`
    overrides it. The promoter service exists on the testnet only.
-4. **Testnet only, off on mainnet:** (files that still carry testnet words behind the network setting: `public/privacy/index.html`, `public/terms/index.html`, `src/App.tsx`, `src/components/Ticker.tsx`, `src/components/ui.tsx`, `src/lib/features.ts`, `src/lib/network.ts`, `src/lib/pending.ts`, `src/lib/txcheck.ts`, `src/pages/Docs.tsx`, `src/pages/Explore.tsx`, `src/pages/Wallet.tsx`) the faucet, the "From another chain" (CCTP) form, the promoter program and its links, the card checkout
+4. **Testnet only, off on mainnet:** (files that still carry testnet words behind the network setting: `public/privacy/index.html`, `public/privacy-testnet/index.html`, `public/terms/index.html`, `public/terms-testnet/index.html`, `src/App.tsx`, `src/components/Ticker.tsx`, `src/components/ui.tsx`, `src/lib/features.ts`, `src/lib/network.ts`, `src/lib/pending.ts`, `src/lib/txcheck.ts`, `src/pages/Docs.tsx`, `src/pages/Explore.tsx`, `src/pages/Launch.tsx`, `src/pages/Manage.tsx`, `src/pages/Token.tsx`, `src/pages/Wallet.tsx`) the faucet, the "From another chain" (CCTP) form, the promoter program and its links, the card checkout
    (unless `VITE_CARD_TOPUP=1`), and the testnet words. The browser check `test/mainnet.browser.cjs` fails if one appears.
 5. **What's stored in the browser** for a launch being sent and for held transactions has the network's name in its key on mainnet, so nothing kept for one network is read as the other's.
 6. **Every launch opens at $3,000** on both networks (the mainnet contract enforces it; the app and SDK hold it on the testnet). **New launches:** the launchpad contract starts closed; the Create page reads `launchesOpen` (`src/lib/launches.ts`).
-7. **Taxes and fees:** the wizard's tax limits come from `NETWORK.minTaxBps` (mainnet 1%, testnet 0) and the contracts' 10% maximum; the app names no partner and states no platform fee. The mainnet launch contract is being replaced: take its address and ABI from the new SDK release, rebuild, and keep launches closed in the app until then.
-8. **Still to decide before real money** (not done in code): the terms and privacy pages (`public/terms/`, `public/privacy/`) still describe the
-   testnet, the faucet and the promoter service; the launch milestone ("graduated", `MILESTONE` in `src/lib/stats.ts`) is still the testnet's $100 figure; email
-   sign-in, card top-ups and real-wallet transactions on mainnet have not been tested.
+7. **Taxes and fees:** the wizard's tax limits come from `NETWORK.minTaxBps` (mainnet 1%, testnet 0) and the contracts' 10% maximum; the app names no partner and states no separate platform fee. On mainnet the wording is that a tenth of the creator's tax goes to the platform. The mainnet launch contract is being replaced: take its address and ABI from the next SDK release (0.7.0), rebuild, and keep launches closed in the app until then.
+8. **Still to decide before launches open** (not done in code): the operator's name, contact address and governing law on the terms and privacy pages (placeholders only); the launch milestone ("graduated", `MILESTONE` in `src/lib/stats.ts`) is still the testnet's $100 figure (the owner sets it); the Vercel address must be in the VYRE servers' allowed origins; email
+   sign-in, card top-ups and real-wallet transactions on mainnet have not been tested; do not open launches until the owner says.
 
 ## 5. Face ID wallets are parked
 

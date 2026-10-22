@@ -119,6 +119,8 @@ test('the app sends no partner or fee of its own, and states no platform fee, on
     assert.doesNotMatch(t, /per trade|MINTA fee/, `${f} has no fee sum`);
   }
   assert.doesNotMatch(tokenPage, /Platform fee|platform fee|VYRE’s 1%/, 'the token page has no platform-fee sentence');
+  assert.match(tokenPage, /[Aa] tenth of the creator['’]s tax goes to the platform/, 'the token page states the platform’s tenth');
+  assert.match(launchPage, /[Aa] tenth of the creator['’]s tax goes to the platform/, 'and so does the wizard');
   assert.match(tokenPage, /Buy tax/);
   assert.match(launchPage, /NETWORK\.minTaxBps/, 'the wizard’s tax limits come from the network');
 });

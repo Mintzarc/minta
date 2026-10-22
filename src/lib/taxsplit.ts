@@ -65,9 +65,10 @@ export function taxSplitProblem(rows: readonly SplitRow[], refused: ReadonlySet<
     : bps.reduce((a, x) => a + x, 0) !== 10_000 ? 'The shares must add up to 100%.' : '';
 }
 
-/** Lowered taxes as typed (basis points, NaN for a field that isn't a plain percent with at most two decimals), and whether they can be sent: both read, neither higher than now, at least one lower */
-export function loweredTaxes(buy: string, sell: string, now: { buyTaxBps: number; sellTaxBps: number }): { buy: number; sell: number; ok: boolean } {
+/** Lowered taxes as typed (basis points, NaN for a field that isn't a plain percent with at most two decimals), and whether they can be sent: both read, neither higher than now, at least one lower, and neither below `minBps` (mainnet: 1%) */
+export function loweredTaxes(buy: string, sell: string, now: { buyTaxBps: number; sellTaxBps: number }, minBps = 0): { buy: number; sell: number; ok: boolean } {
   const b = percentBps(buy), s = percentBps(sell);
-  const ok = Number.isInteger(b) && Number.isInteger(s) && b <= now.buyTaxBps && s <= now.sellTaxBps && (b < now.buyTaxBps || s < now.sellTaxBps);
+  const ok = Number.isInteger(b) && Number.isInteger(s) && b >= minBps && s >= minBps
+    && b <= now.buyTaxBps && s <= now.sellTaxBps && (b < now.buyTaxBps || s < now.sellTaxBps);
   return { buy: b, sell: s, ok };
 }

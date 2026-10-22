@@ -163,7 +163,8 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(/1 to 10%/.test(tokenomics), 'the tokenomics step says taxes are 1 to 10% a side');
     ok(await pg.locator('.setting-cards, .wz-step').locator('button:has-text("No tax")').count() === 0, 'and offers no “No tax” choice');
     ok(await pg.locator('.wz-step button:has-text("1% / 1%")').count() === 1, 'while the 1% / 1% choice is there');
-    ok(!/platform fee|per trade|MINTA fee/i.test(tokenomics), 'it states no platform or MINTA fee');
+    ok(/a tenth of the creator’s tax goes to the platform/i.test(tokenomics), 'it states the platform’s tenth of the creator’s tax');
+    ok(!/platform fee|per trade|MINTA fee|10% of every trade/i.test(tokenomics), 'it states no platform or MINTA fee and never “10% of every trade”');
     await pg.click('.wz-step button:has-text("Custom")');
     await pg.fill('.wz-step input[placeholder="1 to 10"] >> nth=0', '0');
     await pg.click('.wz-next');
@@ -176,7 +177,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.click('.wz-next');
     await pg.click('.wz-next');
     const review = await pg.locator('.wz-step').innerText();
-    ok(/1% \/ 10%/.test(review) && !/platform fee|per trade|MINTA fee|Trading fees/i.test(review), 'the final review shows the tax and no fee sentence');
+    ok(/1% \/ 10%/.test(review) && /a tenth of the creator’s tax goes to the platform/i.test(review) && !/platform fee|per trade|MINTA fee|Trading fees|10% of every trade/i.test(review), 'the final review shows the tax, the tenth, and no fee sentence');
     ok(!BANNED.test(await body(pg)), 'the wizard has no testnet-only wording' + (BANNED.test(await body(pg)) ? ': ' + (await body(pg)).match(BANNED)[0] : ''));
     ok(errs.length === 0, 'nothing throws in the wizard' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();

@@ -8,6 +8,7 @@ import { isAddr, pct, short, tokenText } from '../lib/format';
 import { addresses, readLaunchFile, type Meta } from '../lib/market';
 import { loweredTaxes, refusedForSplit, splitBps, taxSplitProblem } from '../lib/taxsplit';
 import { href } from '../lib/router';
+import { NETWORK } from '../lib/network';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton } from '../components/ui';
 import { LaunchFileFields, emptyLaunchFile, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
@@ -107,7 +108,7 @@ export default function Manage({ token }: { token: Address }) {
 
       <div className="card">
         <h2 className="h3">Collect the tax</h2>
-        <p className="small">Sends the tax collected so far, in USDC, to {!wallets ? 'the wallets its tax goes to (the creator, unless the tax is split)' : wallets.wallets.length ? 'the tax wallets below' : 'the creator'}. Anyone can press it; the money only goes there.</p>
+        <p className="small">Sends the tax collected so far, in USDC, to {!wallets ? 'the wallets its tax goes to (the creator, unless the tax is split)' : wallets.wallets.length ? 'the tax wallets below' : 'the creator'}{!NETWORK.testnet ? '; a tenth of the creator’s tax goes to the platform in the same payout' : ''}. Anyone can press it; the money only goes there.</p>
         {account && <TxButton className="btn btn-line" label="Collect" run={run({ functionName: 'collectCreatorFees', args: [token] }, 'Collected.')} />}
       </div>
 
@@ -130,11 +131,11 @@ function LowerTaxes({ launch, run }: { launch: Launch; run: Runner }) {
   const [s, setS] = useState(String(launch.sellTaxBps / 100));
   // an empty field isn't 0%: taxes can never go back up, so nothing is sent until both are filled in, each a plain percent
   // with at most two decimals (read exactly as typed, never rounded)
-  const { buy: nb, sell: ns, ok } = loweredTaxes(b, s, launch);
+  const { buy: nb, sell: ns, ok } = loweredTaxes(b, s, launch, NETWORK.minTaxBps);
   return (
     <div className="card">
       <h2 className="h3">Lower the tax</h2>
-      <p className="small">Now {pct(launch.buyTaxBps)} on buys and {pct(launch.sellTaxBps)} on sells. It can only go down, for good.</p>
+      <p className="small">Now {pct(launch.buyTaxBps)} on buys and {pct(launch.sellTaxBps)} on sells. It can only go down, for good{!NETWORK.testnet ? ', and never below 1%' : ''}.</p>
       <div className="two">
         <label className="field"><span>Buy tax (%)</span><input inputMode="decimal" value={b} onChange={(e) => setB(e.target.value)} /></label>
         <label className="field"><span>Sell tax (%)</span><input inputMode="decimal" value={s} onChange={(e) => setS(e.target.value)} /></label>
@@ -152,7 +153,7 @@ function TaxWallets({ launch, current, failed, retry, run }: { launch: Launch; c
   return (
     <div className="card">
       <h2 className="h3">Split the tax</h2>
-      <p className="small">Up to four wallets, each with a share. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
+      <p className="small">Up to four wallets, each with a share. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost{!NETWORK.testnet ? '. A router, the pad, a pool or a token address is refused here' : ''}.</p>
       {current ? <SplitEditor launch={launch} current={current} run={run} />
         : failed ? (
           <div className="split-failed" role="alert">

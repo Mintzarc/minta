@@ -12,6 +12,8 @@ const read = (f) => fs.readFileSync(new URL(f, root), 'utf8');
 const words = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const terms = words(read('public/terms/index.html'));
 const privacy = words(read('public/privacy/index.html'));
+const termsTestnet = words(read('public/terms-testnet/index.html'));
+const privacyTestnet = words(read('public/privacy-testnet/index.html'));
 const docs = read('src/pages/Docs.tsx');
 const wallet = read('src/pages/Wallet.tsx');
 const handoff = read('docs/HANDOFF.md');
@@ -19,9 +21,24 @@ const handoff = read('docs/HANDOFF.md');
 test('the terms and the docs say the same thing about who stands behind the contracts', () => {
   assert.doesNotMatch(terms, /independent/i, 'the terms call MINTA independent');
   assert.doesNotMatch(terms, /operator doesn[’']t control|operated by others|vyrechain\.com\. MINTA doesn[’']t control/i, 'the terms say MINTA’s operator has nothing to do with the contracts or the network’s services');
-  assert.match(terms, /deployed by the network[’']s operator, which also holds the owner role/, 'the terms say who deployed and owns the contracts');
+  assert.match(terms, /deployed by the network[’']s operator, who also holds the owner role/, 'the terms say who deployed and owns the contracts');
+  assert.match(termsTestnet, /deployed by the network[’']s operator, which also holds the owner role/, 'the testnet terms keep the same claim');
   assert.doesNotMatch(docs, /our own (tests|review)/i, 'the docs present MINTA as the contracts’ own team');
   assert.match(docs, /review rounds by the network[’']s operator/, 'the docs say whose review rounds they were');
+});
+
+test('the mainnet terms are for real USDC on VYRE Mainnet, with the operator still unpublished', () => {
+  assert.match(terms, /VYRE Mainnet \(chain ID 3045\)/);
+  assert.match(terms, /real USDC/);
+  assert.doesNotMatch(terms, /draft for the test network|test USDC|no monetary value/i);
+  assert.match(terms, /not yet published/);
+  assert.match(terms, /one tenth goes to the platform/);
+  assert.match(terms, /MINTA takes nothing of its own/);
+  assert.match(terms, /not offered on mainnet yet/);
+  assert.match(terms, /has not had an outside security audit/);
+  assert.doesNotMatch(terms, /\baudited\b/i);
+  assert.match(terms, /1% to 10% a side/);
+  assert.doesNotMatch(read('public/terms/index.html'), /test network[^.]*no value|test USDC and test tokens have no value/i);
 });
 
 test('the handover notes describe a partner launchpad’s fee as the contracts do: named by the launch, no registration', () => {
@@ -38,19 +55,26 @@ test('the Wallet page promises no cash-out to a bank, and shows the card checkou
   assert.doesNotMatch(wallet, /bank account|card partner/i);
   assert.match(wallet, /\{CARD_TOPUP && account && !faceId && <CardTopup /, 'the card checkout is behind the build setting');
   assert.equal((wallet.match(/<CardTopup /g) || []).length, 1, 'and is drawn in one place only');
-  assert.match(terms, /card and Apple Pay purchases of USDC, where offered/, 'the terms name the card provider only where it is offered');
-  assert.match(privacy, /Buy USDC with a card or Apple Pay \(where offered\)/, 'and so does the privacy page');
-  assert.match(privacy, /Transak : card and Apple Pay purchases of USDC, where offered/, 'in its list of companies too');
+  assert.match(termsTestnet, /card and Apple Pay purchases of USDC, where offered/, 'the testnet terms name the card provider only where it is offered');
+  assert.match(privacyTestnet, /Buy USDC with a card or Apple Pay \(where offered\)/, 'and so does the testnet privacy page');
+  assert.match(privacyTestnet, /Transak : card and Apple Pay purchases of USDC, where offered/, 'in its list of companies too');
+  assert.doesNotMatch(privacy, /Transak|card or Apple Pay|testnet-rpc|iris-api-sandbox/i, 'the mainnet privacy page omits features that are off');
+  assert.match(privacy, /no free-USDC button and no program for naming who brought a visitor/);
 });
 
 test('the privacy page names the explorer, which every page calls from the visitor’s browser', () => {
   assert.match(read('src/lib/stats.ts'), /fetch\(`\$\{EXPLORER\}/, 'the pages do call the explorer');
   assert.match(privacy, /the network’s explorer \(explorer\.vyrechain\.com\)[^.]*receives the tokens shown and your IP address/);
+  assert.match(privacyTestnet, /the network’s explorer \(explorer\.vyrechain\.com\)[^.]*receives the tokens shown and your IP address/);
 });
 
 test('no settings of other services, internal paths, dated decisions or business suggestions in MINTA’s files', () => {
   const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n')
     .filter((f) => f && /\.(tsx?|mjs|cjs|js|md|html|css|json)$/.test(f) && !/package-lock\.json$/.test(f));
+  // untracked files in this working tree too (a new legal page not yet committed)
+  for (const extra of ['public/terms-testnet/index.html', 'public/privacy-testnet/index.html', 'public/terms/index.html', 'public/privacy/index.html']) {
+    if (fs.existsSync(new URL(extra, root)) && !files.includes(extra)) files.push(extra);
+  }
   const bad = [
     [/\b[A-Z][A-Z0-9]*_ORIGINS\b/, 'a server setting of the API'],
     [/\bdocs\/(?!HANDOFF\.md)[a-z0-9-]+\.md\b/, 'a path to another project’s notes'],
@@ -80,32 +104,35 @@ test('the card checkout is offered on a test network unless switched off, and el
   assert.match(read('README.md'), /VITE_CARD_TOPUP/, 'the setting is documented');
 });
 
-// Every service a visitor's browser calls, read from the code that calls it, is named on the privacy page with what it receives;
-// and the page doesn't say that what's kept in the browser is never sent anywhere, since three things kept there are sent on.
-test('the privacy page names every call the pages make, and which stored things are sent, and to whom', () => {
+// Every service a visitor's browser calls on the testnet build, read from the code that calls it, is named on the testnet privacy page.
+test('the testnet privacy page names every call the pages make, and which stored things are sent, and to whom', () => {
   const src = (f) => read(`src/${f}`);
-  // the email sign-in settings, asked on every page by the wallet provider
   assert.match(src('lib/circle.ts'), /api<WalletConfig>\('\/wallet\/config'\)/);
   assert.match(src('lib/wallet.tsx'), /useEffect\(\(\) => \{ walletConfig\(\)/);
-  assert.match(privacy, /Open any page[^.]*\.[^.]*\.[^|]*sign-in service \(api\.vyrechain\.com\) is asked whether email sign-in is offered/, 'every page asks the sign-in service');
-  // the faucet, from the Wallet page
+  assert.match(privacyTestnet, /Open any page[^.]*\.[^.]*\.[^|]*sign-in service \(api\.vyrechain\.com\) is asked whether email sign-in is offered/, 'every page asks the sign-in service');
   assert.match(src('pages/Wallet.tsx'), /getFaucetStatus\(\)/);
-  assert.match(privacy, /faucet \(testnet-rpc\.vyrechain\.com\/faucet\)[^|]*your wallet address/, 'the faucet, and the wallet address a request sends it');
-  // the promoter status lookup with the connected wallet, from the Wallet page
+  assert.match(privacyTestnet, /faucet \(testnet-rpc\.vyrechain\.com\/faucet\)[^|]*your wallet address/, 'the faucet, and the wallet address a request sends it');
   assert.match(src('pages/Wallet.tsx'), /promoterStatus\(account\)/);
-  assert.match(privacy, /Open the Wallet page with a wallet connected[^|]*promoter service \(testnet-rpc\.vyrechain\.com\)[^|]*wallet address/, 'the promoter status lookup and the wallet address it sends');
-  // the stored promoter code, looked up again from token pages
+  assert.match(privacyTestnet, /Open the Wallet page with a wallet connected[^|]*promoter service \(testnet-rpc\.vyrechain\.com\)[^|]*wallet address/, 'the promoter status lookup and the wallet address it sends');
   assert.match(src('pages/Token.tsx'), /promoterWallet\(code\)/);
-  assert.match(privacy, /each token page you open looks the stored code up again/);
-  // Circle's transfer service: its fees when the Wallet page opens, and the stored transfers' hashes
+  assert.match(privacyTestnet, /each token page you open looks the stored code up again/);
   assert.match(read('node_modules/@vyrechain/sdk/dist/cctp.js'), /iris-api-sandbox\.circle\.com/);
-  assert.match(privacy, /Circle’s transfer service \(iris-api-sandbox\.circle\.com\)[^|]*fees[^|]*transaction hash/, 'Circle’s transfer service, its fees and the transfers’ hashes');
-  // section 3: what's kept in the browser and what of it is sent
-  assert.doesNotMatch(privacy, /none of it is sent anywhere/i);
-  const kept = privacy.slice(privacy.indexOf('3. What’s kept in your browser'), privacy.indexOf('4. Other companies'));
+  assert.match(privacyTestnet, /Circle’s transfer service \(iris-api-sandbox\.circle\.com\)[^|]*fees[^|]*transaction hash/, 'Circle’s transfer service, its fees and the transfers’ hashes');
+  assert.doesNotMatch(privacyTestnet, /none of it is sent anywhere/i);
+  const kept = privacyTestnet.slice(privacyTestnet.indexOf('3. What’s kept in your browser'), privacyTestnet.indexOf('4. Other companies'));
   assert.match(kept, /promoter who referred you[^.]*promoter service/);
   assert.match(kept, /transfers between networks[^.]*Circle/);
   assert.match(kept, /email sign-in[^.]*sign-in service/);
+});
+
+test('the mainnet privacy page names the hosts and calls of the mainnet build', () => {
+  assert.match(privacy, /rpc\.vyrechain\.com/);
+  assert.match(privacy, /api\.vyrechain\.com/);
+  assert.match(privacy, /explorer\.vyrechain\.com/);
+  assert.match(privacy, /check service \(api\.vyrechain\.com\)/);
+  assert.match(privacy, /sign-in service \(api\.vyrechain\.com\) is asked whether email sign-in is offered/);
+  assert.doesNotMatch(privacy, /testnet-rpc|iris-api-sandbox|Transak/i);
+  assert.match(privacy, /Retention periods for those services are not restated here/);
 });
 
 // The handover notes' section on the network is the checklist for it: it names the places the network is chosen, and every file
@@ -122,6 +149,9 @@ test('the handover notes’ network section names where the network is chosen an
   assert.match(read('src/lib/chain.ts'), /^export const ARC_CHAIN = /m);
   const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n')
     .filter((f) => /^src\/.+\.tsx?$/.test(f) || f === 'index.html' || /^public\/.+\.(html|webmanifest)$/.test(f));
+  for (const extra of ['public/terms-testnet/index.html', 'public/privacy-testnet/index.html']) {
+    if (fs.existsSync(new URL(extra, root)) && !files.includes(extra)) files.push(extra);
+  }
   // words and features of the test network, outside comments
   const tied = /test USDC|real money|testnet|test network|\b7357\b|faucet|requestTestUsdc|CCTP_SOURCES/i;
   const comment = /^\s*(?:\/\/|\*|\/\*|\{\/\*)/;
@@ -156,6 +186,8 @@ test('the handover notes say what to do when the network’s services move to ot
   const s2 = section(handoff, 2);
   assert.match(s2, /other host names/, 'the case is named');
   assert.match(s2, /SDK release[^.]*new names[^.]*before/i, 'the SDK release with the new names comes first');
-  for (const f of ['src/lib/api.ts', 'public/terms/index.html', 'public/privacy/index.html']) assert.ok(s2.includes('`' + f + '`'), `names ${f}`);
+  for (const f of ['src/lib/api.ts', 'public/terms/index.html', 'public/privacy/index.html', 'public/terms-testnet/index.html', 'public/privacy-testnet/index.html']) {
+    assert.ok(s2.includes('`' + f + '`'), `names ${f}`);
+  }
   assert.match(s2, /VITE_PROMOTERS_URL/, 'and the promoter service’s address');
 });

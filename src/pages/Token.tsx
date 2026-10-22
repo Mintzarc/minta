@@ -180,7 +180,7 @@ export default function Token({ token }: { token: Address }) {
               <ul className="split-list">{split.wallets.map((w, i) => <li key={w}><AddressLink address={w} /> <b>{pct(split.bps[i])}</b></li>)}</ul>
             )}
           </div>
-          <p className="muted small">The tax is paid in USDC. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>
+          <p className="muted small">The tax is paid in USDC. The creator can lower the tax, never raise it{!NETWORK.testnet ? ', and never below 1%' : ''}. The price shown is the pool’s, before tax.{!NETWORK.testnet && <> A tenth of the creator’s tax goes to the platform when the tax is collected; the rest goes to the wallets above.</>}</p>
         </div>
         </div>
         <TradePanel launch={launch} bal={bal} onVyre={onVyre} account={account} onDone={after} />

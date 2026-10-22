@@ -86,6 +86,9 @@ test('lowering the tax reads each field as typed or not at all, and only ever lo
   assert.equal(loweredTaxes('5', '3', now).ok, false, 'nothing lower');
   assert.equal(loweredTaxes('5.01', '1', now).ok, false, 'never higher');
   assert.equal(loweredTaxes('0', '0', now).ok, true);
+  assert.equal(loweredTaxes('0', '0', now, 100).ok, false, 'a floor of 1% refuses 0');
+  assert.equal(loweredTaxes('1', '1', now, 100).ok, true, '1% meets the floor and is lower than now');
+  assert.equal(loweredTaxes('0.99', '1', now, 100).ok, false, 'below the floor');
   for (const typed of ['', ' ', '0x1', '1e0', '+1', '-1', '1.234', '2.555', 'NaN', '1,5']) {
     const r = loweredTaxes(typed, '1', now);
     assert.equal(r.ok, false, JSON.stringify(typed));

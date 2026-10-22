@@ -91,7 +91,9 @@ const ARTICLES: Article[] = [
           <div className="feat-grid">
             <div><Icon name="bolt" /><b>Easy token creation</b><p>Name it, set the supply and the tax, press Create. One transaction.</p></div>
             <div><Icon name="lock" /><b>Locked liquidity</b><p>The pool’s liquidity can’t be removed, by anyone, ever. Only the launchpad adds to it.</p></div>
-            <div><Icon name="coin" /><b>Paid in USDC</b><p>Creators keep a tax of up to 10% on every trade, paid in USDC. They can lower it later, never raise it.</p></div>
+            <div><Icon name="coin" /><b>Paid in USDC</b><p>{NETWORK.testnet
+              ? 'Creators keep a tax of up to 10% on every trade, paid in USDC. They can lower it later, never raise it.'
+              : 'Creators set a tax of 1% to 10% a side, paid in USDC. A tenth of the creator’s tax goes to the platform; the rest to the creator. They can lower it later, never raise it, and never below 1%.'}</p></div>
             <div><Icon name="users" /><b>Your own wallet</b><p>Connect MetaMask, Rabby, Coinbase Wallet or any browser wallet. You keep your keys; MINTA never holds them.</p></div>
           </div>
         ),
@@ -115,8 +117,8 @@ const ARTICLES: Article[] = [
               ? <li><b>Get test USDC.</b> Take some from the faucet: the Wallet page has the button.</li>
               : <li><b>Get USDC on VYRE.</b> The Wallet page moves USDC to VYRE from Arc. A withdrawal back to Arc takes about a day.</li>}
             <li><b>Create a token.</b> Pick its name, ticker, supply and tax. The launch happens in one transaction, with an optional first buy of your own in the same transaction.</li>
-            <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. {NETWORK.testnet ? 'Every trade pays the platform fee and the creator’s tax in USDC.' : 'Every trade pays the creator’s tax in USDC.'}</li>
-            <li><b>Collect.</b> The creator collects the tax whenever they like, and can split it between up to four wallets.</li>
+            <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. {NETWORK.testnet ? 'Every trade pays the platform fee and the creator’s tax in USDC.' : 'Every trade pays the creator’s tax in USDC; a tenth of that tax goes to the platform when it is paid out.'}</li>
+            <li><b>Collect.</b> {NETWORK.testnet ? 'The creator collects the tax whenever they like, and can split it between up to four wallets.' : 'Anyone can call collect on a token: the creator tax collected so far is paid out (nine tenths to the creator or tax wallets, one tenth to the platform). The creator can also split the tax between up to four wallets.'}</li>
           </ol>
         ),
       },
@@ -136,7 +138,7 @@ const ARTICLES: Article[] = [
               <tbody>
                 <tr><td><b>Name and ticker</b></td><td>1–64 and 1–16 bytes</td><td className="wrap">Shown everywhere the token appears.</td></tr>
                 <tr><td><b>Supply</b></td><td>1,000 to 10<sup>15</sup> tokens</td><td className="wrap">All of it goes into the pool: there is no team allocation held outside it.</td></tr>
-                <tr><td><b>Buy and sell tax</b></td><td>0–10% each</td><td className="wrap">Paid to you in USDC. You can lower it later, never raise it.</td></tr>
+                <tr><td><b>Buy and sell tax</b></td><td>{NETWORK.minTaxBps / 100}–10% each</td><td className="wrap">{NETWORK.testnet ? 'Paid to you in USDC. You can lower it later, never raise it.' : 'Paid in USDC. A tenth of the creator’s tax goes to the platform; the rest to you. You can lower it later, never raise it, and never below 1%.'}</td></tr>
                 <tr><td><b>First buy</b></td><td>Optional</td><td className="wrap">USDC you spend in the launch transaction itself, before anyone else can trade.</td></tr>
                 <tr><td><b>Picture, description, links</b></td><td>Optional</td><td className="wrap">A picture from your device, a short description and website, X, Telegram and Discord links. You can change them later.</td></tr>
               </tbody>
@@ -187,8 +189,8 @@ const ARTICLES: Article[] = [
     title: 'Tokenomics options',
     sections: [
       { id: 'supply', title: 'Supply', body: <p>From 1,000 to 10<sup>15</sup> tokens. The whole supply is in the pool at launch, apart from what you buy yourself with your first buy.</p> },
-      { id: 'tax', title: 'Tax', body: <p>0–10% on buys and 0–10% on sells, set separately. Presets in the form: no tax, 1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down.</p> },
-      { id: 'split', title: 'Splitting the tax', body: <p>After launch, the tax can be split between up to four wallets in any proportions that add up to 100%. Tax earned so far is paid out before the split changes. Only name wallets whose owners hold the keys: tax sent to a contract or an address nobody controls is lost.</p> },
+      { id: 'tax', title: 'Tax', body: <p>{NETWORK.minTaxBps / 100}–10% on buys and {NETWORK.minTaxBps / 100}–10% on sells, set separately. Presets in the form: {NETWORK.minTaxBps === 0 ? 'no tax, ' : ''}1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down{!NETWORK.testnet ? ', and never below 1%' : ''}.</p> },
+      { id: 'split', title: 'Splitting the tax', body: <p>After launch, the tax can be split between up to four wallets in any proportions that add up to 100%. Tax earned so far is paid out before the split changes. Only name wallets whose owners hold the keys: tax sent to a contract or an address nobody controls is lost{!NETWORK.testnet ? '. MINTA refuses a tax wallet that is a router, the pad, a pool or a token address' : ''}.</p> },
       { id: 'first-buy', title: 'First buy', body: <p>Optional USDC you spend in the launch transaction, before anyone else can trade, at your own tax{NETWORK.testnet ? ' plus the platform fee' : ''}.</p> },
     ],
   },
@@ -205,13 +207,16 @@ const ARTICLES: Article[] = [
               <table>
                 <thead><tr><th>Fee</th><th>Size</th><th>Goes to</th></tr></thead>
                 <tbody>
-                  <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">The creator, or up to 4 wallets they name</td></tr>
+                  <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">{NETWORK.testnet
+                    ? 'The creator, or up to 4 wallets they name'
+                    : 'Nine tenths to the creator or up to 4 wallets they name; a tenth of the creator’s tax goes to the platform. No separate platform cut on top, and MINTA takes nothing of its own.'}</td></tr>
                   {NETWORK.testnet && <tr><td><b>Platform fee</b></td><td>1% of every buy and sell</td><td className="wrap">The platform treasury set in the launchpad contracts {NETWORK.promoters ? '(less a promoter’s share, below)' : ''}</td></tr>}
                   {NETWORK.testnet && <tr><td><b>Partner fee</b></td><td>0–1%, only on launches through a partner launchpad</td><td className="wrap">The partner launchpad</td></tr>}
                   {NETWORK.promoters && <tr><td><b>Promoter share</b></td><td>30% of the platform fee</td><td className="wrap">The promoter who brought the trader, when the trade goes through the app router</td></tr>}
                 </tbody>
               </table>
             </div>
+            {!NETWORK.testnet && <p>Income for the platform and the creator depends on someone calling the payout (<code>collectCreatorFees</code>). The network’s payout collector does that; MINTA does not need to.</p>}
           </>
         ),
       },
@@ -301,7 +306,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
             <details><summary>Can the liquidity be pulled?</summary><p>No. Each pool’s liquidity is locked in the contract and only the launchpad can add to it; nobody can remove it.</p></details>
             <details><summary>Can a creator raise the tax?</summary><p>No. A creator can lower either tax at any time and can never raise it.</p></details>
             <details><summary>What does a trade cost in gas?</summary><p>{NETWORK.testnet ? 'On the testnet, a buy has cost about six millionths of a dollar. ' : ''}<Ext to="https://vyrechain.com/gas">The gas page has the measurements, and every number links to a real transaction.</Ext></p></details>
-            <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service ({API_HOST}) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href="/privacy/">privacy policy</a>.</p></details>
+            <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service ({API_HOST}) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href={NETWORK.testnet ? '/privacy-testnet/' : '/privacy/'}>privacy policy</a>.</p></details>
             <details><summary>Has it had an outside audit?</summary><p>Not yet. The contracts have been through tests and review rounds by the network’s operator, who deployed them, {NETWORK.testnet ? 'and this is a testnet.' : 'and real money is at stake.'}</p></details>
             <details><summary>Can I lose money?</summary><p>{NETWORK.testnet ? 'On the testnet there is no real money. ' : 'Yes: this is VYRE Mainnet and the USDC is real. '}On any chain, launch tokens can go to zero and nothing here is financial advice.</p></details>
           </div>

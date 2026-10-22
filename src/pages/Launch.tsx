@@ -336,7 +336,9 @@ export default function Launch() {
                   <div className="field"><span>Price at launch</span><b className="block">{price(openPrice)}</b><small className="muted">Supply sets the price: {usd(Number(OPENING_MARKET_CAP / E18))} market cap divided by the supply.</small></div>
                 </div>
                 <div className="field"><span>Your tax on each buy and sale</span>
-                  <small className="muted">Paid to you in USDC, {TAX_RANGE} each. You can lower it later, never raise it.</small>
+                  <small className="muted">{NETWORK.testnet
+                    ? <>Paid to you in USDC, {TAX_RANGE} each. You can lower it later, never raise it.</>
+                    : <>Paid in USDC, {TAX_RANGE} each. A tenth of the creator’s tax goes to the platform; the rest to you (or the wallets you name). You can lower it later, never raise it, and never below {MIN_TAX_BPS / 100}%.</>}</small>
                 </div>
                 <div className="tabs presets" role="group" aria-label="Tax preset">
                   {PRESETS.filter((p) => p.key === 'custom' || Number(p.buy) * 100 >= MIN_TAX_BPS).map((p) => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => pick(p.key)}>{p.label}</button>)}
@@ -347,7 +349,7 @@ export default function Launch() {
                     <label className="field"><span>Sell tax (%)</span><input inputMode="decimal" value={sellTax} onChange={(e) => setSellTax(e.target.value)} placeholder={`${MIN_TAX_BPS / 100} to 10`} /></label>
                   </div>
                 )}
-                <p className="small muted">After launch you can split the tax between up to 4 wallets, on the token’s Manage page.</p>
+                <p className="small muted">After launch you can split the tax between up to 4 wallets, on the token’s Manage page.{!NETWORK.testnet && <> Only name wallets you control: a router, the pad, a pool or a token address would lose the tax.</>}</p>
                 {showProblem(2)}
               </fieldset>
             )}
@@ -372,7 +374,7 @@ export default function Launch() {
                   <div><dt>Token</dt><dd><b>$<bdi>{tokenText(symbol) || '—'}</bdi></b> <bdi>{tokenText(name)}</bdi></dd></div>
                   <div><dt>Supply</dt><dd>{params ? `${exact(params.totalSupply)} tokens` : '—'}</dd></div>
                   <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))} ({price(openPrice)} a token)</dd></div>
-                  <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, paid to you</dd></div>
+                  <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}{NETWORK.testnet ? ', paid to you' : '; a tenth of the creator’s tax goes to the platform, the rest to you'}</dd></div>
                   <div><dt>Dev buy</dt><dd>{params?.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'}</dd></div>
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
                 </dl>
@@ -715,7 +717,9 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
     ['Token', <><b>$<bdi>{params.symbol}</bdi></b> <bdi>{params.name}</bdi></>],
     ['Supply', `${exact(params.totalSupply)} tokens`],
     ['Opening market cap', `about ${usd(Number(OPENING_MARKET_CAP / E18))} (${price(openPrice)} a token; the pool opens within about 1% of it)`],
-    ['Buy / sell tax', `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, paid to you`],
+    ['Buy / sell tax', NETWORK.testnet
+      ? `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, paid to you`
+      : `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}; a tenth of the creator’s tax goes to the platform, the rest to you`],
     ['Dev buy', params.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'],
     ['Picture and links', meta.useOwn ? (meta.own ? 'Your own file' : 'None') : !(hasContent(meta.file) || meta.picture) ? 'None (add them any time)'
       : fileFailed ? 'Couldn’t be saved just now (add them any time)' : 'Saved with the launch (change them any time)'],
