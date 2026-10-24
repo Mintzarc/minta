@@ -29,7 +29,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
   // the splash (components/Splash.tsx) covers the home page the first time; every other check starts as a visitor who saw it already
   const open = async (hash, viewport, { splash = false, ...context } = {}) => {
     const ctx = await b.newContext({ viewport, ...context });
-    if (!splash) await ctx.addInitScript(() => { try { window.localStorage.setItem('minta.splash', String(Date.now())); } catch { /* none */ } });
+    if (!splash) await ctx.addInitScript(() => { try { window.localStorage.setItem('minta.splash:7357', String(Date.now())); } catch { /* none */ } });
     // nothing leaves the machine: the chain, the API and the fonts are all refused
     await ctx.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
     const pg = await ctx.newPage();
@@ -125,7 +125,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
     await ctx.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
     await ctx.addInitScript((who) => {
-      try { localStorage.setItem('minta.splash', String(Date.now())); localStorage.setItem('vyre.wallet', 'rdns:test.wallet'); } catch { /* none */ }
+      try { localStorage.setItem('minta.splash:7357', String(Date.now())); localStorage.setItem('vyre.wallet:7357', 'rdns:test.wallet'); } catch { /* none */ }
       let now = who;
       const heard = [];
       window.__switchTo = (a) => { now = a; for (const f of heard) f([a]); };
@@ -407,7 +407,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       const cors = { 'access-control-allow-origin': '*' };
       // the launch's creator, in a browser wallet connected before (it's reconnected quietly)
       if (creator) await ctx.addInitScript((who) => {
-        try { localStorage.setItem('vyre.wallet', 'rdns:test.wallet'); } catch { /* none */ }
+        try { localStorage.setItem('vyre.wallet:7357', 'rdns:test.wallet'); } catch { /* none */ }
         const provider = { request: async ({ method }) => (method === 'eth_accounts' || method === 'eth_requestAccounts' ? [who] : method === 'eth_chainId' ? '0x1cbd' : null), on() {}, removeListener() {} };
         window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'w', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test.wallet' }, provider } })));
       }, CREATOR);
@@ -565,7 +565,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     const gone = (pg, ms = 4000) => pg.waitForSelector('.splash', { state: 'detached', timeout: ms }).then(() => true, () => false);
     const phone = { width: 390, height: 844 };
     // the first load already played (and recorded) it with the real, undecodable film: forget that and load again
-    const again = async (pg) => { await pg.evaluate(() => { localStorage.removeItem('minta.splash'); localStorage.removeItem('minta.splash.film'); }); await pg.reload(); };
+    const again = async (pg) => { await pg.evaluate(() => { localStorage.removeItem('minta.splash:7357'); localStorage.removeItem('minta.splash.film:7357'); }); await pg.reload(); };
 
     // first visit: it shows, the Pad underneath can't be reached, Skip is focused; Skip ends it, the Pad is usable and it doesn't come back on reload
     {
@@ -580,7 +580,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await pg.click('.splash-skip');
       ok(await gone(pg), 'Skip ends it');
       ok(await pg.evaluate(() => !document.getElementById('root').hasAttribute('inert') && !document.documentElement.classList.contains('splash-on')), 'and the Pad is usable again');
-      ok(await pg.evaluate(() => Number(localStorage.getItem('minta.splash')) > Date.now() - 60_000), 'it remembers that it played');
+      ok(await pg.evaluate(() => Number(localStorage.getItem('minta.splash:7357')) > Date.now() - 60_000), 'it remembers that it played');
       await pg.reload(); await pg.waitForSelector('.top'); await pg.waitForTimeout(300);
       ok(await pg.locator('.splash').count() === 0, 'a reload does not play it again');
       await pg.goto(base + '?splash#/'); await pg.waitForSelector('.splash');
@@ -598,20 +598,20 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       let box = await pg.locator('.splash video').boundingBox();
       ok(Math.abs(box.width - 390) <= 1 && Math.abs(box.height - 390) <= 1, 'which is square on a phone');
       await pg.click('.splash-skip'); await pg.waitForSelector('.splash', { state: 'detached' });
-      await pg.evaluate(() => localStorage.removeItem('minta.splash')); await pg.reload(); await pg.waitForSelector('.splash');
+      await pg.evaluate(() => localStorage.removeItem('minta.splash:7357')); await pg.reload(); await pg.waitForSelector('.splash');
       ok(await pg.locator('.splash video').getAttribute('src') === '/splash/minta-splash-2.mp4', 'the next play shows the second film');
       ok(/minta-splash-2-poster\.webp$/.test(await pg.locator('.splash video').getAttribute('poster')), 'with its own poster');
       box = await pg.locator('.splash video').boundingBox();
       ok(Math.abs(box.width - 390) <= 1 && Math.abs(box.height - 390 / (1072 / 720)) <= 1.5, 'which fills the width of a phone in its own wider shape, uncropped');
       ok(await sideways(pg) <= 0, 'with no sideways scroll');
       await pg.click('.splash-skip'); await pg.waitForSelector('.splash', { state: 'detached' });
-      await pg.evaluate(() => localStorage.removeItem('minta.splash')); await pg.reload(); await pg.waitForSelector('.splash');
+      await pg.evaluate(() => localStorage.removeItem('minta.splash:7357')); await pg.reload(); await pg.waitForSelector('.splash');
       ok(await pg.locator('.splash video').getAttribute('src') === '/splash/minta-splash.mp4', 'and then the first again');
       await ctx.close();
       const w = await open('#/', { width: 1440, height: 900 }, { splash: true });
       await film(w.ctx); await again(w.pg); await w.pg.waitForSelector('.splash');
       await w.pg.click('.splash-skip'); await w.pg.waitForSelector('.splash', { state: 'detached' });
-      await w.pg.evaluate(() => localStorage.removeItem('minta.splash')); await w.pg.reload(); await w.pg.waitForSelector('.splash');
+      await w.pg.evaluate(() => localStorage.removeItem('minta.splash:7357')); await w.pg.reload(); await w.pg.waitForSelector('.splash');
       box = await w.pg.locator('.splash video').boundingBox();
       ok(Math.abs(box.height - 900) <= 1 && Math.abs(box.width - 900 * (1072 / 720)) <= 2, 'on a wide screen the second film is as tall as the screen, in its own shape');
       await w.ctx.close();
@@ -651,7 +651,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await s.ctx.close();
       const old = await open('#/', phone, { splash: true });
       await film(old.ctx);
-      await old.pg.evaluate(() => localStorage.setItem('minta.splash', String(Date.now() - 7 * 3600_000)));
+      await old.pg.evaluate(() => localStorage.setItem('minta.splash:7357', String(Date.now() - 7 * 3600_000)));
       await old.pg.reload(); await old.pg.waitForSelector('.splash', { timeout: 5000 }).then(() => ok(true, 'it plays again after six hours'), () => ok(false, 'it plays again after six hours'));
       await old.ctx.close();
       const bad = await open('#/', phone, { splash: true });

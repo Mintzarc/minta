@@ -66,3 +66,11 @@ export const scoped = (key: string, n: NetworkName = NETWORK.name) => (n === 'te
 
 /** The network this build is for */
 export const NETWORK: NetworkSettings = SETTINGS[resolveNetwork(import.meta.env.VITE_NETWORK, import.meta.env.PROD)];
+
+// Words and flags the wallet page uses; they follow the network the app was built for
+/** True while the app is built for the test network */
+export const IS_TESTNET = NETWORK.testnet;
+/** USDC as people should read it on this network */
+export const USDC_LABEL = IS_TESTNET ? 'test USDC' : 'USDC';
+/** Faucet UI and links: the test network only */
+export const FAUCET_OFFERED = IS_TESTNET;

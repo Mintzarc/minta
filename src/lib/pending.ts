@@ -20,7 +20,8 @@ export interface PendingTransfer {
   at: number;
 }
 
-export const PENDING_KEY = 'vyre.fromChain.pending';
+/** Storage key for pending CCTP burns on the app's VYRE chain (`vyreChainId`) — same shape as `storeKey` in storeKey.ts */
+export const pendingKey = (vyreChainId: number) => `vyre.fromChain.pending:${vyreChainId}`;
 /** The most kept (the newest) */
 export const MAX_PENDING = 20;
 
@@ -77,28 +78,28 @@ const local = (): KeyValue | null => {
   }
 };
 
-export function loadPending(store: KeyValue | null = local()): PendingTransfer[] {
+export function loadPending(vyreChainId: number, store: KeyValue | null = local()): PendingTransfer[] {
   try {
-    return parsePending(store?.getItem(PENDING_KEY) ?? null);
+    return parsePending(store?.getItem(pendingKey(vyreChainId)) ?? null);
   } catch {
     return [];
   }
 }
 
 /** Adds (or replaces) one; false if this browser won't keep it */
-export function addPending(t: PendingTransfer, store: KeyValue | null = local()): boolean {
-  return save([...loadPending(store).filter((x) => x.hash !== t.hash.toLowerCase()), { ...t, hash: t.hash.toLowerCase() as Hash }], store);
+export function addPending(vyreChainId: number, t: PendingTransfer, store: KeyValue | null = local()): boolean {
+  return save(vyreChainId, [...loadPending(vyreChainId, store).filter((x) => x.hash !== t.hash.toLowerCase()), { ...t, hash: t.hash.toLowerCase() as Hash }], store);
 }
 
 /** Forgets one (once it's arrived, or failed, or the user stops following it) */
-export function removePending(hash: Hash, store: KeyValue | null = local()): boolean {
-  return save(loadPending(store).filter((x) => x.hash !== hash.toLowerCase()), store);
+export function removePending(vyreChainId: number, hash: Hash, store: KeyValue | null = local()): boolean {
+  return save(vyreChainId, loadPending(vyreChainId, store).filter((x) => x.hash !== hash.toLowerCase()), store);
 }
 
-function save(list: PendingTransfer[], store: KeyValue | null): boolean {
+function save(vyreChainId: number, list: PendingTransfer[], store: KeyValue | null): boolean {
   if (!store) return false;
   try {
-    store.setItem(PENDING_KEY, serializePending(list));
+    store.setItem(pendingKey(vyreChainId), serializePending(list));
     return true;
   } catch {
     return false;

@@ -5,7 +5,7 @@
 import { getAddress, parseAbiItem, type Address } from 'viem';
 import { inPieces, LOG_LIST_MAX, pagedLogs } from './pieces';
 import { isQuoteToken0, vyreTokenAbi } from '@vyrechain/sdk';
-import { EXPLORER, vyre } from './chain';
+import { EXPLORER, VYRE_CHAIN, vyre } from './chain';
 import { addresses, priceFrom, swapEvent, type Listed } from './market';
 
 const DAY = 86_400;
@@ -18,10 +18,15 @@ export const launchCreated = parseAbiItem(
  * measure only: nothing on chain changes when a launch reaches it. Counted in USDC bought in, not market cap, because
  * a creator picks the opening market cap and could open above any market-cap line. A launch counts as Graduated while
  * it holds the milestone, judged at the end of each transaction (so a buy and a sale in one transaction can't claim
- * it). Small on the testnet, where test USDC is scarce.
+ * it).
+ *
+ * Testnet: $100 (scarce test USDC). Non-testnet: $10,000 pending product confirmation for chain 3045 — revisit before
+ * publishing a mainnet build (docs/HANDOFF.md §4).
  */
-export const MILESTONE = 100;
-/** The milestone as people read it: $100 */
+export const MILESTONE_TESTNET = 100;
+export const MILESTONE_MAINNET = 10_000;
+export const MILESTONE = VYRE_CHAIN.testnet ? MILESTONE_TESTNET : MILESTONE_MAINNET;
+/** The milestone as people read it */
 export const MILESTONE_TEXT = `$${MILESTONE.toLocaleString('en-US')}`;
 
 export interface Stats {

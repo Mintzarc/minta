@@ -8,6 +8,7 @@ import { getAddress, isAddressEqual, type Address, type EIP1193Provider } from '
 import { type WalletLike } from '@vyrechain/sdk';
 import { NETWORK } from './network';
 import { VYRE_CHAIN, onWalletsChanged, switchTo, walletOn, wallets, type WalletInfo } from './chain';
+import { storeKey } from './storeKey';
 import { FACEID_KEY, checkEarlier, createFaceId, faceIdSigner, forgetFaceId, loadFaceId, signInFaceId, type FaceIdSession } from './faceid';
 import {
   EMAIL_TRADE_NOTE, WalletApiError, clearSession, loadSession, saveSession, signInWithEmail, walletConfig, walletsOf, withSession,
@@ -48,7 +49,7 @@ interface WalletState {
 }
 
 const Ctx = createContext<WalletState | null>(null);
-const REMEMBER = 'vyre.wallet';
+const REMEMBER = storeKey('vyre.wallet', VYRE_CHAIN.id);
 // a wallet is remembered by its EIP-6963 rdns (io.metamask), never its name (any extension can call itself anything)
 const rememberAs = (w: WalletInfo) => (w.rdns ? `rdns:${w.rdns}` : w.id);
 const store = {

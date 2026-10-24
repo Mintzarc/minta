@@ -50,14 +50,16 @@ test('where a look starts: the move\'s own block, or the window back from the ne
 
 test('keeping a move works with storage, and without it or when it refuses', () => {
   const s = memory();
-  keepMove(ME, { dest: A, from: 10n }, s);
-  const l = keepMove(ME, { dest: B, from: 20n }, s);
+  const chain = 7357;
+  keepMove(chain, ME, { dest: A, from: 10n }, s);
+  const l = keepMove(chain, ME, { dest: B, from: 20n }, s);
   assert.deepEqual(l, [{ dest: B, from: 20n }, { dest: A, from: 10n }]);
-  assert.deepEqual(loadMoves(ME, s), l);
-  assert.ok(s.m.has(movesKey(ME.toUpperCase().replace('0X', '0x'))), 'one key per wallet, whatever the letter case');
-  assert.deepEqual(loadMoves('0x3333333333333333333333333333333333333333', s), [], 'another wallet has its own');
-  assert.deepEqual(keepMove(ME, { dest: A, from: 1n }, null), [{ dest: A, from: 1n }]);
+  assert.deepEqual(loadMoves(chain, ME, s), l);
+  assert.ok(s.m.has(movesKey(chain, ME.toUpperCase().replace('0X', '0x'))), 'one key per wallet, whatever the letter case');
+  assert.deepEqual(loadMoves(chain, '0x3333333333333333333333333333333333333333', s), [], 'another wallet has its own');
+  assert.deepEqual(loadMoves(9999, ME, s), [], 'another chain has its own');
+  assert.deepEqual(keepMove(chain, ME, { dest: A, from: 1n }, null), [{ dest: A, from: 1n }]);
   const refusing = { getItem: () => null, setItem: () => { throw new Error('quota'); } };
-  assert.deepEqual(keepMove(ME, { dest: B, from: 2n }, refusing), [{ dest: B, from: 2n }]);
-  assert.deepEqual(loadMoves(ME, { getItem: () => { throw new Error('blocked'); }, setItem() {} }), []);
+  assert.deepEqual(keepMove(chain, ME, { dest: B, from: 2n }, refusing), [{ dest: B, from: 2n }]);
+  assert.deepEqual(loadMoves(chain, ME, { getItem: () => { throw new Error('blocked'); }, setItem() {} }), []);
 });
