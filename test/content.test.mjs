@@ -117,7 +117,7 @@ test('the privacy page names every call the pages make, and which stored things 
 // The mainnet pages describe the mainnet build: the services it calls (the sign-in and picture API, the RPC, the explorer, the check, Arc's
 // public RPC), the creator's tax as the only fee with a tenth of each payout to the platform wallet, no card purchases, no promoters,
 // no faucet, no outside audit claimed; and the operator's name, contact and governing law are visible placeholders until filled in.
-test('the mainnet terms and privacy pages say what the mainnet build does, and leave the operator’s details as visible placeholders', () => {
+test('the mainnet terms and privacy pages say what the mainnet build does, and give MINTA’s Telegram group and X account as the contact', () => {
   for (const [name, t] of [['terms', terms], ['privacy', privacy]]) {
     assert.doesNotMatch(t, /test network|test USDC|test tokens|testnet|draft for|no monetary value|faucet|Transak|card checkout/i, `${name}: no test-network or retired-feature wording`);
     if (name === 'privacy') assert.doesNotMatch(t, /promoter/i, 'the privacy page: no promoter service on mainnet');
@@ -126,10 +126,11 @@ test('the mainnet terms and privacy pages say what the mainnet build does, and l
     assert.match(t, /VYRE Mainnet/, `${name}: names the network`);
     assert.match(t, /real money/i, `${name}: says the money is real`);
   }
-  assert.match(terms, /\[OPERATOR NAME[^\]]*\]/);
-  assert.match(terms, /\[CONTACT ADDRESS[^\]]*\]/);
-  assert.match(terms, /\[GOVERNING LAW[^\]]*\]/);
-  assert.match(privacy, /\[CONTACT ADDRESS[^\]]*\]/);
+  for (const [name, page] of [['terms', terms], ['privacy', privacy]]) {
+    assert.doesNotMatch(page, /\[[A-Z ]{6,}[:\]…]/, `${name}: no placeholder left`);
+    assert.match(page, /Telegram|the MINTA group/, `${name}: the Telegram contact`);
+    assert.match(page, /@MintaLaunchpad|MintaLaunchpad/, `${name}: the X contact`);
+  }
   assert.match(terms, /1% to 10% on each side/, 'the tax range');
   assert.match(terms, /one tenth of the amount goes to the platform’s treasury address[^.]*and the rest to the creator’s tax wallets/);
   assert.match(terms, /no separate platform fee, no fee of MINTA’s own and no promoter share/i);

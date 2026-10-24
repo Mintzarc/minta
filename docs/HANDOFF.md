@@ -67,9 +67,7 @@ once it is there.
 
 ## 3. Pages to complete before anything but test money
 
-`public/terms/` and `public/privacy/` are the mainnet drafts. The operator's name, a contact address and the governing law are visible
-placeholders in square brackets (`[OPERATOR NAME…]`, `[CONTACT ADDRESS…]`, `[GOVERNING LAW…]`) and the effective date is the draft's: all four must be
-filled in or confirmed (and the pages read by a lawyer) before MINTA is offered with real money. The test network keeps its own pages,
+`public/terms/` and `public/privacy/` are the mainnet pages. They name no operator or governing law; contact is MINTA's Telegram group and X account. Confirm the effective date at publication. The test network keeps its own pages,
 `public/terms-testnet/` and `public/privacy-testnet/`, which a test-network build's footer links to. The in-app Docs (`src/pages/Docs.tsx`) carry no contact address for the same reason.
 
 ## 4. The network
