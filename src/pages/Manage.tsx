@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAddress, zeroAddress, type Address, type Hash } from 'viem';
 import { getFaceIdAddresses, sendCall, type Launch, type WalletLike } from '@vyrechain/sdk';
-import { getLaunch, launchContractsAmong, launchpadContracts, vyrePadAbi } from '../lib/pad';
+import { getLaunch, LAUNCH_LIMITS, launchContractsAmong, launchpadContracts, vyrePadAbi } from '../lib/pad';
 import { vyre } from '../lib/chain';
 import { NETWORK } from '../lib/network';
 import { isAddr, pct, short, tokenText } from '../lib/format';
@@ -132,7 +132,7 @@ function LowerTaxes({ launch, run }: { launch: Launch; run: Runner }) {
   const [s, setS] = useState(String(launch.sellTaxBps / 100));
   // an empty field isn't 0%: taxes can never go back up, so nothing is sent until both are filled in, each a plain percent
   // with at most two decimals (read exactly as typed, never rounded)
-  const { buy: nb, sell: ns, ok } = loweredTaxes(b, s, launch);
+  const { buy: nb, sell: ns, ok } = loweredTaxes(b, s, launch, LAUNCH_LIMITS.minTaxBps);
   return (
     <div className="card">
       <h2 className="h3">Lower the tax</h2>

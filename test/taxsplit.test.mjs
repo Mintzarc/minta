@@ -85,7 +85,10 @@ test('lowering the tax reads each field as typed or not at all, and only ever lo
   assert.deepEqual(loweredTaxes('5', '2.99', now), { buy: 500, sell: 299, ok: true });
   assert.equal(loweredTaxes('5', '3', now).ok, false, 'nothing lower');
   assert.equal(loweredTaxes('5.01', '1', now).ok, false, 'never higher');
-  assert.equal(loweredTaxes('0', '0', now).ok, true);
+  assert.equal(loweredTaxes('0', '0', now).ok, true, 'the testnet has no minimum');
+  assert.equal(loweredTaxes('0.5', '1', now, 100).ok, false, 'mainnet: below the 1% minimum');
+  assert.equal(loweredTaxes('0', '0', now, 100).ok, false, 'mainnet: zero');
+  assert.equal(loweredTaxes('1', '1', now, 100).ok, true, 'mainnet: exactly the minimum');
   for (const typed of ['', ' ', '0x1', '1e0', '+1', '-1', '1.234', '2.555', 'NaN', '1,5']) {
     const r = loweredTaxes(typed, '1', now);
     assert.equal(r.ok, false, JSON.stringify(typed));

@@ -318,7 +318,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
         />
       )}
       {side === 'sell' && <p className="muted small">{faceId
-        ? 'Selling approves exactly this amount, in the same step as the sale (one Face ID), never an open-ended amount.'
+        ? 'Selling approves exactly this amount, never an open-ended amount.'
         : 'Selling signs a permit for exactly this amount (or asks for an exact approval if your wallet can’t), never an open-ended one.'}</p>}
     </div>
   );

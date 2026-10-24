@@ -90,7 +90,7 @@ const ARTICLES: Article[] = [
         id: 'what-is-minta', title: 'What is MINTA?', label: 'Introduction', nav: 'What is MINTA?', art: 'whatis',
         body: (
           <>
-            <p>MINTA is a launchpad on the VYRE chain. Anyone can create a token in one transaction, trade it with USDC, and {NETWORK.testnet ? 'earn a tax on every trade of a token they created' : 'earn the creator’s tax on every trade of a token they created (a tenth of each payout goes to the platform wallet)'}.</p>
+            <p>MINTA is a launchpad on the VYRE chain. Anyone can create a token in one transaction, trade it with USDC, and {NETWORK.testnet ? 'earn a tax on every trade of a token they created' : 'receive the creator’s tax on every trade of a token they created (a tenth of each payout goes to the platform wallet)'}.</p>
             <p>Each token’s whole supply goes into its own pool from the first block, and that pool’s liquidity is locked for good. There is no approval step, no schedule and no waiting list: you launch when you like, and the token is trading in the same moment.</p>
           </>
         ),
