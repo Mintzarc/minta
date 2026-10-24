@@ -1,9 +1,8 @@
-// The home page: King of the Hill (the launch most recently to the milestone) with its contenders, the top launches
-// by liquidity, then every launch under Trending, New (not yet at the milestone) or Graduated, sorted by last trade,
+// The home page: the top launches by liquidity, then every launch under Trending, New (not yet at the milestone) or Graduated, sorted by last trade,
 // market cap, creation or the day's volume, as cards or a table. A search from the header can narrow it (?q=).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
-import { getLaunchCount } from '@vyrechain/sdk';
+import { getLaunchCount } from '../lib/pad';
 import { oneAtATime, vyre } from '../lib/chain';
 import { ago, change, price, searchTerm, tokenText, usd, usdOf } from '../lib/format';
 import { listLaunches, marketOf, type Listed } from '../lib/market';
@@ -13,7 +12,7 @@ import { href } from '../lib/router';
 import { Loading, TokenPic } from '../components/ui';
 import Spark from '../components/Spark';
 import TokenCard from '../components/TokenCard';
-import { Contenders, KingCard, TopByLiquidity } from '../components/KingOfTheHill';
+import { TopByLiquidity } from '../components/TopTokens';
 import { matches } from '../components/Search';
 
 const PAGE = 36;
@@ -123,15 +122,11 @@ export default function Explore({ q = '' }: { q?: string }) {
 
   const st = (l: Listed) => stats.get(l.pool);
   const cap = (l: Listed) => l.market?.marketCap ?? 0;
-  const top = useMemo(() => {
-    if (!list) return { king: null, contenders: [], byLiquidity: [] };
-    const grads = list.filter((l) => st(l)?.graduated);
-    const king = grads.sort((a, b) => Number((st(b)!.reachedBlock ?? 0n) - (st(a)!.reachedBlock ?? 0n)))[0] ?? null;
-    const contenders = list.filter((l) => st(l) && !st(l)!.graduated).sort((a, b) => st(b)!.progress - st(a)!.progress).slice(0, 4);
-    // by the USDC in each pool: a market cap alone is a number its creator picked at launch
-    const byLiquidity = list.filter((l) => st(l)).sort((a, b) => st(b)!.raised - st(a)!.raised).slice(0, 4);
-    return { king, contenders, byLiquidity };
-  }, [list, stats]);
+  // by the USDC in each pool: a market cap alone is a number its creator picked at launch
+  const byLiquidity = useMemo(
+    () => (list ? list.filter((l) => st(l)).sort((a, b) => st(b)!.raised - st(a)!.raised).slice(0, 4) : []),
+    [list, stats],
+  );
 
   const rows = useMemo(() => {
     if (!list) return null;
@@ -157,11 +152,7 @@ export default function Explore({ q = '' }: { q?: string }) {
       {!list && !err && <Loading what="Reading the launchpad" />}
       {list && (
         <div className="home-top">
-          <div className="home-left">
-            <KingCard king={top.king} stats={stats} holders={holders} status={statsState} />
-            <Contenders rows={top.contenders} stats={stats} status={statsState} />
-          </div>
-          <TopByLiquidity rows={top.byLiquidity} stats={stats} status={statsState} />
+          <TopByLiquidity rows={byLiquidity} stats={stats} status={statsState} />
         </div>
       )}
 

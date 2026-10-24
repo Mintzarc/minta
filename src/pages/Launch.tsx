@@ -3,7 +3,8 @@
 // transaction launches it; the dialog then follows it through the wallet to the token's page.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
-import { LAUNCH_LIMITS, SentButUnconfirmedError, checkLaunchParams, getLaunch, launch, operationIn, vyrePadAbi, type LaunchParams } from '@vyrechain/sdk';
+import { SentButUnconfirmedError, operationIn, type LaunchParams } from '@vyrechain/sdk';
+import { LAUNCH_LIMITS, checkLaunchParams, getLaunch, launch, vyrePadAbi } from '../lib/pad';
 import { getAddress, isAddress, isAddressEqual, parseEventLogs, type Hash, type TransactionReceipt } from 'viem';
 import { EXPLORER, reason, vyre } from '../lib/chain';
 import { amountProblem, exact, iso, parse, pct, percentBps, plainText, price, short, tokenText, usd } from '../lib/format';
@@ -17,6 +18,7 @@ import { LaunchFileFields, emptyLaunchFile, hasPicture, keptPicture, launchFileP
 import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
 import { NETWORK, scoped } from '../lib/network';
 import { useLaunchesOpen } from '../lib/launches';
+import { TAX_GOES, creatorTaxLine } from '../lib/fees';
 
 /** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself */
 const OPENING_MARKET_CAP = LAUNCH_LIMITS.openingMarketCap;
@@ -336,7 +338,7 @@ export default function Launch() {
                   <div className="field"><span>Price at launch</span><b className="block">{price(openPrice)}</b><small className="muted">Supply sets the price: {usd(Number(OPENING_MARKET_CAP / E18))} market cap divided by the supply.</small></div>
                 </div>
                 <div className="field"><span>Your tax on each buy and sale</span>
-                  <small className="muted">Paid to you in USDC, {TAX_RANGE} each. You can lower it later, never raise it.</small>
+                  <small className="muted">{creatorTaxLine(TAX_RANGE)}</small>
                 </div>
                 <div className="tabs presets" role="group" aria-label="Tax preset">
                   {PRESETS.filter((p) => p.key === 'custom' || Number(p.buy) * 100 >= MIN_TAX_BPS).map((p) => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => pick(p.key)}>{p.label}</button>)}
@@ -372,7 +374,7 @@ export default function Launch() {
                   <div><dt>Token</dt><dd><b>$<bdi>{tokenText(symbol) || '—'}</bdi></b> <bdi>{tokenText(name)}</bdi></dd></div>
                   <div><dt>Supply</dt><dd>{params ? `${exact(params.totalSupply)} tokens` : '—'}</dd></div>
                   <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))} ({price(openPrice)} a token)</dd></div>
-                  <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, paid to you</dd></div>
+                  <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, {TAX_GOES}</dd></div>
                   <div><dt>Dev buy</dt><dd>{params?.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'}</dd></div>
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
                 </dl>
@@ -715,7 +717,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
     ['Token', <><b>$<bdi>{params.symbol}</bdi></b> <bdi>{params.name}</bdi></>],
     ['Supply', `${exact(params.totalSupply)} tokens`],
     ['Opening market cap', `about ${usd(Number(OPENING_MARKET_CAP / E18))} (${price(openPrice)} a token; the pool opens within about 1% of it)`],
-    ['Buy / sell tax', `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, paid to you`],
+    ['Buy / sell tax', `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, ${TAX_GOES}`],
     ['Dev buy', params.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'],
     ['Picture and links', meta.useOwn ? (meta.own ? 'Your own file' : 'None') : !(hasContent(meta.file) || meta.picture) ? 'None (add them any time)'
       : fileFailed ? 'Couldn’t be saved just now (add them any time)' : 'Saved with the launch (change them any time)'],

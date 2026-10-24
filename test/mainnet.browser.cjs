@@ -28,7 +28,13 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
 (async () => {
   const viem = await import('viem');
   const sdk = await import('@vyrechain/sdk');
-  const pad = sdk.getAddresses(3045).pad.toLowerCase();
+  // the launchpad on mainnet is the new pad (src/lib/padv2.ts); the old one's address in the SDK is not asked
+  const v2 = await import('../src/lib/padv2.ts');
+  const pad = v2.PAD_V2.pad.toLowerCase();
+  const TOKEN = viem.getAddress('0x1111111111111111111111111111111111111111');
+  const POOL = viem.getAddress('0x2222222222222222222222222222222222222222');
+  const CREATOR = viem.getAddress('0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
+  ok(sdk.getAddresses(3045).pad.toLowerCase() !== pad, 'the SDK still lists the first launchpad, which this build does not use');
   const multicall = sdk.vyreMainnet.contracts.multicall3.address.toLowerCase();
   const m3 = viem.parseAbi(['function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)']);
 
@@ -50,12 +56,38 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         return viem.encodeFunctionResult({ abi: m3, functionName: 'aggregate3', result: results });
       }
       if (to.toLowerCase() === pad) {
-        const call = viem.decodeFunctionData({ abi: sdk.vyrePadAbi, data });
+        const call = viem.decodeFunctionData({ abi: v2.padV2Abi, data });
         if (call.functionName === 'launchesOpen') {
           if (launchesOpen === 'unreadable') throw new Error('unreadable');
-          return viem.encodeFunctionResult({ abi: sdk.vyrePadAbi, functionName: 'launchesOpen', result: launchesOpen });
+          return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchesOpen', result: launchesOpen });
         }
-        if (call.functionName === 'launchCount') return viem.encodeFunctionResult({ abi: sdk.vyrePadAbi, functionName: 'launchCount', result: 0n });
+        if (call.functionName === 'launchCount') return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchCount', result: 0n });
+      }
+      // a launch on the new pad, to show a token page and a Manage page
+      const t = TOKEN.toLowerCase();
+      if (to.toLowerCase() === pad) {
+        const call = viem.decodeFunctionData({ abi: v2.padV2Abi, data });
+        const out = (result) => viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: call.functionName, result });
+        if (call.functionName === 'launches') return out(String(call.args[0]).toLowerCase() === t ? [POOL, 250, 500, -200, 887200, CREATOR, 1700000000n] : [viem.zeroAddress, 0, 0, 0, 0, viem.zeroAddress, 0n]);
+        if (call.functionName === 'metadataOf') return out('');
+        if (call.functionName === 'taxWalletsOf') return out([[], []]);
+        if (call.functionName === 'pendingCreator') return out(viem.zeroAddress);
+        if (call.functionName === 'tokenOfPool') return out(viem.zeroAddress);
+        if (call.functionName === 'tokens') return out(TOKEN);
+      }
+      if (to.toLowerCase() === t) {
+        const call = viem.decodeFunctionData({ abi: sdk.vyreTokenAbi, data });
+        const out = (result) => viem.encodeFunctionResult({ abi: sdk.vyreTokenAbi, functionName: call.functionName, result });
+        if (call.functionName === 'name') return out('Fee Check');
+        if (call.functionName === 'symbol') return out('FEE');
+        if (call.functionName === 'totalSupply') return out(1000000n * 10n ** 18n);
+        if (call.functionName === 'balanceOf') return out(0n);
+      }
+      if (to.toLowerCase() === POOL.toLowerCase()) {
+        const pool = viem.parseAbi(['function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)', 'function token0() view returns (address)']);
+        const call = viem.decodeFunctionData({ abi: pool, data });
+        if (call.functionName === 'token0') return viem.encodeFunctionResult({ abi: pool, functionName: 'token0', result: TOKEN });
+        return viem.encodeFunctionResult({ abi: pool, functionName: 'slot0', result: [2n ** 96n, 0, 0, 1, 1, 0, true] });
       }
       throw new Error('not answered');
     };
@@ -64,6 +96,9 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       try {
         if (req.method === 'eth_chainId') return { jsonrpc: '2.0', id, result: '0xbe5' };
         if (req.method === 'eth_blockNumber') return { jsonrpc: '2.0', id, result: '0x31' };
+        if (req.method === 'eth_getLogs') return { jsonrpc: '2.0', id, result: [] };
+        if (req.method === 'eth_getBlockByNumber') return { jsonrpc: '2.0', id, result: { number: '0x31', hash: '0x' + '0b'.repeat(32), timestamp: '0x6000', transactions: [], gasLimit: '0x1c9c380', baseFeePerGas: '0x1' } };
+        if (req.method === 'eth_getBalance') return { jsonrpc: '2.0', id, result: '0x0' };
         if (req.method === 'eth_call') return { jsonrpc: '2.0', id, result: answerCall(req.params[0].to, req.params[0].data || req.params[0].input) };
       } catch { /* falls through to the error */ }
       return { jsonrpc: '2.0', id, error: { code: -32601, message: 'not answered' } };
@@ -100,6 +135,10 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(/chain 3045/.test(menu) && /VYRE Mainnet/.test(menu), 'the network menu names chain 3045');
     ok(!/faucet/i.test(menu), 'and has no Faucet link');
     ok(!BANNED.test(await body(pg)), 'the home page has no testnet-only or unused wording');
+    await pg.waitForSelector('.home-top .topcap', { timeout: 8000 }).catch(() => {});
+    const home = await body(pg);
+    ok(!/King of the Hill|Contenders|takes the hill/i.test(home) && await pg.locator('.koth, .contenders-box').count() === 0, 'the home page has no King of the Hill box');
+    ok(await pg.locator('.home-top .topcap').count() === 1 && /Top by liquidity/i.test(home), 'it leads with the top list');
     ok(/Live/i.test(await pg.locator('.tk-live').innerText()) && /mainnet/i.test(await pg.locator('.tk-live').innerText()), 'the ticker says mainnet');
     await pg.waitForTimeout(800);
     ok([...hosts].every((h) => /^(?:rpc|api|explorer)\.vyrechain\.com$|^fonts\.(?:googleapis|gstatic)\.com$/.test(h)), `only mainnet hosts are asked (${[...hosts].join(', ') || 'none'})`);
@@ -163,7 +202,9 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(/1 to 10%/.test(tokenomics), 'the tokenomics step says taxes are 1 to 10% a side');
     ok(await pg.locator('.setting-cards, .wz-step').locator('button:has-text("No tax")').count() === 0, 'and offers no “No tax” choice');
     ok(await pg.locator('.wz-step button:has-text("1% / 1%")').count() === 1, 'while the 1% / 1% choice is there');
-    ok(!/platform fee|per trade|MINTA fee/i.test(tokenomics), 'it states no platform or MINTA fee');
+    ok(!/platform fee|per trade|MINTA fee|10% of every/i.test(tokenomics), 'it states no platform or MINTA fee, and never “10% of every trade”');
+    ok(/only fee a trader pays/.test(tokenomics) && /1 to 10% on each side/.test(tokenomics) && /a tenth of it goes to the platform wallet and the rest to your tax wallets/.test(tokenomics) && /in USDC/.test(tokenomics),
+      'it says the creator’s tax is the only fee a trader pays, 1 to 10% a side in USDC, a tenth to the platform wallet and the rest to the tax wallets');
     await pg.click('.wz-step button:has-text("Custom")');
     await pg.fill('.wz-step input[placeholder="1 to 10"] >> nth=0', '0');
     await pg.click('.wz-next');
@@ -176,7 +217,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.click('.wz-next');
     await pg.click('.wz-next');
     const review = await pg.locator('.wz-step').innerText();
-    ok(/1% \/ 10%/.test(review) && !/platform fee|per trade|MINTA fee|Trading fees/i.test(review), 'the final review shows the tax and no fee sentence');
+    ok(/1% \/ 10%/.test(review) && /a tenth goes to the platform wallet, the rest to you/.test(review) && !/platform fee|per trade|MINTA fee|Trading fees|10% of every/i.test(review), 'the final review shows the tax, where it goes in words, and no fee sum');
     ok(!BANNED.test(await body(pg)), 'the wizard has no testnet-only wording' + (BANNED.test(await body(pg)) ? ': ' + (await body(pg)).match(BANNED)[0] : ''));
     ok(errs.length === 0, 'nothing throws in the wizard' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
@@ -188,6 +229,22 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.waitForSelector('.wz', { timeout: 8000 });
     await pg.waitForTimeout(600);
     ok(await pg.locator('.wz').count() === 1 && await pg.locator('[data-launches=closed]').count() === 0, 'if the switch can’t be read the wizard is still there');
+    await ctx.close();
+  }
+
+  // ---- a token page and a Manage page: the fee in words, the platform wallet, no partner fee
+  {
+    const { pg, ctx, errs } = await open(`#/token/${TOKEN}`, true);
+    await pg.waitForSelector('.stats-card', { timeout: 10000 });
+    const card = await pg.locator('.stats-card').innerText();
+    ok(/Buy tax\s*2\.5%/.test(card) && /Sell tax\s*5%/.test(card), 'the token page shows the launch’s two taxes');
+    ok(/the only fee a trade pays, in USDC/.test(card) && /one tenth of it goes to the platform wallet/.test(card) && /rest to the creator’s tax wallets/.test(card), 'and says the tax is the only fee, in USDC, a tenth of it to the platform wallet and the rest to the creator’s tax wallets');
+    ok(await pg.locator('.stats-card a', { hasText: '0x7293' }).count() >= 1, 'with the platform wallet linked');
+    ok(!/Partner fee|platform fee|per trade|10% of every|MINTA fee/i.test(card), 'and no partner fee, platform fee or “10% of every trade”');
+    await pg.fill('.trade-card input', '100');
+    await pg.waitForTimeout(700);
+    ok(!/promoter/i.test(await pg.locator('.trade-card').innerText()), 'the trade panel has no promoter note');
+    ok(errs.length === 0, 'nothing throws on the token page' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }
 

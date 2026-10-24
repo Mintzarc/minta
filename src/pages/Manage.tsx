@@ -2,8 +2,10 @@
 // links, and hand the launch to someone else (who accepts it). Each transaction is simulated before the wallet sees it.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAddress, zeroAddress, type Address, type Hash } from 'viem';
-import { getFaceIdAddresses, getLaunch, sendCall, vyrePadAbi, type Launch, type WalletLike } from '@vyrechain/sdk';
+import { getFaceIdAddresses, sendCall, type Launch, type WalletLike } from '@vyrechain/sdk';
+import { getLaunch, launchContractsAmong, launchpadContracts, vyrePadAbi } from '../lib/pad';
 import { vyre } from '../lib/chain';
+import { NETWORK } from '../lib/network';
 import { isAddr, pct, short, tokenText } from '../lib/format';
 import { addresses, readLaunchFile, type Meta } from '../lib/market';
 import { loweredTaxes, refusedForSplit, splitBps, taxSplitProblem } from '../lib/taxsplit';
@@ -107,7 +109,7 @@ export default function Manage({ token }: { token: Address }) {
 
       <div className="card">
         <h2 className="h3">Collect the tax</h2>
-        <p className="small">Sends the tax collected so far, in USDC, to {!wallets ? 'the wallets its tax goes to (the creator, unless the tax is split)' : wallets.wallets.length ? 'the tax wallets below' : 'the creator'}. Anyone can press it; the money only goes there.</p>
+        <p className="small">Sends the tax collected so far, in USDC, to {!wallets ? 'the wallets its tax goes to (the creator, unless the tax is split)' : wallets.wallets.length ? 'the tax wallets below' : 'the creator'}. Anyone can press it; the money only goes there.{!NETWORK.testnet && ' A tenth of what is collected goes to the platform wallet first.'}</p>
         {account && <TxButton className="btn btn-line" label="Collect" run={run({ functionName: 'collectCreatorFees', args: [token] }, 'Collected.')} />}
       </div>
 
@@ -152,7 +154,7 @@ function TaxWallets({ launch, current, failed, retry, run }: { launch: Launch; c
   return (
     <div className="card">
       <h2 className="h3">Split the tax</h2>
-      <p className="small">Up to four wallets, each with a share. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
+      <p className="small">Up to four wallets, each with a share of the creator’s side of the tax{NETWORK.testnet ? '' : ' (what is left after the platform wallet’s tenth)'}. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
       {current ? <SplitEditor launch={launch} current={current} run={run} />
         : failed ? (
           <div className="split-failed" role="alert">
@@ -173,7 +175,7 @@ function SplitEditor({ launch, current, run }: { launch: Launch; current: Split;
   // a new read (after a save, or Try again) starts the editor again from what is on the chain
   useEffect(() => { setRows(rowsOf(current, launch.creator)); }, [current, launch.creator]);
   // (refused: every contract the SDK lists for the chain, the chain's Multicall3, this launch's pool and token, and the chain's system addresses)
-  const refused = refusedForSplit(addresses(), faceIdContracts(), [vyre.chain?.contracts?.multicall3?.address, launch.pool, launch.token]);
+  const refused = refusedForSplit(addresses(), faceIdContracts(), [vyre.chain?.contracts?.multicall3?.address, launch.pool, launch.token, ...launchpadContracts()]);
   const bps = splitBps(rows);
   const problem = taxSplitProblem(rows, refused);
   return (
@@ -189,7 +191,12 @@ function SplitEditor({ launch, current, run }: { launch: Launch; current: Split;
       {rows.length < 4 && <button type="button" className="linkish small" onClick={() => setRows([...rows, { addr: '', share: '' }])}>Add a wallet</button>}
       {problem && <p className="err small">{problem}</p>}
       <TxButton className="btn btn-line" label={problem ? 'Save the split' : `Save the split: ${bps.map(pct).join(' / ')}`} disabled={!!problem}
-        run={(say) => run({ functionName: 'setTaxWallets', args: [launch.token, rows.map((r) => getAddress(r.addr as Address)), bps] }, 'Saved.')(say)} />
+        run={async (say) => {
+          // a pool or token of any launch (not only this one's) could never pay the tax out again: read from the launchpad before anything is signed
+          const hits = await launchContractsAmong(vyre, rows.map((r) => r.addr));
+          if (hits.length) throw new Error('That’s a launch’s pool or token, not a wallet: tax sent there would be lost. Nothing was sent.');
+          return run({ functionName: 'setTaxWallets', args: [launch.token, rows.map((r) => getAddress(r.addr as Address)), bps] }, 'Saved.')(say);
+        }} />
     </>
   );
 }

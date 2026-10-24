@@ -2,8 +2,8 @@
 // owner): while it is off, a launch fails with "launches closed" and the Create page says so up front instead of letting the
 // wizard run to a failure. Trading on launches that already exist is never affected.
 import { useEffect, useState } from 'react';
-import { vyrePadAbi } from '@vyrechain/sdk';
 import { vyre } from './chain';
+import { vyrePadAbi } from './pad';
 import { addresses } from './market';
 
 /** `true` open, `false` closed, `null` when it couldn't be read (the wizard then stays usable: the SDK's own check stops a launch that would fail) */

@@ -2,7 +2,7 @@
 // it created.
 import { useEffect, useState } from 'react';
 import type { Address } from 'viem';
-import { getLaunchCount } from '@vyrechain/sdk';
+import { getLaunchCount } from '../lib/pad';
 import { vyre } from '../lib/chain';
 import { amount, price, tokenText, usd } from '../lib/format';
 import { listLaunches, tokenBalance, usdcBalance, type Listed } from '../lib/market';

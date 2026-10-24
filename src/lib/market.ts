@@ -1,7 +1,8 @@
 // What the app shows about launches: prices, market caps, balances, recent trades and each launch's picture and links.
 // Prices are the pool's own mid price (before fees); trades quote through the SDK, which includes every fee.
 import { getAddress, parseAbi, parseAbiItem, type Address, type Hash } from 'viem';
-import { getAddresses, getLaunches, readLogsSplitting, vyreTokenAbi, type Launch } from '@vyrechain/sdk';
+import { getAddresses, readLogsSplitting, vyreTokenAbi, type Launch } from '@vyrechain/sdk';
+import { getLaunches } from './pad';
 import { VYRE_CHAIN, vyre } from './chain';
 import { API_URL } from './api';
 import { shownPicture } from './picture';

@@ -5,9 +5,11 @@ import { href } from '../lib/router';
 import { addresses } from '../lib/market';
 import { EXPLORER, VYRE_CHAIN } from '../lib/chain';
 import { NETWORK } from '../lib/network';
+import { PAD_V2 } from '../lib/padv2';
 import { MILESTONE_TEXT } from '../lib/stats';
 import { API_URL } from '../lib/api';
 import { VyreGlyph } from '../components/Brand';
+import { AddressLink } from '../components/ui';
 import './docs.css';
 
 /** The pictures (public/art, served beside the app) */
@@ -47,15 +49,23 @@ const Code = ({ children }: { children: string }) => <pre className="code"><code
 
 function ContractTable() {
   const a = addresses();
-  const rows: [string, string, string][] = [
+  const rows: [string, string, string][] = NETWORK.testnet ? [
     ['VyrePad', a.pad, 'Launches tokens (one transaction each) and holds every launch’s settings'],
-    ['VyreAppRouter', a.appRouter, NETWORK.promoters ? 'Buys and sells launch tokens for apps and pays promoters' : 'Buys and sells launch tokens for apps'],
-    ...(NETWORK.promoters ? [['VyreReferrals', a.referrals, 'Records which promoter brought each wallet'] as [string, string, string]] : []),
-    ['VyreFeeSplitter', a.feeSplitter, NETWORK.promoters ? 'Splits the platform fee between the platform, partner launchpads and promoters' : 'Pays out the fees the launchpad contracts take'],
+    ['VyreAppRouter', a.appRouter, 'Buys and sells launch tokens for apps and pays promoters'],
+    ['VyreReferrals', a.referrals, 'Records which promoter brought each wallet'],
+    ['VyreFeeSplitter', a.feeSplitter, 'Splits the platform fee between the platform, partner launchpads and promoters'],
     ['VyrePoolFactory', a.poolFactory, 'Creates launch pools (Uniswap v3 design; only the launchpad adds liquidity)'],
     ['SwapRouter', a.swapRouter, 'Uniswap v3’s router, for these pools'],
     ['QuoterV2', a.quoter, 'Uniswap v3’s quoter: prices a trade without making it'],
     ['WUSDC', a.wusdc, 'Wrapped USDC, what launch pools trade against'],
+  ] : [
+    ['VyrePadV2', a.pad, 'Launches tokens (one transaction each), holds every launch’s settings and pays out the tax: a tenth to the platform wallet, the rest to the creator’s tax wallets'],
+    ['VyrePoolFactory', a.poolFactory, 'Creates launch pools (Uniswap v3 design; only the launchpad adds liquidity)'],
+    ['SwapRouter', a.swapRouter, 'Uniswap v3’s router: how buys and sells reach these pools'],
+    ['QuoterV2', a.quoter, 'Uniswap v3’s quoter: prices a trade without making it'],
+    ['TickLens', a.tickLens, 'Uniswap v3’s tick reader'],
+    ['WUSDC', a.wusdc, 'Wrapped USDC, what launch pools trade against'],
+    ['Platform wallet', PAD_V2.platformWallet, 'A wallet, not a contract: where the platform’s tenth of each payout of a launch’s tax goes'],
   ];
   return (
     <div className="table-wrap">
@@ -80,7 +90,7 @@ const ARTICLES: Article[] = [
         id: 'what-is-minta', title: 'What is MINTA?', label: 'Introduction', nav: 'What is MINTA?', art: 'whatis',
         body: (
           <>
-            <p>MINTA is a launchpad on the VYRE chain. Anyone can create a token in one transaction, trade it with USDC, and earn a tax on every trade of a token they created.</p>
+            <p>MINTA is a launchpad on the VYRE chain. Anyone can create a token in one transaction, trade it with USDC, and {NETWORK.testnet ? 'earn a tax on every trade of a token they created' : 'earn the creator’s tax on every trade of a token they created (a tenth of each payout goes to the platform wallet)'}.</p>
             <p>Each token’s whole supply goes into its own pool from the first block, and that pool’s liquidity is locked for good. There is no approval step, no schedule and no waiting list: you launch when you like, and the token is trading in the same moment.</p>
           </>
         ),
@@ -91,7 +101,7 @@ const ARTICLES: Article[] = [
           <div className="feat-grid">
             <div><Icon name="bolt" /><b>Easy token creation</b><p>Name it, set the supply and the tax, press Create. One transaction.</p></div>
             <div><Icon name="lock" /><b>Locked liquidity</b><p>The pool’s liquidity can’t be removed, by anyone, ever. Only the launchpad adds to it.</p></div>
-            <div><Icon name="coin" /><b>Paid in USDC</b><p>Creators keep a tax of up to 10% on every trade, paid in USDC. They can lower it later, never raise it.</p></div>
+            <div><Icon name="coin" /><b>Paid in USDC</b><p>{NETWORK.testnet ? 'Creators keep a tax of up to 10% on every trade, paid in USDC.' : 'Creators set a tax of 1% to 10% a side on every trade, paid in USDC; a tenth of each payout goes to the platform wallet.'} They can lower it later, never raise it.</p></div>
             <div><Icon name="users" /><b>Your own wallet</b><p>Connect MetaMask, Rabby, Coinbase Wallet or any browser wallet. You keep your keys; MINTA never holds them.</p></div>
           </div>
         ),
@@ -115,7 +125,7 @@ const ARTICLES: Article[] = [
               ? <li><b>Get test USDC.</b> Take some from the faucet: the Wallet page has the button.</li>
               : <li><b>Get USDC on VYRE.</b> The Wallet page moves USDC to VYRE from Arc. A withdrawal back to Arc takes about a day.</li>}
             <li><b>Create a token.</b> Pick its name, ticker, supply and tax. The launch happens in one transaction, with an optional first buy of your own in the same transaction.</li>
-            <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. {NETWORK.testnet ? 'Every trade pays the platform fee and the creator’s tax in USDC.' : 'Every trade pays the creator’s tax in USDC.'}</li>
+            <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. {NETWORK.testnet ? 'Every trade pays the platform fee and the creator’s tax in USDC.' : 'Every trade pays the creator’s tax in USDC, and nothing else is added.'}</li>
             <li><b>Collect.</b> The creator collects the tax whenever they like, and can split it between up to four wallets.</li>
           </ol>
         ),
@@ -136,7 +146,7 @@ const ARTICLES: Article[] = [
               <tbody>
                 <tr><td><b>Name and ticker</b></td><td>1–64 and 1–16 bytes</td><td className="wrap">Shown everywhere the token appears.</td></tr>
                 <tr><td><b>Supply</b></td><td>1,000 to 10<sup>15</sup> tokens</td><td className="wrap">All of it goes into the pool: there is no team allocation held outside it.</td></tr>
-                <tr><td><b>Buy and sell tax</b></td><td>0–10% each</td><td className="wrap">Paid to you in USDC. You can lower it later, never raise it.</td></tr>
+                <tr><td><b>Buy and sell tax</b></td><td>{NETWORK.minTaxBps / 100}–10% each</td><td className="wrap">{NETWORK.testnet ? 'Paid to you in USDC. You can lower it later, never raise it.' : 'In USDC; a tenth goes to the platform wallet and the rest to you (or your tax wallets). You can lower it later, never raise it, and never below 1%.'}</td></tr>
                 <tr><td><b>First buy</b></td><td>Optional</td><td className="wrap">USDC you spend in the launch transaction itself, before anyone else can trade.</td></tr>
                 <tr><td><b>Picture, description, links</b></td><td>Optional</td><td className="wrap">A picture from your device, a short description and website, X, Telegram and Discord links. You can change them later.</td></tr>
               </tbody>
@@ -187,9 +197,11 @@ const ARTICLES: Article[] = [
     title: 'Tokenomics options',
     sections: [
       { id: 'supply', title: 'Supply', body: <p>From 1,000 to 10<sup>15</sup> tokens. The whole supply is in the pool at launch, apart from what you buy yourself with your first buy.</p> },
-      { id: 'tax', title: 'Tax', body: <p>0–10% on buys and 0–10% on sells, set separately. Presets in the form: no tax, 1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down.</p> },
-      { id: 'split', title: 'Splitting the tax', body: <p>After launch, the tax can be split between up to four wallets in any proportions that add up to 100%. Tax earned so far is paid out before the split changes. Only name wallets whose owners hold the keys: tax sent to a contract or an address nobody controls is lost.</p> },
-      { id: 'first-buy', title: 'First buy', body: <p>Optional USDC you spend in the launch transaction, before anyone else can trade, at your own tax{NETWORK.testnet ? ' plus the platform fee' : ''}.</p> },
+      { id: 'tax', title: 'Tax', body: NETWORK.testnet
+        ? <p>0–10% on buys and 0–10% on sells, set separately. Presets in the form: no tax, 1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down.</p>
+        : <p>1–10% on buys and 1–10% on sells, set separately. Presets in the form: 1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down, and never below 1%. It is the only fee a trader pays.</p> },
+      { id: 'split', title: 'Splitting the tax', body: <p>After launch, the tax can be split between up to four wallets in any proportions that add up to 100%. Tax earned so far is paid out before the split changes.{NETWORK.testnet ? '' : ' What is split is the creator’s side, after the platform wallet’s tenth.'} Only name wallets whose owners hold the keys: tax sent to a contract or an address nobody controls is lost. MINTA refuses the launchpad’s own contracts, the router and every launch’s pool and token.</p> },
+      { id: 'first-buy', title: 'First buy', body: <p>Optional USDC you spend in the launch transaction, before anyone else can trade, at your own tax{NETWORK.testnet ? ' plus the platform fee' : ' (the only fee)'}.</p> },
     ],
   },
   {
@@ -200,12 +212,13 @@ const ARTICLES: Article[] = [
         id: 'table', title: 'Who gets what',
         body: (
           <>
-            <p>Every fee is taken in USDC, from the USDC side of the trade: out of what a buyer pays, or what a seller receives.</p>
+            <p>Every fee is taken in USDC, from the USDC side of the trade: out of what a buyer pays, or what a seller receives.{!NETWORK.testnet && ' The creator’s tax is the only fee a trade pays. When the tax is paid out, a tenth of it goes to the platform wallet and the rest to the creator’s tax wallets. For example, on a 1,000 USDC trade with a 5% tax the trader pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator’s tax wallets. (Every transaction also pays the network fee, in USDC.)'}</p>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Fee</th><th>Size</th><th>Goes to</th></tr></thead>
                 <tbody>
-                  <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">The creator, or up to 4 wallets they name</td></tr>
+                  <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">{NETWORK.testnet ? 'The creator, or up to 4 wallets they name' : 'Nine tenths of each payout to the creator, or up to 4 wallets they name'}</td></tr>
+                  {!NETWORK.testnet && <tr><td><b>Platform wallet’s tenth</b></td><td>One tenth of each payout of the tax</td><td className="wrap"><AddressLink address={PAD_V2.platformWallet} /></td></tr>}
                   {NETWORK.testnet && <tr><td><b>Platform fee</b></td><td>1% of every buy and sell</td><td className="wrap">The platform treasury set in the launchpad contracts {NETWORK.promoters ? '(less a promoter’s share, below)' : ''}</td></tr>}
                   {NETWORK.testnet && <tr><td><b>Partner fee</b></td><td>0–1%, only on launches through a partner launchpad</td><td className="wrap">The partner launchpad</td></tr>}
                   {NETWORK.promoters && <tr><td><b>Promoter share</b></td><td>30% of the platform fee</td><td className="wrap">The promoter who brought the trader, when the trade goes through the app router</td></tr>}
@@ -267,7 +280,9 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
     slug: 'integrations',
     title: 'Integrations',
     sections: [
-      { id: 'apps', title: 'Apps and bots', body: <p>Trade through the app router with native USDC (no wrapping, no approval to buy){NETWORK.promoters ? ', and be your users’ promoter' : ''}. The router can charge an app fee on top; it is 0 today, and any change is announced on chain 7 days ahead.</p> },
+      { id: 'apps', title: 'Apps and bots', body: NETWORK.testnet
+        ? <p>Trade through the app router with native USDC (no wrapping, no approval to buy), and be your users’ promoter. The router can charge an app fee on top; it is 0 today, and any change is announced on chain 7 days ahead.</p>
+        : <p>Trade with Uniswap v3’s SwapRouter (address above) against the token’s pool: the pool is found by the token, WUSDC and the fee key 10000. To buy, send native USDC with the call (a multicall of the swap and refundETH); to sell, approve the router for the exact amount, or sign a permit, and unwrap the WUSDC you get back. There is no fee on top of the creator’s tax. The SDK served today was written for the first launchpad; a version for this one is being prepared, and until then call the contracts directly.</p> },
       ...(NETWORK.testnet ? [{ id: 'partners', title: 'Partner launchpads', body: <p>Other launchpads can run on the same contracts under their own brand: launch with your payout address as the partner and a fee of up to 1%. It’s added on top of the creator’s tax and the platform fee (it never comes out of either) and paid to you in USDC. No sign-up or approval is needed.</p> } as Section] : []),
       { id: 'own', title: 'Your own launchpad', body: <p>VYRE is an open EVM chain: anyone can deploy anything, including their own launchpad on a standard, unmodified Uniswap v3.</p> },
     ],
@@ -301,7 +316,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
             <details><summary>Can the liquidity be pulled?</summary><p>No. Each pool’s liquidity is locked in the contract and only the launchpad can add to it; nobody can remove it.</p></details>
             <details><summary>Can a creator raise the tax?</summary><p>No. A creator can lower either tax at any time and can never raise it.</p></details>
             <details><summary>What does a trade cost in gas?</summary><p>{NETWORK.testnet ? 'On the testnet, a buy has cost about six millionths of a dollar. ' : ''}<Ext to="https://vyrechain.com/gas">The gas page has the measurements, and every number links to a real transaction.</Ext></p></details>
-            <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service ({API_HOST}) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href="/privacy/">privacy policy</a>.</p></details>
+            <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service ({API_HOST}) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href={NETWORK.testnet ? '/privacy-testnet/' : '/privacy/'}>privacy policy</a>.</p></details>
             <details><summary>Has it had an outside audit?</summary><p>Not yet. The contracts have been through tests and review rounds by the network’s operator, who deployed them, {NETWORK.testnet ? 'and this is a testnet.' : 'and real money is at stake.'}</p></details>
             <details><summary>Can I lose money?</summary><p>{NETWORK.testnet ? 'On the testnet there is no real money. ' : 'Yes: this is VYRE Mainnet and the USDC is real. '}On any chain, launch tokens can go to zero and nothing here is financial advice.</p></details>
           </div>
@@ -462,7 +477,7 @@ export default function Docs({ article, section }: { article?: string; section?:
             <li><Icon name="rocket" /><div><b>Instant launches</b><span>One transaction, live at once.</span></div></li>
             <li><Icon name="shield" /><div><b>Built on VYRE</b><span>Gas is USDC; a trade costs a fraction of a cent.</span></div></li>
             <li><Icon name="users" /><div><b>Tools for creators</b><span>Supply, tax, tax split, first buy and links.</span></div></li>
-            <li><Icon name="plug" /><div><b>Open to builders</b><span>An SDK, an app router and partner launchpads.</span></div></li>
+            <li><Icon name="plug" /><div><b>Open to builders</b><span>{NETWORK.testnet ? 'An SDK, an app router and partner launchpads.' : 'Open contracts, a standard Uniswap v3 router and a public RPC.'}</span></div></li>
           </ul>
         )}
 

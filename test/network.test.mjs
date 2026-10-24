@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { createPublicClient, createWalletClient, custom, decodeFunctionData, getAddress, parseUnits } from 'viem';
 import ts from 'typescript';
 import { LAUNCH_LIMITS, getAddresses, launch, vyreMainnet, vyrePadAbi, vyreTestnet, TXCHECK_URL } from '@vyrechain/sdk';
+import * as v2 from '../src/lib/padv2.ts';
 
 const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
@@ -94,18 +95,22 @@ function launchOn(chain, extra) {
   const pc = createPublicClient({ chain, transport: custom(node) });
   const wc = createWalletClient({ account: me, chain, transport: custom(wallet) });
   const base = { name: 'My Token', symbol: 'MYT', totalSupply: parseUnits('1000000', 18), buyTaxBps: 100, sellTaxBps: 100 };
-  return launch(wc, pc, { ...base, ...extra }).catch(() => {}).then(() => sent);
+  // mainnet's launch goes to the new pad (lib/padv2.ts), the testnet's to the SDK's first launchpad
+  return (chain.id === 3045 ? v2.launch : launch)(wc, pc, { ...base, ...extra }).catch(() => {}).then(() => sent);
 }
 
 test('a launch on either network names no partner and no partner fee', async () => {
   for (const [chain, id] of [[vyreMainnet, 3045], [vyreTestnet, 7357]]) {
     const [tx] = await launchOn(chain, {});
     assert.ok(tx, 'a launch was sent to the wallet');
-    assert.equal(getAddress(tx.to), getAddresses(id).pad);
-    const call = decodeFunctionData({ abi: vyrePadAbi, data: tx.data });
+    assert.equal(getAddress(tx.to), id === 3045 ? v2.PAD_V2.pad : getAddresses(id).pad);
+    const call = decodeFunctionData({ abi: id === 3045 ? v2.padV2Abi : vyrePadAbi, data: tx.data });
     assert.equal(call.functionName, 'createLaunch');
-    assert.equal(call.args[0].partner, '0x0000000000000000000000000000000000000000');
-    assert.equal(call.args[0].partnerFeeBps, 0);
+    if (id === 3045) assert.ok(!('partner' in call.args[0]) && !('partnerFeeBps' in call.args[0]), 'the new pad’s launch has no partner fields');
+    else {
+      assert.equal(call.args[0].partner, '0x0000000000000000000000000000000000000000');
+      assert.equal(call.args[0].partnerFeeBps, 0);
+    }
   }
 });
 
@@ -114,8 +119,10 @@ test('the app sends no partner or fee of its own, and states no platform fee, on
   assert.match(launchPage, /launch\(w, vyre, \{ \.\.\.params, metadataURI \}\)/, 'the launch call sends the form’s parameters');
   for (const f of fs.readdirSync(new URL('../src/', import.meta.url), { recursive: true }).filter((f) => /\.tsx?$/.test(f))) {
     const t = read(`src/${f}`);
-    assert.doesNotMatch(t, /MINTA_PARTNER|PARTNER\b|partnerFeeBps:/, `${f} names no partner of its own`);
-    assert.doesNotMatch(t, new RegExp('0x7293' + '8Daaf3c2Fa4bEf722E1263a5766755788392', 'i'), `${f} writes out no payout address`);
+    // (lib/padv2.ts fills the SDK's Launch shape with "no partner" for a launch read from the new pad, which has none)
+    assert.doesNotMatch(f === 'lib/padv2.ts' ? t.replace('partner: null, partnerFeeBps: 0,', '') : t, /MINTA_PARTNER|PARTNER\b|partnerFeeBps:/, `${f} names no partner of its own`);
+    // the platform wallet is written out once, in lib/padv2.ts, and only to be shown (the contract pays it; no call here sends to it)
+    if (f !== 'lib/padv2.ts') assert.doesNotMatch(t, new RegExp('0x7293' + '8Daaf3c2Fa4bEf722E1263a5766755788392', 'i'), `${f} writes out no payout address`);
     assert.doesNotMatch(t, /per trade|MINTA fee/, `${f} has no fee sum`);
   }
   assert.doesNotMatch(tokenPage, /Platform fee|platform fee|VYRE’s 1%/, 'the token page has no platform-fee sentence');

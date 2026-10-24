@@ -114,3 +114,21 @@ test('the chain’s Face ID wallet contracts the SDK lists (EntryPoint, wallet f
   for (const a of refused) assert.ok(forSplit.has(a), a);
   assert.equal(refusedForSplit(A, null, []).size, refusedTaxWallets(A, []).size, 'no Face ID list: just the contracts');
 });
+
+// Mainnet: the new pad refuses only the pad, the factory, WUSDC, the pool deployer and launches that exist; it cannot know the
+// SwapRouter (anyone can take what is sent to it), the quoter or the tick reader, so the page refuses them, and the pool and token
+// of the launch being managed, whatever the pad would say.
+import * as V2 from '../src/lib/padv2.ts';
+test('mainnet: a tax split never names the router, the pad, the factory, a pool or a token', () => {
+  const asPage = refusedForSplit({}, null, [MULTICALL3, POOL, TOKEN, ...V2.padV2Contracts()]);
+  const say = (addr) => taxSplitProblem([{ addr, share: '100' }], asPage);
+  for (const [name, addr] of Object.entries({
+    pad: V2.PAD_V2.pad, factory: V2.PAD_V2.poolFactory, poolDeployer: V2.PAD_V2.poolDeployer, swapRouter: V2.PAD_V2.swapRouter,
+    quoter: V2.PAD_V2.quoter, tickLens: V2.PAD_V2.tickLens, wusdc: V2.PAD_V2.wusdc, multicall: MULTICALL3, pool: POOL, token: TOKEN,
+  })) {
+    assert.match(say(addr), /own contracts/, name);
+  }
+  assert.match(say(V2.PAD_V2.swapRouter.toLowerCase()), /own contracts/, 'the router in lower case');
+  assert.equal(say(CREATOR), '', 'an ordinary wallet is allowed');
+  assert.equal(say(V2.PAD_V2.platformWallet), '', 'the platform wallet is a wallet; the pad itself decides what it may receive');
+});
