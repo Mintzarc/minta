@@ -134,7 +134,7 @@ function PictureField({ value, onChange }: { value: LaunchFileState; onChange: (
             <button type="button" className="btn btn-line btn-sm" onClick={() => input.current?.click()} disabled={busy}>{busy ? 'Getting it ready…' : shown ? 'Choose another' : 'Choose a picture'}</button>
             {(shown || outside) && !busy && <button type="button" className="linkish small" onClick={() => { setErr(''); onChange({ ...value, picture: null, file: { ...f, image: '' } }); }}>Remove</button>}
           </div>
-          <small className="muted">A PNG, JPEG or WebP from your phone or computer. It’s cropped to a square and shrunk for you; 300 × 300 or larger looks best.</small>
+          <small className="muted">A PNG, JPEG or WebP from your phone or computer. It’s cropped to a square and shrunk for you; 300 × 300 or larger looks best. Use a plain background or a real transparent PNG: a screenshot of a transparent picture keeps its checkerboard.</small>
         </div>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/*" hidden onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
