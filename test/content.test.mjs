@@ -12,6 +12,9 @@ const read = (f) => fs.readFileSync(new URL(f, root), 'utf8');
 const words = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const terms = words(read('public/terms/index.html'));
 const privacy = words(read('public/privacy/index.html'));
+// the test network's own pages (the footer links to them in a test-network build)
+const termsT = words(read('public/terms-testnet/index.html'));
+const privacyT = words(read('public/privacy-testnet/index.html'));
 const docs = read('src/pages/Docs.tsx');
 const wallet = read('src/pages/Wallet.tsx');
 const handoff = read('docs/HANDOFF.md');
@@ -38,9 +41,12 @@ test('the Wallet page promises no cash-out to a bank, and shows the card checkou
   assert.doesNotMatch(wallet, /bank account|card partner/i);
   assert.match(wallet, /\{CARD_TOPUP && account && !faceId && <CardTopup /, 'the card checkout is behind the build setting');
   assert.equal((wallet.match(/<CardTopup /g) || []).length, 1, 'and is drawn in one place only');
-  assert.match(terms, /card and Apple Pay purchases of USDC, where offered/, 'the terms name the card provider only where it is offered');
-  assert.match(privacy, /Buy USDC with a card or Apple Pay \(where offered\)/, 'and so does the privacy page');
-  assert.match(privacy, /Transak : card and Apple Pay purchases of USDC, where offered/, 'in its list of companies too');
+  assert.match(termsT, /card and Apple Pay purchases of USDC, where offered/, 'the test network’s terms name the card provider only where it is offered');
+  assert.match(privacyT, /Buy USDC with a card or Apple Pay \(where offered\)/, 'and so does its privacy page');
+  assert.match(privacyT, /Transak : card and Apple Pay purchases of USDC, where offered/, 'in its list of companies too');
+  // mainnet's pages: the card checkout is not offered and nothing says it is
+  assert.match(terms, /doesn[’']t offer card or Apple Pay purchases of USDC/, 'the mainnet terms say card purchases are not offered');
+  assert.doesNotMatch(privacy, /Transak|card or Apple Pay|checkout/i, 'and the mainnet privacy page has no card checkout');
 });
 
 test('the privacy page names the explorer, which every page calls from the visitor’s browser', () => {
@@ -77,7 +83,7 @@ test('the card checkout is offered on a test network unless switched off, and el
   assert.equal(cardTopupOffered('0', true), false, 'switched off');
   assert.equal(cardTopupOffered('1', false), false, 'VITE_CARD_TOPUP=1 alone is not enough until LIVE_CARD_TOPUP_READY');
   for (const odd of ['true', 'yes', ' 1', 'on', 1, true]) assert.equal(cardTopupOffered(odd, false), false, `${JSON.stringify(odd)} is not a setting`);
-  assert.match(wallet, /cardTopupOffered\(import\.meta\.env\.VITE_CARD_TOPUP, vyre\.chain\?\.testnet === true\)/, 'the Wallet page asks with the build setting and the app’s own network');
+  assert.match(wallet, /cardTopupOffered\(import\.meta\.env\.VITE_CARD_TOPUP, NETWORK\.testnet\)/, 'the Wallet page asks with the build setting and the app’s own network');
   assert.match(read('README.md'), /VITE_CARD_TOPUP/, 'the setting is documented');
 });
 
@@ -91,30 +97,66 @@ test('the privacy page names every call the pages make, and which stored things 
   assert.match(privacy, /Open any page[^.]*\.[^.]*\.[^|]*sign-in service \(api\.vyrechain\.com\) is asked whether email sign-in is offered/, 'every page asks the sign-in service');
   // the faucet, from the Wallet page
   assert.match(src('pages/Wallet.tsx'), /getFaucetStatus\(\)/);
-  assert.match(privacy, /faucet \(testnet-rpc\.vyrechain\.com\/faucet\)[^|]*your wallet address/, 'the faucet, and the wallet address a request sends it');
+  assert.match(privacyT, /faucet \(testnet-rpc\.vyrechain\.com\/faucet\)[^|]*your wallet address/, 'the faucet, and the wallet address a request sends it');
   // the promoter status lookup with the connected wallet, from the Wallet page
   assert.match(src('pages/Wallet.tsx'), /promoterStatus\(account\)/);
-  assert.match(privacy, /Open the Wallet page with a wallet connected[^|]*promoter service \(testnet-rpc\.vyrechain\.com\)[^|]*wallet address/, 'the promoter status lookup and the wallet address it sends');
+  assert.match(privacyT, /Open the Wallet page with a wallet connected[^|]*promoter service \(testnet-rpc\.vyrechain\.com\)[^|]*wallet address/, 'the promoter status lookup and the wallet address it sends');
   // the stored promoter code, looked up again from token pages
   assert.match(src('pages/Token.tsx'), /promoterWallet\(code\)/);
-  assert.match(privacy, /each token page you open looks the stored code up again/);
+  assert.match(privacyT, /each token page you open looks the stored code up again/);
   // Circle's transfer service: its fees when the Wallet page opens, and the stored transfers' hashes
   assert.match(read('node_modules/@vyrechain/sdk/dist/cctp.js'), /iris-api-sandbox\.circle\.com/);
-  assert.match(privacy, /Circle’s transfer service \(iris-api-sandbox\.circle\.com\)[^|]*fees[^|]*transaction hash/, 'Circle’s transfer service, its fees and the transfers’ hashes');
+  assert.match(privacyT, /Circle’s transfer service \(iris-api-sandbox\.circle\.com\)[^|]*fees[^|]*transaction hash/, 'Circle’s transfer service, its fees and the transfers’ hashes');
   // section 3: what's kept in the browser and what of it is sent
-  assert.doesNotMatch(privacy, /none of it is sent anywhere/i);
-  const kept = privacy.slice(privacy.indexOf('3. What’s kept in your browser'), privacy.indexOf('4. Other companies'));
+  assert.doesNotMatch(privacyT, /none of it is sent anywhere/i);
+  const kept = privacyT.slice(privacyT.indexOf('3. What’s kept in your browser'), privacyT.indexOf('4. Other companies'));
   assert.match(kept, /promoter who referred you[^.]*promoter service/);
   assert.match(kept, /transfers between networks[^.]*Circle/);
   assert.match(kept, /email sign-in[^.]*sign-in service/);
 });
 
-// The handover notes' section on another network is the checklist for that move: it names the one place the network is chosen,
-// and every file whose words or features belong to the test network (what such a file says or offers must change at the move).
+// The mainnet pages describe the mainnet build: the services it calls (the sign-in and picture API, the RPC, the explorer, the check, Arc's
+// public RPC), the creator's tax as the only fee with a tenth of each payout to the platform wallet, no card purchases, no promoters,
+// no faucet, no outside audit claimed; and the operator's name, contact and governing law are visible placeholders until filled in.
+test('the mainnet terms and privacy pages say what the mainnet build does, and give MINTA’s Telegram group and X account as the contact', () => {
+  for (const [name, t] of [['terms', terms], ['privacy', privacy]]) {
+    assert.doesNotMatch(t, /test network|test USDC|test tokens|testnet|draft for|no monetary value|faucet|Transak|card checkout/i, `${name}: no test-network or retired-feature wording`);
+    if (name === 'privacy') assert.doesNotMatch(t, /promoter/i, 'the privacy page: no promoter service on mainnet');
+    assert.doesNotMatch(t, /\baudited\b|trustless|layer.?2|10% of every (?:trade|buy|sale)|1% of (?:each|every) (?:buy|trade)|platform fee of/i, `${name}: no wording the project doesn’t use`);
+    assert.match(t, /Effective [A-Z][a-z]+ \d{1,2}, 2026/, `${name}: dated`);
+    assert.match(t, /VYRE Mainnet/, `${name}: names the network`);
+    assert.match(t, /real money/i, `${name}: says the money is real`);
+  }
+  for (const [name, page] of [['terms', terms], ['privacy', privacy]]) {
+    assert.doesNotMatch(page, /\[[A-Z ]{6,}[:\]…]/, `${name}: no placeholder left`);
+    assert.match(page, /Telegram|the MINTA group/, `${name}: the Telegram contact`);
+    assert.match(page, /@MintaLaunchpad|MintaLaunchpad/, `${name}: the X contact`);
+  }
+  assert.match(terms, /1% to 10% on each side/, 'the tax range');
+  assert.match(terms, /one tenth of the amount goes to the platform’s treasury address[^.]*and the rest to the creator’s tax wallets/);
+  assert.match(terms, /no separate platform fee, no fee of MINTA’s own and no promoter share/i);
+  assert.match(terms, /has not had an outside security audit/);
+  assert.match(terms, /takes about a day/);
+  assert.match(terms, /Circle; MINTA is not affiliated with or endorsed by Circle|issued by Circle/);
+  // the hosts the mainnet build calls are the mainnet ones
+  assert.match(privacy, /rpc\.vyrechain\.com/);
+  assert.doesNotMatch(privacy, /testnet-/);
+  assert.match(privacy, /api\.vyrechain\.com/);
+  assert.match(privacy, /explorer\.vyrechain\.com/);
+  assert.match(privacy, /rpc\.mainnet\.arc\.io/, 'Arc’s public RPC, which the Wallet page reads');
+  // the test network keeps its own pages, linked from the footer of a test-network build
+  assert.match(read('src/App.tsx'), /NETWORK\.testnet \? '\/terms-testnet\/' : '\/terms\/'/);
+  assert.match(read('src/App.tsx'), /NETWORK\.testnet \? '\/privacy-testnet\/' : '\/privacy\/'/);
+});
+
+// The handover notes' section on the network is the checklist for it: it names the places the network is chosen, and every file
+// whose words or features belong to the test network (each must keep them behind the network setting).
 const section = (md, n) => { const from = md.indexOf(`\n## ${n}. `); assert.ok(from >= 0, `section ${n}`); const to = md.indexOf('\n## ', from + 1); return md.slice(from, to < 0 ? undefined : to); };
-test('the handover notes’ “Another network” section names where the network is chosen and every file tied to the test network', () => {
+test('the handover notes’ network section names where the network is chosen and every file tied to the test network', () => {
   const s4 = section(handoff, 4);
-  assert.match(s4, /Another network/);
+  assert.match(s4, /The network/);
+  assert.match(s4, /`src\/lib\/network\.ts`/, 'the build setting is read there');
+  assert.match(s4, /VITE_NETWORK/);
   assert.match(s4, /`VYRE_CHAIN`/, 'the one place the network is chosen');
   assert.match(s4, /`ARC_CHAIN`/, 'and the network USDC is moved to and from');
   assert.match(read('src/lib/chain.ts'), /^export const VYRE_CHAIN = /m, 'chain.ts chooses the network');
@@ -139,9 +181,9 @@ test('the handover notes list the faucet among the services a new domain must be
 // The network's services (its RPC, explorer and app API, each on a host under vyrechain.com) are reached at the addresses the SDK
 // and the build settings give, chosen in src/lib/chain.ts and src/lib/api.ts. A host written out anywhere else in the pages would
 // stay behind if those services moved to other names, and send a test-network build's visitors to whatever took the old ones.
-test('no page names a service host of the network outside src/lib/chain.ts and src/lib/api.ts', () => {
+test('no page names a service host of the network outside src/lib/network.ts, src/lib/chain.ts and src/lib/api.ts', () => {
   const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n')
-    .filter((f) => (/^src\/.+\.tsx?$/.test(f) || f === 'index.html') && f !== 'src/lib/chain.ts' && f !== 'src/lib/api.ts');
+    .filter((f) => (/^src\/.+\.tsx?$/.test(f) || f === 'index.html') && f !== 'src/lib/chain.ts' && f !== 'src/lib/api.ts' && f !== 'src/lib/network.ts');
   const comment = /^\s*(?:\/\/|\*|\/\*|\{\/\*)/;
   const host = /\b[a-z0-9-]+\.vyrechain\.com\b/i;
   const found = [];

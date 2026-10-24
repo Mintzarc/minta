@@ -21,6 +21,7 @@ function market(api = API) {
     './chain': { vyre: {} },
     './api': { API_URL: api },
     './picture': picture,
+    './pad': { getLaunches: async () => [] },
     '@vyrechain/sdk': { getAddresses: () => ({}), getLaunches: async () => [], readLogsSplitting: async () => [], vyreTestnet: { id: 7357 }, vyreTokenAbi: [] },
   };
   const module = { exports: {} };

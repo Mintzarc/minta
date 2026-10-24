@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Terms of Service · MINTA</title>
-  <meta name="description" content="The terms for using MINTA, a launchpad app on the VYRE test network.">
+  <meta name="description" content="The terms for using MINTA, a launchpad app on VYRE Mainnet.">
   <meta name="theme-color" content="#03070b">
   <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -27,24 +27,25 @@
   <main>
     <p class="eyebrow">Legal</p>
     <h1>Terms of <em>Service</em></h1>
-    <p class="lede">Effective October 1, 2026; updated October 22, 2026 (network wording prepared for a later mainnet deploy; who runs the contracts and services MINTA uses, in section 1; card checkout only where offered). These terms cover MINTA, the website at this address, which launches and trades tokens on VYRE. By using it you agree to them. They are a draft while MINTA runs on the test network: they will be reviewed and completed (operator, contact, governing law) before MINTA offers anything but test money on a mainnet chain (target chain 3045 once configured), and the date above will change when they do.</p>
+    <p class="lede">Effective October 24, 2026. These terms cover MINTA, the website at this address, which launches and trades tokens on VYRE Mainnet. On VYRE Mainnet the USDC is real money. By using MINTA you agree to these terms.</p>
 
     <section>
       <h2>1. What MINTA is</h2>
       <p>MINTA is a website: it shows tokens launched on VYRE and lets you launch, buy and sell them by signing transactions from your own wallet. It holds no funds and has no accounts. The contracts that do the work are ordinary contracts on VYRE, deployed by the network’s operator, which also holds the owner role in those that have one: anyone can read them, and see who owns them, on the <a href="https://explorer.vyrechain.com" target="_blank" rel="noopener noreferrer">explorer</a>. MINTA is one app that uses them; other apps and launchpads can use the same contracts.</p>
-      <p>The network MINTA is configured for (shown in the app), its contracts, the public RPC, the explorer, and the services MINTA calls for pictures and a few other features are run by the network’s operator, under its own terms (for the services at vyrechain.com, <a href="https://vyrechain.com/terms/" target="_blank" rel="noopener noreferrer">these</a>).</p>
-      <p><b>Operator, contact and governing law:</b> not yet published. The operator’s name, a contact address for reports and takedown requests, and the governing law will be added here before MINTA is offered with real money.</p>
+      <p>The network MINTA runs on (VYRE Mainnet), its contracts, the public RPC, the explorer, and the services MINTA calls for pictures and a few other features are run by the network’s operator, under its own terms (for the services at vyrechain.com, <a href="https://vyrechain.com/terms/" target="_blank" rel="noopener noreferrer">these</a>).</p>
+      <p><b>Contact:</b> questions, reports and takedown requests go to MINTA on Telegram (<a href="https://t.me/+HDa2YpR0piA3ZWE0" target="_blank" rel="noopener noreferrer">the MINTA group</a>) or on X (<a href="https://x.com/MintaLaunchpad" target="_blank" rel="noopener noreferrer">@MintaLaunchpad</a>).</p>
     </section>
 
     <section>
-      <h2>2. The network today</h2>
-      <p>Today MINTA works on <b>VYRE Testnet</b> (chain ID 7357), the network the app is built for until a mainnet SDK and deploy are ready. On the test network:</p>
+      <h2>2. Real money on VYRE</h2>
+      <p>MINTA works on VYRE Mainnet (chain ID 3045). On it:</p>
       <ul>
-        <li>Test USDC and every token have <b>no monetary value</b> and can’t be exchanged for money through MINTA.</li>
-        <li>The network, its contracts and its data can be changed, paused or reset at any time, and balances can be lost.</li>
-        <li>Features can change or stop without notice.</li>
+        <li>USDC is real money. Tokens can fall to zero, and a token’s price can move a long way in a moment.</li>
+        <li>Blockchain transactions can’t be reversed, and a transaction that fails still costs its network fee.</li>
+        <li>Moving USDC from VYRE back to Arc takes about a day: a withdrawal is started on VYRE and claimed on Arc once it is confirmed there.</li>
+        <li>New launches open when the operator opens them. Until then the Create page says so; tokens that already exist can still be browsed and traded.</li>
+        <li>The network, its settings and its data can change, and features can change or stop without notice.</li>
       </ul>
-      <p>When MINTA is published for a mainnet chain, this section will name that chain (and its chain ID as shown in the app) and drop the test-money limits above.</p>
     </section>
 
     <section>
@@ -57,7 +58,7 @@
       <p>MINTA is self-custodial: it never holds your funds or your keys, and can’t move, freeze or recover them.</p>
       <ul>
         <li><b>A browser wallet</b> (such as MetaMask, Rabby or Coinbase Wallet) is controlled by its recovery phrase, which only you have.</li>
-        <li><b>Email sign-in</b>, where offered, is provided by Circle, under Circle’s own terms.</li>
+        <li><b>Email sign-in</b>, where offered, is provided by Circle, under Circle’s own terms. An email wallet can’t yet trade on VYRE Mainnet; use a browser wallet to trade.</li>
       </ul>
       <p>Blockchain transactions can’t be reversed. Check every transaction before you confirm it.</p>
     </section>
@@ -68,7 +69,7 @@
       <ul>
         <li>MINTA doesn’t review, endorse or vouch for any token, its creator, its name, picture, description or links.</li>
         <li>Nothing here is investment, financial, legal or tax advice, or an offer to buy or sell anything. A token’s price can fall to zero.</li>
-        <li>Each token’s pool and its liquidity are locked by the contracts. Creators set a tax on buys and sells (0–10%), which they can lower but never raise.</li>
+        <li>Each token’s pool and its liquidity are locked by the contracts. Creators set a tax on buys and sells (1% to 10% a side), which they can lower but never raise, and never below 1%.</li>
       </ul>
     </section>
 
@@ -76,15 +77,14 @@
       <h2>6. Fees</h2>
       <ul>
         <li><b>Network fees</b> for every transaction, paid in USDC.</li>
-        <li><b>The platform fee</b>: 1% of each buy and sell, set in the launchpad contracts and paid in USDC to the contracts’ treasury address (visible on the explorer). A launchpad fee on top, if MINTA’s operator sets one (at most 1%), is shown in the same place.</li>
-        <li><b>The creator’s tax</b> on that token, if any, paid to the creator in USDC.</li>
+        <li><b>The creator’s tax</b> on that token, from 1% to 10% on each side, paid in USDC. It is the only fee a trade pays besides the network fee. When a token’s tax is paid out, one tenth of the amount goes to the platform’s treasury address (the wallet is shown in MINTA’s docs and on the explorer) and the rest to the creator’s tax wallets (the creator, or up to four wallets the creator names).</li>
       </ul>
-      <p>MINTA shows what a trade costs before you confirm it. Promoters who bring people to MINTA are paid part of the platform fee under the <a href="https://vyrechain.com/promote/#terms-title" target="_blank" rel="noopener noreferrer">promoter terms</a>; that doesn’t add to what you pay.</p>
+      <p>There is no separate platform fee, no fee of MINTA’s own and no promoter share on top of the tax. MINTA shows what a trade costs before you confirm it.</p>
     </section>
 
     <section>
       <h2>7. Other companies’ services</h2>
-      <p>Some features are provided by other companies, under their own terms and privacy policies: card and Apple Pay purchases of USDC, where offered (Transak, which does its own identity checks), USDC itself and email sign-in (Circle), and bridges to other networks. MINTA doesn’t control them and isn’t responsible for them. The network’s own services are described in section 1.</p>
+      <p>Some features are provided by other companies, under their own terms and privacy policies: USDC itself and email sign-in, where offered (Circle). MINTA doesn’t offer card or Apple Pay purchases of USDC. MINTA doesn’t control the companies it relies on and isn’t responsible for them. The network’s own services are described in section 1.</p>
     </section>
 
     <section>
@@ -125,7 +125,7 @@
   </main>
 
   <footer>
-    <p>MINTA runs on the VYRE test network: test USDC and test tokens have no value. USDC is issued by Circle; MINTA is not affiliated with or endorsed by Circle.</p>
+    <p>MINTA runs on VYRE Mainnet: USDC and tokens here are real money. USDC is issued by Circle; MINTA is not affiliated with or endorsed by Circle.</p>
     <p><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/#/docs">Docs</a></p>
   </footer>
 </body>

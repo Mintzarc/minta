@@ -3,13 +3,16 @@
 // buy/sell panel.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
-import { buy, getLaunch, getPromoter, getTaxWallets, quoteBuy, quoteSell, sell, setPromoter, vyreTokenAbi, type Launch, type TaxWallets } from '@vyrechain/sdk';
+import { getPromoter, setPromoter, vyreTokenAbi, type Launch, type TaxWallets } from '@vyrechain/sdk';
+import { buy, getLaunch, getTaxWallets, quoteBuy, quoteSell, sell, tradeRouter } from '../lib/pad';
 import { EXPLORER, oneAtATime, vyre } from '../lib/chain';
 import { ago, amount, amountProblem, change, exact, iso, parse, pct, plainText, price, short, tokenText, usd, usdOf } from '../lib/format';
-import { addresses, marketOf, recentTrades, tokenBalance, usdcBalance, type Market, type Trade } from '../lib/market';
+import { marketOf, recentTrades, tokenBalance, usdcBalance, type Market, type Trade } from '../lib/market';
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { clearRef, href, storedRef, storedRefCode } from '../lib/router';
 import { promoterWallet } from '../lib/api';
+import { NETWORK } from '../lib/network';
+import { PAD_V2 } from '../lib/padv2';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { sendVyreTx, type EmailSession } from '../lib/circle';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
@@ -31,8 +34,7 @@ async function emailTrade(withEmail: <T>(fn: (s: EmailSession) => Promise<T>) =>
   if (side === 'buy') {
     return withEmail((s) => sendVyreTx(s, { kind: 'buy', token, usdcIn: value.toString(), minTokensOut: minOut.toString(), deadline }, vyre, say));
   }
-  const { appRouter } = addresses();
-  const allowance = await vyre.readContract({ address: token, abi: vyreTokenAbi, functionName: 'allowance', args: [account, appRouter] });
+  const allowance = await vyre.readContract({ address: token, abi: vyreTokenAbi, functionName: 'allowance', args: [account, tradeRouter()] });
   if (allowance < value) await withEmail((s) => sendVyreTx(s, { kind: 'approve', token, amount: value.toString() }, vyre, say));
   return withEmail((s) => sendVyreTx(s, { kind: 'sell', token, amountIn: value.toString(), minUsdcOut: minOut.toString(), deadline }, vyre, say));
 }
@@ -171,16 +173,17 @@ export default function Token({ token }: { token: Address }) {
           <h2 className="h3 span-all">Settings</h2>
           <div><span>Buy tax</span><b>{pct(launch.buyTaxBps)}</b></div>
           <div><span>Sell tax</span><b>{pct(launch.sellTaxBps)}</b></div>
-          <div><span>Platform fee</span><b>1% buy and sell</b></div>
           {launch.partner && <div><span>Partner fee</span><b>{pct(launch.partnerFeeBps)} (<AddressLink address={launch.partner} />)</b></div>}
           <div><span>Supply</span><b>{amount(launch.totalSupply, 0)}</b></div>
           <div><span>Liquidity</span><b>Locked for good</b></div>
-          <div className="span-all"><span>Tax goes to</span>
+          <div className="span-all"><span>{NETWORK.testnet ? 'Tax goes to' : 'Creator’s side of the tax goes to'}</span>
             {split === null ? <b>—</b> : split.wallets.length === 0 ? <b>The creator (<AddressLink address={launch.creator} />)</b> : (
               <ul className="split-list">{split.wallets.map((w, i) => <li key={w}><AddressLink address={w} /> <b>{pct(split.bps[i])}</b></li>)}</ul>
             )}
           </div>
-          <p className="muted small">The tax and fees are paid in USDC. The creator can lower the tax, never raise it. The price shown is the pool’s, before fees.</p>
+          {NETWORK.testnet
+            ? <p className="muted small">The tax is paid in USDC. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>
+            : <p className="muted small">The creator’s tax is the only fee a trade pays, in USDC: {pct(launch.buyTaxBps)} on buys and {pct(launch.sellTaxBps)} on sells, between 1% and 10% a side. When the tax is paid out, one tenth of it goes to the platform wallet (<AddressLink address={PAD_V2.platformWallet} />) and the rest to the creator’s tax wallets above. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>}
         </div>
         </div>
         <TradePanel launch={launch} bal={bal} onVyre={onVyre} account={account} onDone={after} />
@@ -283,12 +286,12 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
         {value && shown && (
           <>
             <p>You get about <b>{amount(shown.out, side === 'buy' ? 2 : 6)} {outSym}</b></p>
-            <p className="muted small">At least {amount(min, side === 'buy' ? 2 : 6)} {outSym}, or the trade doesn’t go through ({(slippage / 100).toFixed(1)}% leeway for other trades landing first), after the creator’s tax ({pct(side === 'buy' ? launch.buyTaxBps : launch.sellTaxBps)}), VYRE’s 1%{launch.partner ? ` and the partner’s ${pct(launch.partnerFeeBps)}` : ''}.</p>
+            <p className="muted small">At least {amount(min, side === 'buy' ? 2 : 6)} {outSym}, or the trade doesn’t go through ({(slippage / 100).toFixed(1)}% leeway for other trades landing first), after the creator’s tax ({pct(side === 'buy' ? launch.buyTaxBps : launch.sellTaxBps)}){launch.partner ? ` and the partner’s ${pct(launch.partnerFeeBps)}` : ''}.</p>
           </>
         )}
         <p className="small slip">Leeway: {[100, 200, 500].map((s) => <button key={s} type="button" className={`chip ${slippage === s ? 'on' : ''}`} onClick={() => setSlippage(s)}>{s / 100}%</button>)}</p>
       </div>
-      {!email && <PromoterNote account={account} onVyre={onVyre} />}
+      {!email && NETWORK.promoters && <PromoterNote account={account} onVyre={onVyre} />}
       {!account ? <ConnectButton /> : emailCantTrade ? <EmailTradeNote /> : (
         <TxButton
           label={label}
@@ -296,7 +299,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
           // a trade whose result couldn't be read is kept for this tab (leaving the page or reloading still shows Check it); a trade is
           // sent to the router, so anything else held was the approval before a sale
           keepAs={`trade:${launch.token.toLowerCase()}:${account.toLowerCase()}`}
-          finalTo={addresses().appRouter}
+          finalTo={tradeRouter()}
           onDone={() => { setInput(''); onDone(); }}
           run={async (say) => {
             if (email) {
@@ -315,7 +318,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
         />
       )}
       {side === 'sell' && <p className="muted small">{faceId
-        ? 'Selling approves exactly this amount, in the same step as the sale (one Face ID), never an open-ended amount.'
+        ? 'Selling approves exactly this amount, never an open-ended amount.'
         : 'Selling signs a permit for exactly this amount (or asks for an exact approval if your wallet can’t), never an open-ended one.'}</p>}
     </div>
   );

@@ -86,14 +86,15 @@ test('CI runs actions pinned to a full commit, and checkout keeps no token in .g
   }
 });
 
-// The network the app works on is chosen in src/lib/chain.ts (VYRE_CHAIN and ARC_CHAIN); every other file reads it from there,
-// so the launchpad's addresses, the wallet's network, the Arc side and the SDK's own clients can't point at different networks.
-// (txcheck.ts keeps the SDK's test network only as a fallback for its unit tests; the app always passes its own chain.)
-test('the network is chosen in one place: no file but src/lib/chain.ts names the SDK’s test networks', () => {
+// The network the app works on is chosen when it is built, in src/lib/network.ts (VITE_NETWORK); chain.ts reads its chains from
+// there and every other file from chain.ts, so the launchpad's addresses, the wallet's network, the Arc side and the SDK's own
+// clients can't point at different networks. (txcheck.ts keeps the SDK's test network only as a fallback for its unit tests; the
+// app always passes its own chain.)
+test('the network is chosen in one place: no file but src/lib/network.ts names the SDK’s networks', () => {
   const found = [];
-  for (const f of files.filter((f) => /^src\/.+\.tsx?$/.test(f) && f !== 'src/lib/chain.ts')) {
+  for (const f of files.filter((f) => /^src\/.+\.tsx?$/.test(f) && f !== 'src/lib/network.ts')) {
     text(f).split('\n').forEach((l, i) => {
-      if (!/\b(?:vyreTestnet|arcTestnet)\b/.test(l)) return;
+      if (!/\b(?:vyreTestnet|arcTestnet|vyreMainnet|arcMainnet)\b/.test(l)) return;
       if (f === 'src/lib/txcheck.ts' && (/^import \{[^}]*\bvyreTestnet\b[^}]*\} from '@vyrechain\/sdk';$/.test(l) || /\(o\.vyreChainId \?\? vyreTestnet\.id\)/.test(l))) return;
       found.push(`${f}:${i + 1}`);
     });

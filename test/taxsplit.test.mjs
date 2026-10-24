@@ -85,7 +85,10 @@ test('lowering the tax reads each field as typed or not at all, and only ever lo
   assert.deepEqual(loweredTaxes('5', '2.99', now), { buy: 500, sell: 299, ok: true });
   assert.equal(loweredTaxes('5', '3', now).ok, false, 'nothing lower');
   assert.equal(loweredTaxes('5.01', '1', now).ok, false, 'never higher');
-  assert.equal(loweredTaxes('0', '0', now).ok, true);
+  assert.equal(loweredTaxes('0', '0', now).ok, true, 'the testnet has no minimum');
+  assert.equal(loweredTaxes('0.5', '1', now, 100).ok, false, 'mainnet: below the 1% minimum');
+  assert.equal(loweredTaxes('0', '0', now, 100).ok, false, 'mainnet: zero');
+  assert.equal(loweredTaxes('1', '1', now, 100).ok, true, 'mainnet: exactly the minimum');
   for (const typed of ['', ' ', '0x1', '1e0', '+1', '-1', '1.234', '2.555', 'NaN', '1,5']) {
     const r = loweredTaxes(typed, '1', now);
     assert.equal(r.ok, false, JSON.stringify(typed));
@@ -113,4 +116,22 @@ test('the chain’s Face ID wallet contracts the SDK lists (EntryPoint, wallet f
   // and everything the plain list refuses is still refused
   for (const a of refused) assert.ok(forSplit.has(a), a);
   assert.equal(refusedForSplit(A, null, []).size, refusedTaxWallets(A, []).size, 'no Face ID list: just the contracts');
+});
+
+// Mainnet: the new pad refuses only the pad, the factory, WUSDC, the pool deployer and launches that exist; it cannot know the
+// SwapRouter (anyone can take what is sent to it), the quoter or the tick reader, so the page refuses them, and the pool and token
+// of the launch being managed, whatever the pad would say.
+import * as V2 from '../src/lib/padv2.ts';
+test('mainnet: a tax split never names the router, the pad, the factory, a pool or a token', () => {
+  const asPage = refusedForSplit({}, null, [MULTICALL3, POOL, TOKEN, ...V2.padV2Contracts()]);
+  const say = (addr) => taxSplitProblem([{ addr, share: '100' }], asPage);
+  for (const [name, addr] of Object.entries({
+    pad: V2.PAD_V2.pad, factory: V2.PAD_V2.poolFactory, poolDeployer: V2.PAD_V2.poolDeployer, swapRouter: V2.PAD_V2.swapRouter,
+    quoter: V2.PAD_V2.quoter, tickLens: V2.PAD_V2.tickLens, wusdc: V2.PAD_V2.wusdc, multicall: MULTICALL3, pool: POOL, token: TOKEN,
+  })) {
+    assert.match(say(addr), /own contracts/, name);
+  }
+  assert.match(say(V2.PAD_V2.swapRouter.toLowerCase()), /own contracts/, 'the router in lower case');
+  assert.equal(say(CREATOR), '', 'an ordinary wallet is allowed');
+  assert.equal(say(V2.PAD_V2.platformWallet), '', 'the platform wallet is a wallet; the pad itself decides what it may receive');
 });

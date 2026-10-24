@@ -1,20 +1,18 @@
-// The home page: King of the Hill (the launch most recently to the milestone) with its contenders, the top launches
-// by liquidity, then every launch under Trending, New (not yet at the milestone) or Graduated, sorted by last trade,
+// The home page: the top launches by liquidity, then every launch under Trending, New (not yet at the milestone) or Graduated, sorted by last trade,
 // market cap, creation or the day's volume, as cards or a table. A search from the header can narrow it (?q=).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
-import { getLaunchCount } from '@vyrechain/sdk';
-import { oneAtATime, VYRE_CHAIN, vyre } from '../lib/chain';
+import { getLaunchCount } from '../lib/pad';
+import { oneAtATime, vyre } from '../lib/chain';
 import { ago, change, price, searchTerm, tokenText, usd, usdOf } from '../lib/format';
 import { listLaunches, marketOf, type Listed } from '../lib/market';
-import { IS_TESTNET } from '../lib/network';
+import { NETWORK } from '../lib/network';
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { href } from '../lib/router';
-import { storeKey } from '../lib/storeKey';
 import { Loading, TokenPic } from '../components/ui';
 import Spark from '../components/Spark';
 import TokenCard from '../components/TokenCard';
-import { Contenders, KingCard, TopByLiquidity } from '../components/KingOfTheHill';
+import { TopByLiquidity } from '../components/TopTokens';
 import { matches } from '../components/Search';
 
 const PAGE = 36;
@@ -32,7 +30,7 @@ const SORTS = [
 type Tab = (typeof TABS)[number]['key'];
 type Sort = (typeof SORTS)[number]['key'];
 
-const VIEW = storeKey('vyre.view', VYRE_CHAIN.id);
+const VIEW = 'vyre.view';
 const savedView = (): 'grid' | 'list' => { try { return localStorage.getItem(VIEW) === 'list' ? 'list' : 'grid'; } catch { return 'grid'; } };
 
 export default function Explore({ q = '' }: { q?: string }) {
@@ -124,15 +122,11 @@ export default function Explore({ q = '' }: { q?: string }) {
 
   const st = (l: Listed) => stats.get(l.pool);
   const cap = (l: Listed) => l.market?.marketCap ?? 0;
-  const top = useMemo(() => {
-    if (!list) return { king: null, contenders: [], byLiquidity: [] };
-    const grads = list.filter((l) => st(l)?.graduated);
-    const king = grads.sort((a, b) => Number((st(b)!.reachedBlock ?? 0n) - (st(a)!.reachedBlock ?? 0n)))[0] ?? null;
-    const contenders = list.filter((l) => st(l) && !st(l)!.graduated).sort((a, b) => st(b)!.progress - st(a)!.progress).slice(0, 4);
-    // by the USDC in each pool: a market cap alone is a number its creator picked at launch
-    const byLiquidity = list.filter((l) => st(l)).sort((a, b) => st(b)!.raised - st(a)!.raised).slice(0, 4);
-    return { king, contenders, byLiquidity };
-  }, [list, stats]);
+  // by the USDC in each pool: a market cap alone is a number its creator picked at launch
+  const byLiquidity = useMemo(
+    () => (list ? list.filter((l) => st(l)).sort((a, b) => st(b)!.raised - st(a)!.raised).slice(0, 4) : []),
+    [list, stats],
+  );
 
   const rows = useMemo(() => {
     if (!list) return null;
@@ -158,11 +152,7 @@ export default function Explore({ q = '' }: { q?: string }) {
       {!list && !err && <Loading what="Reading the launchpad" />}
       {list && (
         <div className="home-top">
-          <div className="home-left">
-            <KingCard king={top.king} stats={stats} holders={holders} status={statsState} />
-            <Contenders rows={top.contenders} stats={stats} status={statsState} />
-          </div>
-          <TopByLiquidity rows={top.byLiquidity} stats={stats} status={statsState} />
+          <TopByLiquidity rows={byLiquidity} stats={stats} status={statsState} />
         </div>
       )}
 
@@ -192,7 +182,7 @@ export default function Explore({ q = '' }: { q?: string }) {
             </div>
           </div>
           {q && <p className="small filter-note">Showing tokens matching {term ? <>“<bdi>{term}</bdi>”</> : 'your search'}. <a href={href({ page: 'explore' })}>Clear</a></p>}
-          {tab !== 'trending' && <p className="muted small milestone-note">Milestone: {MILESTONE_TEXT} of USDC bought into a token’s pool, net of sales{IS_TESTNET ? ' (a testnet figure)' : ''}. Graduated shows the tokens at or above it now.</p>}
+          {tab !== 'trending' && <p className="muted small milestone-note">Milestone: {MILESTONE_TEXT} of USDC bought into a token’s pool, net of sales{NETWORK.testnet ? ' (a testnet figure)' : ''}. Graduated shows the tokens at or above it now.</p>}
           {statsState === 'error' && <p className="err small">The 24-hour figures couldn’t load just now: retrying. Figures shown may be out of date.</p>}
         </>
       )}

@@ -1,7 +1,7 @@
 {
   "name": "MINTA",
   "short_name": "MINTA",
-  "description": "Launch, trade and explore on VYRE, with USDC.",
+  "description": "Launch, trade and explore on VYRE, with USDC on VYRE.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

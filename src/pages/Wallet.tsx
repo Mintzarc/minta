@@ -15,7 +15,7 @@ import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
 import { burnSentError } from '../lib/fromchain';
 import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
-import { FAUCET_OFFERED, IS_TESTNET, USDC_LABEL } from '../lib/network';
+import { FAUCET_OFFERED, IS_TESTNET, NETWORK, USDC_LABEL } from '../lib/network';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
 import { useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
@@ -24,7 +24,7 @@ import { moveToVyre } from '../lib/circle';
 import { cardTopupOffered } from '../lib/features';
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC kept for the network fee
 /** Card checkout: testnet by default; on any other network only after LIVE_CARD_TOPUP_READY and VITE_CARD_TOPUP=1 */
-const CARD_TOPUP = cardTopupOffered(import.meta.env.VITE_CARD_TOPUP, vyre.chain?.testnet === true);
+const CARD_TOPUP = cardTopupOffered(import.meta.env.VITE_CARD_TOPUP, NETWORK.testnet);
 const CHAIN = VYRE_CHAIN.id;
 
 // the SDK refuses a deposit from an address with code on Arc (VYRE would credit it to an aliased address); the app
@@ -106,7 +106,7 @@ export default function Wallet() {
         {account && !email && faucet && <SendBack faucet={faucet} held={usdc} onDone={load} />}
       </div>}
 
-      {!faceId && <FromChain account={account} provider={provider} email={!!email} onLanded={load} onMove={prefillMove} />}
+      {!faceId && IS_TESTNET && <FromChain account={account} provider={provider} email={!!email} onLanded={load} onMove={prefillMove} />}
 
       {!faceId && <div className="card" id="from-arc">
         <h2 className="h3">Bring it from Arc</h2>

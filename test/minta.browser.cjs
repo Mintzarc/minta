@@ -10,7 +10,7 @@ const { execFileSync } = require('child_process');
 
 const WEB = path.join(__dirname, '..');
 const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'minta-'));
-execFileSync('npx', ['vite', 'build', '--outDir', OUT, '--emptyOutDir'], { cwd: WEB, stdio: 'ignore' });
+execFileSync('npx', ['vite', 'build', '--outDir', OUT, '--emptyOutDir'], { cwd: WEB, stdio: 'ignore', env: { ...process.env, VITE_NETWORK: 'testnet' } });
 const types = { js: 'text/javascript', css: 'text/css', html: 'text/html', svg: 'image/svg+xml', png: 'image/png', json: 'application/json', webmanifest: 'application/json', mp4: 'video/mp4', webp: 'image/webp' };
 const serveDir = (dir) => http.createServer((q, r) => {
   let f = path.join(dir, q.url.split('?')[0]);
@@ -358,10 +358,10 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     const poolAbi = parseAbi(['function slot0() view returns (uint160, int24, uint16, uint16, uint16, uint8, bool)', 'function token0() view returns (address)']);
     const abi = [...sdk.vyrePadAbi, ...sdk.vyreTokenAbi, ...poolAbi];
     const HASH = 'cd'.repeat(32);
-    const KEPT = `https://api.vyrechain.com/i/${HASH}.png`;
+    const KEPT = `https://testnet-api.vyrechain.com/i/${HASH}.png`;
     const OUTSIDE = 'https://pictures.example/bomb.png';
     const L = [
-      { token: '0x' + '1a'.repeat(20), pool: '0x' + '2a'.repeat(20), uri: 'https://api.vyrechain.com/m/' + 'a1'.repeat(32) + '.json', image: KEPT, symbol: 'KEPT' },
+      { token: '0x' + '1a'.repeat(20), pool: '0x' + '2a'.repeat(20), uri: 'https://testnet-api.vyrechain.com/m/' + 'a1'.repeat(32) + '.json', image: KEPT, symbol: 'KEPT' },
       { token: '0x' + '1b'.repeat(20), pool: '0x' + '2b'.repeat(20), uri: 'https://files.example/token.json', image: OUTSIDE, symbol: 'LINK' },
     ];
     const byToken = (a) => L.find((l) => l.token.toLowerCase() === a.toLowerCase());
@@ -678,7 +678,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
   // two buttons; the dialog shows only MINTA's own words; another chain is never checked.
   {
     const HOUT = fs.mkdtempSync(path.join(os.tmpdir(), 'minta-txc-'));
-    execFileSync('npx', ['vite', 'build', path.join(__dirname, 'harness'), '--config', path.join(WEB, 'vite.config.ts'), '--outDir', HOUT, '--emptyOutDir', '--base', './'], { cwd: WEB, stdio: 'ignore' });
+    execFileSync('npx', ['vite', 'build', path.join(__dirname, 'harness'), '--config', path.join(WEB, 'vite.config.ts'), '--outDir', HOUT, '--emptyOutDir', '--base', './'], { cwd: WEB, stdio: 'ignore', env: { ...process.env, VITE_NETWORK: 'testnet' } });
     const hsrv = serveDir(HOUT);
     await new Promise((r) => hsrv.listen(0, '127.0.0.1', r));
     const hbase = 'http://127.0.0.1:' + hsrv.address().port + '/';
@@ -700,7 +700,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await ctx.route((u) => !u.href.startsWith('http://127.0.0.1'), (route) => route.abort());
       const hits = [];
       // (registered after the catch-all above, so it takes precedence for the check's address)
-      await ctx.route('https://api.vyrechain.com/txcheck', async (route) => {
+      await ctx.route('https://testnet-api.vyrechain.com/txcheck', async (route) => {
         const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
         if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
         hits.push(JSON.parse(route.request().postData() || 'null'));
@@ -1077,7 +1077,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       const faq = await pg.locator('.faq').textContent();
       ok(/Does MINTA check a transaction before I sign it\?/.test(faq) && /api\.vyrechain\.com/.test(faq) && /third-party security service/.test(faq) && /goes on without saying anything/.test(faq) && /Continue anyway and Cancel/.test(faq), 'the FAQ explains the check, who it asks, and that MINTA goes on without it');
       ok(!/\bsafe\b/i.test(faq.slice(faq.indexOf('Does MINTA check'), faq.indexOf('Has it had an outside audit'))), 'and never calls a checked transaction safe');
-      await pg.goto(base + 'privacy/');
+      await pg.goto(base + 'privacy-testnet/');
       const privacy = await pg.locator('main').textContent();
       ok(/Send a transaction on VYRE/.test(privacy) && /api\.vyrechain\.com/.test(privacy) && /third-party security service/.test(privacy) && /advisory \(it never stops a transaction\)/.test(privacy) && /GoPlus/.test(privacy), 'the privacy page lists what the check sends, to which service, and that it is advisory');
       await ctx.close();

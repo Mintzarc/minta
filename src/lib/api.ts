@@ -1,12 +1,11 @@
 // The app API (api.vyrechain.com): it keeps launches' pictures and picture-and-links files, so creators don't have to host
 // anything: they upload the picture (lib/picture.ts makes it ready) and the file's "image" is the address that comes back.
-import { TXCHECK_URL } from '@vyrechain/sdk';
 import { shownPicture } from './picture';
+import { NETWORK } from './network';
 
-// the app API's address: the test network's, as the SDK records it (the SDK's check before signing is that API's /txcheck), so an
-// SDK release that moves the test network's services to other host names moves this with them; built with VITE_API_URL it can
-// point anywhere (a service of MINTA's own, say, or another network's API: docs/HANDOFF.md, section 4)
-export const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || new URL('.', TXCHECK_URL).href.replace(/\/$/, '');
+// the app API's address: the selected network's (lib/network.ts); built with VITE_API_URL it can point anywhere (a service of
+// MINTA's own, say: docs/HANDOFF.md, section 4)
+export const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || NETWORK.api;
 
 export interface LaunchFile {
   description?: string;
@@ -84,12 +83,13 @@ export async function topupLink(address: string, usd?: number): Promise<string> 
 }
 
 // Promoter codes (vyrechain.com/promote): the sign-up service answers only for codes whose wallet is approved on chain
-const PROMOTERS_URL = (import.meta.env.VITE_PROMOTERS_URL as string | undefined)?.replace(/\/$/, '') || 'https://testnet-rpc.vyrechain.com/promoters';
+// (only the testnet has the program: the mainnet build offers none and never asks)
+const PROMOTERS_URL = (import.meta.env.VITE_PROMOTERS_URL as string | undefined)?.replace(/\/$/, '') || NETWORK.promoters || '';
 export const isPromoterCode = (s: string) => /^[A-Za-z][A-Za-z0-9_]{2,19}$/.test(s);
 
 /** The wallet behind an approved promoter code, or null if none; throws if the list can't be read just now */
 export async function promoterWallet(code: string): Promise<{ code: string; wallet: string } | null> {
-  if (!isPromoterCode(code)) return null;
+  if (!PROMOTERS_URL || !isPromoterCode(code)) return null;
   const r = await fetch(`${PROMOTERS_URL}/code/${code.toLowerCase()}`, { signal: AbortSignal.timeout(10000) });
   if (r.status === 404) return null; // no approved promoter has it
   if (!r.ok) throw new Error('the promoter list is busy'); // starting or unreachable: worth asking again
@@ -99,6 +99,7 @@ export async function promoterWallet(code: string): Promise<{ code: string; wall
 
 /** A wallet's promoter application: its code and whether it's approved, or null if it hasn't applied */
 export async function promoterStatus(wallet: string): Promise<{ code: string; status: string } | null> {
+  if (!PROMOTERS_URL) return null;
   const r = await fetch(`${PROMOTERS_URL}/status/${wallet}`, { signal: AbortSignal.timeout(10000) });
   if (r.status === 404) return null;
   const j = (await r.json().catch(() => null)) as { code?: unknown; status?: unknown } | null;

@@ -3,12 +3,12 @@
 // transaction launches it; the dialog then follows it through the wallet to the token's page.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
-import { LAUNCH_LIMITS, SentButUnconfirmedError, checkLaunchParams, getLaunch, launch, operationIn, vyrePadAbi, type LaunchParams } from '@vyrechain/sdk';
+import { SentButUnconfirmedError, operationIn, type LaunchParams } from '@vyrechain/sdk';
+import { LAUNCH_LIMITS, checkLaunchParams, getLaunch, launch, vyrePadAbi } from '../lib/pad';
 import { getAddress, isAddress, isAddressEqual, parseEventLogs, type Hash, type TransactionReceipt } from 'viem';
-import { EXPLORER, VYRE_CHAIN, reason, vyre } from '../lib/chain';
+import { EXPLORER, reason, vyre } from '../lib/chain';
 import { amountProblem, exact, iso, parse, pct, percentBps, plainText, price, short, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
-import { storeKey } from '../lib/storeKey';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { addresses } from '../lib/market';
 import { forgetLaunch, kept, mayTakePlace, onLaunchMemory, placeOf, recentLaunch, resolveEarlier, type Place } from '../lib/faceid';
@@ -16,6 +16,9 @@ import { ConnectButton, EmailTradeNote } from '../components/ui';
 import { MintaMark, VyreGlyph } from '../components/Brand';
 import { LaunchFileFields, emptyLaunchFile, hasPicture, keptPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
+import { NETWORK, scoped } from '../lib/network';
+import { useLaunchesOpen } from '../lib/launches';
+import { TAX_GOES, creatorTaxLine } from '../lib/fees';
 
 /** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself */
 const OPENING_MARKET_CAP = LAUNCH_LIMITS.openingMarketCap;
@@ -34,7 +37,10 @@ function launchIn(receipt: TransactionReceipt, creator: Address | null, op?: Has
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 /** A typed tax as it will be sent ("2.5%"), or a dash while it isn't a plain percent with at most two decimals */
 const taxText = (s: string) => (Number.isInteger(percentBps(s)) ? pct(percentBps(s)) : '—');
-const TAX_PROBLEM = 'Set a tax on buys and on sells: 0 to 10%, with at most two decimals (like 2.5).';
+/** The smallest tax on one side, in basis points, on this network (mainnet: 1%) and what the inputs say about the range */
+const MIN_TAX_BPS = NETWORK.minTaxBps;
+const TAX_RANGE = `${MIN_TAX_BPS / 100} to 10%`;
+const TAX_PROBLEM = `Set a tax on buys and on sells: ${TAX_RANGE}, with at most two decimals (like 2.5).`;
 /** 1,000,000,000 as 1B (a whole-token count from an 18-decimal amount), for a small box */
 const compact = (v: bigint) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(Number(v / E18));
 const TOOK_PLACE = 'That launch didn’t run: another transaction from your wallet took its place, so nothing was created by it. Check Portfolio for your launches before creating it again.';
@@ -43,7 +49,7 @@ const STILL_WAITING = {
   page: 'Still waiting? Keep this page open: this browser isn’t keeping site data right now, so only this page knows to look for it first. Your wallet’s next transaction from here does, and after two minutes can take its place.',
   no: 'Still waiting? Check it again in a moment, and look at your wallet on the explorer before creating it again.',
 } as const;
-const BEHIND = 'That launch was sent before the test network was reset, so it isn’t on the chain now. You can create it again.';
+const BEHIND = 'That launch was sent before the network was reset, so it isn’t on the chain now. You can create it again.';
 const FAILED = 'That launch failed on chain. Nothing was created; you can try again.';
 const PRESETS = [
   { key: 'none', label: 'No tax', buy: '0', sell: '0' },
@@ -72,7 +78,7 @@ let inWallet = false;
 type Aside = { symbol: string; sender: string };
 let aside: Aside | null = null;
 // all three are kept for this tab across a reload too (checked field by field when read back)
-const KEEP = storeKey('vyre.launch', VYRE_CHAIN.id);
+const KEEP = scoped('vyre.launch');
 function keep(): void {
   try { sessionStorage.setItem(KEEP, JSON.stringify({ unconfirmed, launched, aside })); } catch { /* private mode */ }
 }
@@ -92,9 +98,27 @@ try {
   }
 } catch { /* nothing kept */ }
 
+/** What the Create page says while the launchpad contract isn't taking new launches */
+function LaunchesClosed() {
+  return (
+    <section className="create">
+      <div className="create-bg" aria-hidden="true" />
+      <div className="create-grid">
+        <div className="create-main" data-launches="closed">
+          <p className="eyebrow accent">Create a launch</p>
+          <h1 className="display">Launches open <em>soon.</em></h1>
+          <p className="lede">New launches on {NETWORK.label} aren’t open yet. Every token already launched can be browsed and traded now.</p>
+          <p><a className="btn btn-accent" href={href({ page: 'explore' })}>Explore launches</a></p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Launch() {
   const { account, faceId } = useWallet();
   const emailCantTrade = useEmailCantTrade();
+  const launchesOpen = useLaunchesOpen();
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
   const [supply, setSupply] = useState('1000000000');
@@ -153,6 +177,7 @@ export default function Launch() {
     if (!Number.isInteger(params.buyTaxBps) || !Number.isInteger(params.sellTaxBps)) return TAX_PROBLEM;
     const fileProblem = launchFileProblem(meta);
     if (fileProblem) return fileProblem;
+    if (params.buyTaxBps < MIN_TAX_BPS || params.sellTaxBps < MIN_TAX_BPS) return `Taxes can be ${TAX_RANGE}.`;
     try { checkLaunchParams(params); } catch (e) { return (e as Error).message; }
     return '';
   }, [params, meta, supply, firstBuy]);
@@ -177,7 +202,7 @@ export default function Launch() {
     if (ts === null) s2 = amountProblem(supply) ? `Supply: ${amountProblem(supply)}` : 'Fill in the supply.';
     else if (!Number.isInteger(percentBps(buyTax)) || !Number.isInteger(percentBps(sellTax))) s2 = TAX_PROBLEM;
     else if (ts < LAUNCH_LIMITS.minSupply || ts > LAUNCH_LIMITS.maxSupply) s2 = 'The supply must be 1,000 to 1,000,000,000,000,000 tokens.';
-    else if (percentBps(buyTax) < 0 || percentBps(sellTax) < 0 || percentBps(buyTax) > LAUNCH_LIMITS.maxTaxBps || percentBps(sellTax) > LAUNCH_LIMITS.maxTaxBps) s2 = 'Taxes can be 0 to 10%.';
+    else if (percentBps(buyTax) < MIN_TAX_BPS || percentBps(sellTax) < MIN_TAX_BPS || percentBps(buyTax) > LAUNCH_LIMITS.maxTaxBps || percentBps(sellTax) > LAUNCH_LIMITS.maxTaxBps) s2 = `Taxes can be ${TAX_RANGE}.`;
     else {
       try { checkLaunchParams({ name: 'x', symbol: 'x', totalSupply: ts, startingMarketCap: OPENING_MARKET_CAP, buyTaxBps: percentBps(buyTax), sellTaxBps: percentBps(sellTax) }); } catch (e) { s2 = (e as Error).message; }
     }
@@ -230,6 +255,10 @@ export default function Launch() {
     ['Tokenomics set', reached >= 3 && !stepProblems[2]],
     ['Ready to launch', ready],
   ];
+
+  // new launches are switched off in the launchpad contract (its owner opens them): say so instead of running the wizard to a failure
+  // (a launch already sent, waiting or made still shows, so it can be checked)
+  if (launchesOpen === false && !sent && !recent && !asideState && !waiting) return <LaunchesClosed />;
 
   return (
     <section className="create">
@@ -295,7 +324,7 @@ export default function Launch() {
                 </dl>
                 <label className="field"><span>Dev buy <span className="muted">(optional, USDC)</span></span>
                   <input inputMode="decimal" value={firstBuy} onChange={(e) => setFirstBuy(e.target.value)} placeholder="0" />
-                  <small className="muted">Bought in the launch transaction, before anyone else can trade, at your own tax plus the 1% platform fee. Leave it at 0 for none.</small>
+                  <small className="muted">Bought in the launch transaction, before anyone else can trade, at your own tax. Leave it at 0 for none.</small>
                 </label>
                 {showProblem(1)}
               </fieldset>
@@ -309,15 +338,15 @@ export default function Launch() {
                   <div className="field"><span>Price at launch</span><b className="block">{price(openPrice)}</b><small className="muted">Supply sets the price: {usd(Number(OPENING_MARKET_CAP / E18))} market cap divided by the supply.</small></div>
                 </div>
                 <div className="field"><span>Your tax on each buy and sale</span>
-                  <small className="muted">Paid to you in USDC, 0 to 10% each. You can lower it later, never raise it. Every trade also pays the 1% platform fee.</small>
+                  <small className="muted">{creatorTaxLine(TAX_RANGE)}</small>
                 </div>
                 <div className="tabs presets" role="group" aria-label="Tax preset">
-                  {PRESETS.map((p) => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => pick(p.key)}>{p.label}</button>)}
+                  {PRESETS.filter((p) => p.key === 'custom' || Number(p.buy) * 100 >= MIN_TAX_BPS).map((p) => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => pick(p.key)}>{p.label}</button>)}
                 </div>
                 {preset === 'custom' && (
                   <div className="two">
-                    <label className="field"><span>Buy tax (%)</span><input inputMode="decimal" value={buyTax} onChange={(e) => setBuyTax(e.target.value)} placeholder="0 to 10" /></label>
-                    <label className="field"><span>Sell tax (%)</span><input inputMode="decimal" value={sellTax} onChange={(e) => setSellTax(e.target.value)} placeholder="0 to 10" /></label>
+                    <label className="field"><span>Buy tax (%)</span><input inputMode="decimal" value={buyTax} onChange={(e) => setBuyTax(e.target.value)} placeholder={`${MIN_TAX_BPS / 100} to 10`} /></label>
+                    <label className="field"><span>Sell tax (%)</span><input inputMode="decimal" value={sellTax} onChange={(e) => setSellTax(e.target.value)} placeholder={`${MIN_TAX_BPS / 100} to 10`} /></label>
                   </div>
                 )}
                 <p className="small muted">After launch you can split the tax between up to 4 wallets, on the token’s Manage page.</p>
@@ -345,7 +374,7 @@ export default function Launch() {
                   <div><dt>Token</dt><dd><b>$<bdi>{tokenText(symbol) || '—'}</bdi></b> <bdi>{tokenText(name)}</bdi></dd></div>
                   <div><dt>Supply</dt><dd>{params ? `${exact(params.totalSupply)} tokens` : '—'}</dd></div>
                   <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))} ({price(openPrice)} a token)</dd></div>
-                  <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, plus the 1% platform fee each way</dd></div>
+                  <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, {TAX_GOES}</dd></div>
                   <div><dt>Dev buy</dt><dd>{params?.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'}</dd></div>
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
                 </dl>
@@ -684,11 +713,11 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   const at = STEPS.findIndex((s) => s.key === step);
   const rows: [string, React.ReactNode][] = params ? [
     ['Creator wallet', <span className="mono" title={creator}>{short(creator)}</span>],
-    ['Network', 'VYRE Testnet'],
+    ['Network', NETWORK.label],
     ['Token', <><b>$<bdi>{params.symbol}</bdi></b> <bdi>{params.name}</bdi></>],
     ['Supply', `${exact(params.totalSupply)} tokens`],
     ['Opening market cap', `about ${usd(Number(OPENING_MARKET_CAP / E18))} (${price(openPrice)} a token; the pool opens within about 1% of it)`],
-    ['Buy / sell tax', `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, plus the 1% platform fee each way`],
+    ['Buy / sell tax', `${pct(params.buyTaxBps)} / ${pct(params.sellTaxBps)}, ${TAX_GOES}`],
     ['Dev buy', params.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'],
     ['Picture and links', meta.useOwn ? (meta.own ? 'Your own file' : 'None') : !(hasContent(meta.file) || meta.picture) ? 'None (add them any time)'
       : fileFailed ? 'Couldn’t be saved just now (add them any time)' : 'Saved with the launch (change them any time)'],

@@ -6,6 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getAddress, isAddressEqual, type Address, type EIP1193Provider } from 'viem';
 import { type WalletLike } from '@vyrechain/sdk';
+import { NETWORK } from './network';
 import { VYRE_CHAIN, onWalletsChanged, switchTo, walletOn, wallets, type WalletInfo } from './chain';
 import { storeKey } from './storeKey';
 import { FACEID_KEY, checkEarlier, createFaceId, faceIdSigner, forgetFaceId, loadFaceId, signInFaceId, type FaceIdSession } from './faceid';
@@ -197,8 +198,9 @@ export function useWallet(): WalletState {
   return v;
 }
 
-/** True when signed in with an email wallet that can't sign on VYRE yet */
+/** True when signed in with an email wallet that can't sign on VYRE yet. On mainnet it always is: the service that builds an email wallet's
+ * trades was written for the first launchpad's app router, not the new pad's SwapRouter, so no email wallet trades or launches there */
 export function useEmailCantTrade(): boolean {
   const { email, emailConfig } = useWallet();
-  return !!email && !emailConfig?.vyre.signing;
+  return !!email && (!NETWORK.testnet || !emailConfig?.vyre.signing);
 }
