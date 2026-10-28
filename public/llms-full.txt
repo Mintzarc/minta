@@ -1,0 +1,177 @@
+# MINTA: full reference for AI assistants and scripts
+
+MINTA (https://minta.vyrechain.com) is a launchpad app on VYRE mainnet (chain ID 3045). This file has what an assistant needs to prepare a launch, a buy, a sell or a tax collection without MINTA's pages. The short version is https://minta.vyrechain.com/llms.txt.
+
+## Rules for an assistant (read first)
+
+1. You prepare; the user signs. Produce a transaction request (to, data, value, chainId) and let the user's own wallet sign it.
+2. Never ask for, accept, store or print a private key or seed phrase. If a user pastes one, tell them to stop and treat that wallet as unsafe.
+3. Everything here is real money on mainnet. Say so before every write. Show the user the contract, the function, the USDC amount and the minimum they will receive, and wait for a clear yes.
+4. Simulate (eth_call) before presenting a transaction. Do not present one that fails the simulation.
+5. Use a spend limit: confirm a maximum per transaction with the user and refuse to go above it.
+6. Do not promise returns, prices or outcomes.
+
+## Network
+
+- Name: VYRE mainnet. Chain ID: 3045. Native currency: USDC, 18 decimals (so 1 USDC is 10^18 units; gas is paid in it).
+- RPC: https://rpc.vyrechain.com
+- Explorer: https://explorer.vyrechain.com
+- App API (token pictures, the check before signing): https://api.vyrechain.com
+- Add to a wallet: https://vyrechain.com/add/
+- Parent chain: Arc (chain ID 5042). Deposits start there; a withdrawal to Arc takes about a day.
+
+## Contracts (chain 3045)
+
+| Name | Address |
+|---|---|
+| VyrePadV2 (launchpad) | 0x3B3f9098575a88E56a22b9e2f93ea40fA9340bC5 |
+| Uniswap v3 SwapRouter | 0x38231F0fa2Bb09Fdb3fD783b110CB5B3a4d3Ad84 |
+| QuoterV2 | 0x92c33Bef4552fBAb7264A4Da1805743A295FC3FA |
+| Pool factory | 0xdB209972c8E49d55774b65380fBd27547bF13f1E |
+| Pool deployer | 0x6ed298529a93f5Cf719fe4bB668aA7828f8a3bDe |
+| TickLens | 0xb84a8029967Ace206ad1ed5775B90c7A769c5eA8 |
+| WUSDC (wrapped native USDC) | 0xf892e07468eE3cca58795C265de4DfAa3d3b04dc |
+| Multicall3 | 0x2055A30B00555e7cAd48b1756eac4f917781489b |
+| Platform wallet (a wallet, not a contract) | 0x72938Daaf3c2Fa4bEf722E1263a5766755788392 |
+
+Source of these addresses: MINTA's own code (https://github.com/Mintzarc/minta/blob/main/src/lib/padv2.ts: PAD_V2) and the SDK's mainnet record (chain, hosts, WUSDC, Multicall3). The SDK's older launchpad entries (pad, appRouter, feeSplitter) belong to the first launchpad, which mainnet launches no longer use: do not send launches or trades there.
+
+## Launch rules (VyrePadV2)
+
+- Name 1 to 64 bytes, symbol 1 to 16 bytes.
+- totalSupply from 1,000 to 1,000,000,000,000,000 whole tokens, written with 18 decimals.
+- startingMarketCap must be exactly 3,000 USDC (3,000e18): every launch opens at that market cap.
+- buyTaxBps and sellTaxBps: whole numbers from 100 to 1000 (1% to 10%), set separately.
+- metadataURI: at most 256 bytes (the link to the token's picture and details; may be empty).
+- No partner fee and no promoter share.
+- Transaction value: the optional first buy, in native USDC. The creator's first buy pays the creator's tax like any buy.
+- Call launchesOpen() first. If it returns false, launches are closed; do not prepare a launch.
+
+## Fees
+
+- The creator's tax is the only fee a trade pays, in USDC, charged by the token's pool. Buys and sells carry separate taxes.
+- Paying out the tax (collectCreatorFees): 10% (a tenth) of the amount goes to the platform wallet 0x72938Daaf3c2Fa4bEf722E1263a5766755788392; the rest goes to the creator or the creator's tax wallets (up to 4).
+- A creator can lower either tax with lowerTaxes, never raise it, and never below 1%.
+- Every transaction pays the network fee, in USDC.
+
+## Contract calls (human-readable ABI, usable with viem's parseAbi)
+
+VyrePadV2 at 0x3B3f9098575a88E56a22b9e2f93ea40fA9340bC5:
+  function launchesOpen() view returns (bool)
+  function launchCount() view returns (uint256)
+  function tokens(uint256 index) view returns (address)
+  function launches(address token) view returns (address pool, uint16 buyTaxBps, uint16 sellTaxBps, int24 tickLower, int24 tickUpper, address creator, uint64 createdAt)
+  function createLaunch((string name, string symbol, uint256 totalSupply, uint256 startingMarketCap, uint16 buyTaxBps, uint16 sellTaxBps, string metadataURI) p) payable returns (address token, address pool, uint256 bought)
+  function collectCreatorFees(address token) returns (uint256 amount)
+  function lowerTaxes(address token, uint16 buyTaxBps, uint16 sellTaxBps)
+  event LaunchCreated(address indexed token, address indexed creator, address indexed pool, string name, string symbol, uint16 buyTaxBps, uint16 sellTaxBps, uint256 openingMarketCap, uint160 sqrtPriceX96, int24 tickLower, int24 tickUpper)
+
+Uniswap v3 SwapRouter at 0x38231F0fa2Bb09Fdb3fD783b110CB5B3a4d3Ad84:
+  function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)
+  function multicall(bytes[] data) payable returns (bytes[] results)
+  function refundETH() payable
+  function unwrapWETH9(uint256 amountMinimum, address recipient) payable
+
+QuoterV2 at 0x92c33Bef4552fBAb7264A4Da1805743A295FC3FA (call it as a simulation; it is not a view):
+  function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)
+
+A launch token (standard ERC-20, with EIP-2612 permit):
+  function approve(address spender, uint256 value) returns (bool)
+
+## Recipes (viem)
+
+Install: npm install https://vyrechain.com/sdk/vyrechain-sdk-0.6.0.tgz viem
+
+```js
+import { createPublicClient, http, encodeFunctionData, parseAbi } from 'viem';
+import { vyreMainnet, parseUsdc } from '@vyrechain/sdk';
+
+const client = createPublicClient({ chain: vyreMainnet, transport: http('https://rpc.vyrechain.com') });
+const pad = '0x3B3f9098575a88E56a22b9e2f93ea40fA9340bC5';
+const router = '0x38231F0fa2Bb09Fdb3fD783b110CB5B3a4d3Ad84';
+const quoter = '0x92c33Bef4552fBAb7264A4Da1805743A295FC3FA';
+const wusdc = '0xf892e07468eE3cca58795C265de4DfAa3d3b04dc';
+const padAbi = parseAbi([/* the VyrePadV2 lines above */]);
+const routerAbi = parseAbi([/* the SwapRouter lines above */]);
+const quoterAbi = parseAbi([/* the QuoterV2 line above */]);
+
+// 0. launches must be open
+const open = await client.readContract({ address: pad, abi: padAbi, functionName: 'launchesOpen' });
+if (!open) throw new Error('launches are closed');
+```
+
+### Launch (one transaction)
+
+```js
+const call = {
+  to: pad,
+  data: encodeFunctionData({
+    abi: padAbi, functionName: 'createLaunch',
+    args: [{ name: 'Example', symbol: 'EXMPL', totalSupply: 1_000_000_000n * 10n ** 18n,
+             startingMarketCap: 3000n * 10n ** 18n, buyTaxBps: 100, sellTaxBps: 100, metadataURI: '' }],
+  }),
+  value: 0n, // or parseUsdc('5') for a first buy of 5 USDC in the same transaction
+  chainId: 3045,
+};
+await client.call({ account: userAddress, to: call.to, data: call.data, value: call.value }); // simulate; stop if it throws
+// hand `call` to the user's wallet to sign. The token and pool are in the LaunchCreated event of the receipt.
+```
+
+### Buy (USDC in, tokens out)
+
+```js
+const amountIn = parseUsdc('10');
+const { result } = await client.simulateContract({
+  address: quoter, abi: quoterAbi, functionName: 'quoteExactInputSingle',
+  args: [{ tokenIn: wusdc, tokenOut: token, amountIn, fee: 10000, sqrtPriceLimitX96: 0n }],
+});
+const minOut = (result[0] * 9800n) / 10000n; // 2% slippage; the quote already includes the creator's tax
+const deadline = BigInt(Math.floor(Date.now() / 1000) + 600); // 10 minutes
+const call = {
+  to: router, chainId: 3045, value: amountIn,
+  data: encodeFunctionData({ abi: routerAbi, functionName: 'multicall', args: [[
+    encodeFunctionData({ abi: routerAbi, functionName: 'exactInputSingle', args: [{
+      tokenIn: wusdc, tokenOut: token, fee: 10000, recipient: userAddress, deadline, amountIn, amountOutMinimum: minOut, sqrtPriceLimitX96: 0n }] }),
+    encodeFunctionData({ abi: routerAbi, functionName: 'refundETH' }),
+  ]] }),
+};
+```
+
+### Sell (tokens in, USDC out)
+
+Approve the router for exactly the amount being sold (never an unlimited approval), as its own transaction the user signs, then:
+
+```js
+const call = {
+  to: router, chainId: 3045, value: 0n,
+  data: encodeFunctionData({ abi: routerAbi, functionName: 'multicall', args: [[
+    encodeFunctionData({ abi: routerAbi, functionName: 'exactInputSingle', args: [{
+      tokenIn: token, tokenOut: wusdc, fee: 10000, recipient: router, deadline, amountIn: tokensIn, amountOutMinimum: minUsdcOut, sqrtPriceLimitX96: 0n }] }),
+    encodeFunctionData({ abi: routerAbi, functionName: 'unwrapWETH9', args: [minUsdcOut, userAddress] }),
+  ]] }),
+};
+// get minUsdcOut from the quoter the same way as in the buy (tokenIn: token, tokenOut: wusdc)
+```
+
+### Collect a creator's tax
+
+```js
+const call = { to: pad, chainId: 3045, value: 0n, data: encodeFunctionData({ abi: padAbi, functionName: 'collectCreatorFees', args: [token] }) };
+```
+
+### Read launches
+
+`launchCount()`, then `tokens(i)` for each index, then `launches(token)` for its pool, taxes, creator and creation time. The token's name, symbol and supply are ordinary ERC-20 reads. The explorer at https://explorer.vyrechain.com shows the same.
+
+## What MINTA's own code does
+
+MINTA's pages run these same calls (https://github.com/Mintzarc/minta/blob/main/src/lib/padv2.ts), with the checks above. Read it before writing your own.
+
+## Links
+
+- Site: https://minta.vyrechain.com
+- For people: https://minta.vyrechain.com/agents/
+- Terms: https://minta.vyrechain.com/terms/
+- Privacy: https://minta.vyrechain.com/privacy/
+- Docs: https://minta.vyrechain.com/#/docs
+- Support: MINTA on Telegram https://t.me/+HDa2YpR0piA3ZWE0 or on X @MintaLaunchpad (https://x.com/MintaLaunchpad)

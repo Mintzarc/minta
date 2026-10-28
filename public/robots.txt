@@ -1,0 +1,6 @@
+# MINTA: everyone is welcome, search engines and AI assistants included.
+# A summary for AI assistants is at https://minta.vyrechain.com/llms.txt (full reference: /llms-full.txt).
+User-agent: *
+Allow: /
+
+Sitemap: https://minta.vyrechain.com/sitemap.xml
