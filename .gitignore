@@ -15,3 +15,12 @@ id_rsa*
 id_ed25519*
 id_ecdsa*
 secrets/
+
+# Android build output and local settings
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/emulator-out/
+*.aab
+*.apk

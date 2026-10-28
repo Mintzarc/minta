@@ -1,0 +1,37 @@
+name: Android debug
+# Builds an UNSIGNED-by-us debug APK (signed with the throwaway debug key) for testing on a phone or an emulator.
+# Runs when the android folder changes, or by hand. No secrets are used.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['android/**', '.github/workflows/android-*.yml']
+  push:
+    branches: [android]
+    paths: ['android/**', '.github/workflows/android-*.yml']
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Build the debug APK and lint the manifest
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug lintDebug
+      - name: Check the APK has no native code (64-bit ready)
+        run: |
+          if unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -q '\.so$'; then echo "native libraries found"; exit 1; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: minta-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

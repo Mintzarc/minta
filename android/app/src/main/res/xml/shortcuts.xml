@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="explore"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_explore">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.vyrechain.minta"
+            android:targetClass="com.google.androidbrowserhelper.trusted.LauncherActivity"
+            android:data="https://minta.vyrechain.com/#/" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="launch"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_launch">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.vyrechain.minta"
+            android:targetClass="com.google.androidbrowserhelper.trusted.LauncherActivity"
+            android:data="https://minta.vyrechain.com/#/launch" />
+    </shortcut>
+</shortcuts>
