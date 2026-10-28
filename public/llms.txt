@@ -1,0 +1,49 @@
+# MINTA
+
+> MINTA is a launchpad app on VYRE mainnet (chain ID 3045): anyone can launch a token in one transaction, trade it with USDC and explore launches. Gas and trading are in USDC. MINTA is a website; it holds no funds and has no accounts. You sign every transaction in your own wallet.
+
+Site: https://minta.vyrechain.com
+Fuller version of this file, with the contract calls: https://minta.vyrechain.com/llms-full.txt
+For people: https://minta.vyrechain.com/agents/
+
+## Live facts
+
+- Network: VYRE mainnet, chain ID 3045, mainnet is live. Gas is USDC (the chain's native currency, 18 decimals).
+- RPC: https://rpc.vyrechain.com
+- Explorer: https://explorer.vyrechain.com
+- Add the network to a wallet: https://vyrechain.com/add/
+- Moving USDC between VYRE and Arc (chain 5042): a withdrawal to Arc takes about a day.
+- Contracts (VyrePadV2, the launchpad): 0x3B3f9098575a88E56a22b9e2f93ea40fA9340bC5. Trades go through the Uniswap v3 SwapRouter at 0x38231F0fa2Bb09Fdb3fD783b110CB5B3a4d3Ad84 (quoter 0x92c33Bef4552fBAb7264A4Da1805743A295FC3FA). Full list in llms-full.txt.
+
+## Launch and trade, in plain steps
+
+1. Add VYRE to a wallet and put USDC in it (https://vyrechain.com/add/).
+2. To launch: choose a name, ticker, supply, and a creator tax from 1% to 10% for buys and for sells. One transaction creates the token and its pool. An optional first buy can ride in the same transaction.
+3. To trade: buy or sell a token with USDC at https://minta.vyrechain.com, or through the contracts directly (llms-full.txt).
+4. The creator collects the tax whenever they like and can split it between up to 4 wallets.
+
+## The fee rule
+
+- The creator's tax is the only fee a trader pays. The creator sets it at launch, from 1% to 10% per side (buy and sell separately), in USDC.
+- A creator can lower the tax later, never raise it, and never below 1%.
+- When the tax is paid out, the platform takes a tenth of it (10%, to 0x72938Daaf3c2Fa4bEf722E1263a5766755788392) and the creator's tax wallets get the rest.
+- No other fee is added to a trade. Every transaction also pays the network fee, in USDC.
+- Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator's tax wallets.
+
+## Using MINTA from an AI assistant or a script
+
+- The assistant prepares a transaction (target contract, call data, USDC value); the user checks it and signs it in their own wallet. Never ask a user for a private key or seed phrase, and never accept one.
+- Prepare it with viem and the contract calls in llms-full.txt. Install: npm install https://vyrechain.com/sdk/vyrechain-sdk-0.6.0.tgz viem. The SDK supplies the chain definition (vyreMainnet) and USDC helpers; use the contract addresses on this page, not the SDK's older launchpad entries.
+- Read before writing: check launchesOpen() on the launchpad, simulate the call, show the user the amounts, and set a spend limit.
+- Token pages are hash routes (https://minta.vyrechain.com/#/token/<token address>) that need JavaScript; to read a launch use the contracts or the explorer.
+
+## Risks
+
+- USDC on VYRE mainnet is real money. Tokens can fall to zero. Transactions cannot be reversed, and a failed transaction still costs its network fee.
+
+## Links
+
+- Terms: https://minta.vyrechain.com/terms/
+- Privacy: https://minta.vyrechain.com/privacy/
+- Docs: https://minta.vyrechain.com/#/docs
+- Support: MINTA on Telegram https://t.me/+HDa2YpR0piA3ZWE0 or on X @MintaLaunchpad (https://x.com/MintaLaunchpad)

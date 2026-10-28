@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Use MINTA with an AI assistant</title>
+  <meta name="description" content="How to launch and trade tokens on MINTA, a launchpad app on VYRE mainnet, with an AI assistant: the assistant prepares the transaction, you sign it in your own wallet.">
+  <link rel="canonical" href="https://minta.vyrechain.com/agents/">
+  <meta name="theme-color" content="#03070b">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="MINTA">
+  <meta property="og:title" content="Use MINTA with an AI assistant">
+  <meta property="og:description" content="The assistant prepares the transaction, you sign it in your own wallet. Steps and safety rules.">
+  <meta property="og:url" content="https://minta.vyrechain.com/agents/">
+  <meta property="og:image" content="https://minta.vyrechain.com/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="alternate" type="text/plain" href="https://minta.vyrechain.com/llms.txt" title="llms.txt">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/legal.css">
+  <style>
+    pre { margin: 12px 0 0; padding: 14px; background: #07131a; border: 1px solid var(--line-2); border-radius: 8px; color: var(--soft); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .copy { margin-top: 10px; background: var(--lime); color: #03070b; border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+    .copy:hover { filter: brightness(1.1); }
+    ol { margin: 10px 0 0; padding-left: 22px; color: var(--soft); font-size: 15px; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="/" aria-label="MINTA home"><img src="/brand/minta-wordmark.webp" width="640" height="85" alt="MINTA"></a>
+      <nav aria-label="Site">
+        <a href="/#/docs">Docs</a>
+        <a class="hide-sm" href="/terms/">Terms</a>
+        <a class="hide-sm" href="/privacy/">Privacy</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <p class="eyebrow">For AI assistants</p>
+    <h1>Use MINTA with an <em>AI assistant</em></h1>
+    <p class="lede">MINTA is a launchpad app on VYRE mainnet (chain ID 3045). An AI assistant can do the reading and the preparation for you: find a token, work out a launch or a trade, and build the transaction. You check it and sign it in your own wallet. The assistant never holds your keys.</p>
+
+    <section>
+      <h2>Safety rules</h2>
+      <ul>
+        <li><b>The assistant prepares, you sign.</b> Every transaction is signed in your own wallet, after you have read it.</li>
+        <li><b>Never paste a private key or seed phrase</b> into a chat, a script or a file an assistant can read. No real step needs one. If you pasted one by mistake, move your funds to a new wallet.</li>
+        <li><b>Set a spend limit</b> before you start, and tell the assistant. A limit per transaction is the simplest.</li>
+        <li><b>It is real money.</b> USDC on VYRE mainnet is real. Tokens can fall to zero, and a transaction can’t be reversed. A failed transaction still costs its network fee, in USDC.</li>
+        <li><b>Check the numbers</b> the assistant shows you against your wallet’s prompt: the contract, the amount and the minimum you receive.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Steps</h2>
+      <ol>
+        <li>Add VYRE mainnet to your wallet at <a href="https://vyrechain.com/add/" target="_blank" rel="noopener noreferrer">vyrechain.com/add</a> and put some USDC in it. Moving USDC back to Arc takes about a day.</li>
+        <li>Copy the starter message below, fill in your spend limit and your task, and paste it to your assistant. It points the assistant at <a href="/llms-full.txt">the full reference</a>.</li>
+        <li>The assistant replies with a transaction: the contract, the call and the USDC amount. Read it.</li>
+        <li>Send it to your wallet and sign it there, or reject it. Nothing moves until you sign.</li>
+        <li>Check the result on the <a href="https://explorer.vyrechain.com" target="_blank" rel="noopener noreferrer">explorer</a>.</li>
+      </ol>
+      <pre id="prompt">You are helping me use MINTA, a launchpad app on VYRE mainnet (chain ID 3045). Read https://minta.vyrechain.com/llms-full.txt first and follow it.
+Rules: you prepare transactions, I sign them in my own wallet. Never ask for or accept my private key or seed phrase. Before every transaction show me the contract, the function, the USDC amount and the minimum I will receive, simulate it, and wait for my yes. Do not go above this spend limit per transaction: ___ USDC.
+Task: </pre>
+      <button class="copy" type="button" data-copy="prompt">Copy the starter message</button>
+    </section>
+
+    <section>
+      <h2>What it can do</h2>
+      <ul>
+        <li><b>Launch a token:</b> name, ticker, supply, and a creator tax of 1% to 10% for buys and for sells. One transaction. An optional first buy of your own in the same transaction.</li>
+        <li><b>Buy and sell:</b> with USDC, with a minimum amount out so a price move can’t take more than you accepted.</li>
+        <li><b>Collect a creator’s tax,</b> or lower it later (never raise it, never below 1%).</li>
+        <li><b>Read launches:</b> the launchpad lists every token; the explorer shows the rest.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>The fee rule</h2>
+      <p>The creator’s tax is the only fee a trader pays. The creator sets it at launch, 1% to 10% per side, and can lower it later, never raise it. When the tax is paid out, the platform takes a tenth of it and the creator’s tax wallets get the rest. No other fee is added; every transaction also pays the network fee, in USDC.</p>
+      <p>Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator’s tax wallets.</p>
+    </section>
+
+    <section>
+      <h2>For developers</h2>
+      <p>Network: VYRE mainnet, chain ID 3045, gas in USDC. RPC <code>https://rpc.vyrechain.com</code>, explorer <code>https://explorer.vyrechain.com</code>. Launchpad (VyrePadV2) <code>0x3B3f9098575a88E56a22b9e2f93ea40fA9340bC5</code>. Install the SDK with <code>npm install https://vyrechain.com/sdk/vyrechain-sdk-0.6.0.tgz viem</code>. Machine-readable versions of this page: <a href="/llms.txt">llms.txt</a> and <a href="/llms-full.txt">llms-full.txt</a>, which have every contract address and the exact calls.</p>
+    </section>
+
+    <section>
+      <h2>Help</h2>
+      <p>Questions and reports go to MINTA on Telegram (<a href="https://t.me/+HDa2YpR0piA3ZWE0" target="_blank" rel="noopener noreferrer">the MINTA group</a>) or on X (<a href="https://x.com/MintaLaunchpad" target="_blank" rel="noopener noreferrer">@MintaLaunchpad</a>).</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>MINTA runs on VYRE Mainnet: USDC and tokens here are real money. USDC is issued by Circle; MINTA is not affiliated with or endorsed by Circle.</p>
+    <p><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a> · <a href="/#/docs">Docs</a></p>
+  </footer>
+  <script src="/agents/copy.js"></script>
+</body>
+</html>
