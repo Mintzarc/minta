@@ -8,6 +8,9 @@ import { feedItems, loadFeed, type FeedItem, type FeedState } from '../lib/feed'
 import { ago, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
 import { NETWORK } from '../lib/network';
+import { cachedLaunches, listLaunches } from '../lib/market';
+import { hidesByCreator, visibleFeed } from '../lib/hidden';
+import { useBlocklistState, useHidden, useHiddenCreators } from './Hidden';
 
 const POLL_MS = 20_000;
 const SECONDS_PER_ITEM = 5;
@@ -32,7 +35,22 @@ function Item({ it }: { it: FeedItem }) {
 }
 
 export default function Ticker() {
-  const [items, setItems] = useState<FeedItem[]>([]);
+  const [all, setItems] = useState<FeedItem[]>([]);
+  const [launches, setLaunches] = useState(cachedLaunches());
+  const hiddenTokens = useHidden();
+  const hiddenCreators = useHiddenCreators();
+  const { block, ready } = useBlocklistState();
+  // a token's creator is only known from the launches read; when a creator is hidden, they are read (they are cached after)
+  const byCreator = hidesByCreator(hiddenCreators, block);
+  useEffect(() => {
+    if (!byCreator || launches) return;
+    let live = true;
+    listLaunches(30).then(() => { if (live) setLaunches(cachedLaunches()); }).catch(() => {});
+    return () => { live = false; };
+  }, [byCreator, launches]);
+  // nothing is drawn until the team's list has been read (at most 1.5 s) and, when a creator is hidden, the launches are known
+  const creatorOf = (t: string) => (launches || []).find((l) => l.token.toLowerCase() === t.toLowerCase())?.creator;
+  const items = ready && (!byCreator || launches) ? visibleFeed(all, creatorOf, hiddenTokens, hiddenCreators, block) : [];
   const [paused, setPaused] = useState(false);
   const state = useRef<FeedState | undefined>(undefined);
 

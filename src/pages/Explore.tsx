@@ -13,7 +13,7 @@ import { Loading, TokenPic } from '../components/ui';
 import Spark from '../components/Spark';
 import TokenCard from '../components/TokenCard';
 import { TopByLiquidity } from '../components/TopTokens';
-import { HiddenNote, HideToken, useBlocklist, useHidden, useHiddenCreators } from '../components/Hidden';
+import { HiddenNote, HideToken, useBlocklistState, useHidden, useHiddenCreators } from '../components/Hidden';
 import { visibleLaunches } from '../lib/hidden';
 import { matches } from '../components/Search';
 
@@ -41,9 +41,10 @@ export default function Explore({ q = '' }: { q?: string }) {
   const [all, setList] = useState<Listed[] | null>(null);
   const hidden = useHidden();
   const hiddenCreators = useHiddenCreators();
-  const block = useBlocklist();
-  // tokens and creators hidden on this device, and those MINTA's team hides, are left out of every list below
-  const list = useMemo(() => (all ? visibleLaunches(all, hidden, hiddenCreators, block) : null), [all, hidden, hiddenCreators, block]);
+  const { block, ready } = useBlocklistState();
+  // tokens and creators hidden on this device, and those MINTA's team hides, are left out of every list below; nothing of the
+  // list is drawn until the team's file has been read (at most 1.5 s), so a blocked token is not shown for a moment
+  const list = useMemo(() => (all && ready ? visibleLaunches(all, hidden, hiddenCreators, block) : null), [all, ready, hidden, hiddenCreators, block]);
   const [stats, setStats] = useState<Map<Address, Stats>>(new Map());
   const [holders, setHolders] = useState<Map<Address, number | null>>(new Map());
   const [total, setTotal] = useState(0);

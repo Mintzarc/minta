@@ -14,15 +14,16 @@ export const SETS = {
  *  hero ("Build. Launch. Grow."), the launch wizard, the wallet page or a trade panel, and no token picture (the one token on the
  *  chain has cartoon art). The app's pages are clipped below its top bar (`clip: 'below-bar'`); on wide screens a docs page is clipped
  *  to its article column (no side menu, no promo card), at 16:9; the static pages (AI assistants,
- *  terms, privacy) are shown as they are. Nothing is hidden by injected styles.
+ *  terms) are shown as they are; one text page per set (the Terms), not two. Nothing is hidden by injected styles.
  *  `sets` lists where a screen is used (default: every set). */
 export const SCREENS = [
   { name: 'docs-fees', path: '/#/docs/fees', clip: 'below-bar', note: 'Docs: fees and revenue' },
   { name: 'docs-tokenomics', path: '/#/docs/tokenomics', clip: 'below-bar', note: 'Docs: supply and tax' },
-  { name: 'report', path: null, clip: 'report', sets: ['phone', 'tablet7'], note: 'A token page cropped to the Report this token panel and the token facts (no picture)' },
+  { name: 'docs-contracts', path: '/#/docs/contracts', clip: 'below-bar', sets: ['tablet7', 'tablet10', 'desktop'], note: 'Docs: contracts and review status' },
+  { name: 'report', path: null, clip: 'report', sets: ['phone'], note: 'A token page cropped to the Report this token panel and the Hide buttons (no picture, no price)' },
+  { name: 'blocked', path: null, clip: 'below-bar-full', blocklist: true, sets: ['phone'], note: "A token MINTA's team hides: the page says so (the capture serves a local blocklist.json that names the token)" },
   { name: 'agents', path: '/agents/', scrollTo: 'Safety rules', sets: ['phone', 'tablet7'], note: 'Use MINTA with an AI assistant: the safety rules' },
   { name: 'terms', path: '/terms/', note: 'Terms' },
-  { name: 'privacy', path: '/privacy/', note: 'Privacy' },
 ];
 /** The opening film is remembered by the app: tell it it played just now, so the first screen is the app itself */
 export const skipSplash = (page) => page.addInitScript(() => {

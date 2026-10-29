@@ -28,15 +28,21 @@ async function shots(key) {
     const base = SITE;
     const file = path.join(out, `${String(n).padStart(2, '0')}-${s.name}.jpg`);
     await page.setViewportSize(set.viewport);
+    // a screen that shows a blocked token: this capture serves a blocklist.json that names the first token (the live file is empty)
+    await page.unroute('**/blocklist.json').catch(() => {});
+    if (s.blocklist) {
+      const addr = tokenHash.replace('#/token/', '');
+      await page.route('**/blocklist.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ version: 1, tokens: [addr], creators: [] }) }));
+    }
     await page.goto(`${base}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
     if (s.path === null) await page.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
     await page.waitForTimeout(3500); // figures, the chart and pictures arrive after the page itself
     let clip;
-    if (s.clip === 'below-bar') {
+    if (s.clip === 'below-bar' || s.clip === 'below-bar-full') {
       // the app's top bar (the ticker, the menu, Connect Wallet) is not part of the picture: it starts at the page body, and the
       // window is made that much taller so the picture has the set's full size
       const top = Math.ceil(await page.evaluate(() => document.querySelector('main').getBoundingClientRect().top));
-      if (set.viewport.width >= 1000) {
+      if (set.viewport.width >= 1000 && s.clip === 'below-bar') {
         // wide screens: the article column only (the side menu and the promo card are left out), 16:9
         const col = await page.evaluate(() => { const r = document.querySelector('.docs-main').getBoundingClientRect(); return { x: r.left, width: r.width }; });
         const height = Math.round((col.width * 9) / 16);
@@ -55,14 +61,15 @@ async function shots(key) {
       if (!(await btn.count())) throw new Error('No "Report this token" button here: take this picture from a build that has it (npm run build, npx vite preview, MINTA_SITE=http://127.0.0.1:4173)');
       await btn.click();
       await page.waitForTimeout(400);
-      // from the Report link to the end of the token facts: no picture, no trade panel
+      // from the Report link to the end of the Hide buttons: no picture, no price, no trade panel
       const box = await page.evaluate(() => {
         const r = document.querySelector('.report-token').getBoundingClientRect();
-        const f = document.querySelector('.stat-strip').getBoundingClientRect();
-        return { x: 0, y: r.top + window.scrollY - 12, bottom: f.bottom + window.scrollY + 12 };
+        const h = document.querySelector('.hide-row-page').getBoundingClientRect();
+        return { x: 0, y: r.top + window.scrollY, bottom: h.bottom + window.scrollY + 8 };
       });
       clip = { x: 0, y: box.y, width: set.viewport.width, height: box.bottom - box.y };
-      // Play wants the long side at most twice the short side: a taller panel is cut at that (the facts' last lines may be cut)
+      // Play wants the long side at most twice the short side
+      clip.height = Math.min(clip.height, 2 * clip.width);
       clip.height = Math.min(clip.height, 2 * clip.width);
       if (clip.height < 0.5 * clip.width) throw new Error(`report clip ${clip.width}x${clip.height} is too flat`);
     } else if (s.scrollTo) {

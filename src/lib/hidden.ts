@@ -3,12 +3,12 @@
 // Pure: no app imports, so node unit tests can call it.
 
 interface Store { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
-/** At most this many addresses are kept (a stored list can't grow without end) */
-export const MAX_HIDDEN = 500;
+/** At most this many addresses are kept (a stored list can't grow without end); a longer list is cut and the Hide buttons say so */
+export const MAX_HIDDEN = 2000;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** A stored list longer than this many characters is not one MINTA wrote (500 addresses are about 25,000): it is dropped unread */
-const MAX_RAW = 100_000;
+/** A stored list longer than this many characters is not one MINTA wrote (2,000 addresses are about 90,000): it is dropped unread */
+const MAX_RAW = 120_000;
 
 /** The addresses in a stored value, lowercased, each once, at most MAX_HIDDEN of them (scanning stops there); anything that isn't a list of addresses is dropped */
 export function parseHidden(raw: string | null): string[] {
@@ -89,3 +89,22 @@ export function visibleLaunches<T extends { token: string; creator: string }>(ro
   const ht = new Set(hiddenTokens), hc = new Set(hiddenCreators), bt = new Set(block.tokens), bc = new Set(block.creators);
   return rows.filter((r) => { const t = r.token.toLowerCase(), c = r.creator.toLowerCase(); return !(ht.has(t) || hc.has(c) || bt.has(t) || bc.has(c)); });
 }
+
+/** What the ticker shows once hidden tokens are out: its trades and launches of a hidden token or of a hidden creator's tokens go; its totals stay.
+ *  `creatorOf` gives a token's creator when it is known (the launches read so far); a token whose creator isn't known is judged by its address alone. */
+export function visibleFeed<T extends { kind: string; token?: string }>(
+  items: T[], creatorOf: (token: string) => string | undefined,
+  hiddenTokens: readonly string[], hiddenCreators: readonly string[], block: Blocklist,
+): T[] {
+  return items.filter((it) => {
+    if (it.kind === 'stat' || !it.token) return true;
+    const creator = creatorOf(it.token) ?? '0x0000000000000000000000000000000000000000';
+    return !isHidden({ token: it.token, creator }, hiddenTokens, hiddenCreators, block);
+  });
+}
+
+/** True when the lists hide anything by creator (then the launches must be read to know whose a token is) */
+export const hidesByCreator = (hiddenCreators: readonly string[], block: Blocklist) => hiddenCreators.length > 0 || block.creators.length > 0;
+
+/** How long the first paint waits for the team's list before showing everything (a slow file never blanks the app) */
+export const BLOCKLIST_WAIT_MS = 1500;

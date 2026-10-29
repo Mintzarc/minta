@@ -136,6 +136,82 @@ test('the report message names the ticker and address; the email link exists onl
   // one definition of the address in the code
   const defs = fs.readdirSync(new URL('../src/', import.meta.url), { recursive: true }).filter((f) => /\.tsx?$/.test(f) && /REPORT_EMAIL\s*=/.test(read(`src/${f}`)));
   assert.deepEqual(defs.map((f) => f.replace(/\\/g, '/')), ['lib/contact.ts']);
-  const tok = read('src/pages/Token.tsx');
+  const tok = read('src/components/ReportToken.tsx');
   assert.match(tok, /\{mail && <>/);
+  assert.match(read('src/pages/Token.tsx'), /<ReportToken token=\{launch\.token\} sym=\{sym\} \/>/);
+});
+
+test('the Report panel renders an Email link only when an address is set: subject and message prefilled and escaped; with none, nothing', async () => {
+  const React = (await import('react')).default;
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const js = ts.transpileModule(read('src/components/ReportToken.tsx'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+  const contact = load('src/lib/contact.ts');
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', 'React', js)((id) => (id === 'react' ? React : id === '../lib/contact' ? contact : (() => { throw new Error(id); })()), module, module.exports, React);
+  const { ReportToken } = module.exports;
+  const render = (email) => renderToStaticMarkup(React.createElement(ReportToken, { token: A, sym: 'A&B', email, defaultOpen: true }));
+  const withMail = render('team@example.com');
+  const href = /href="(mailto:[^"]+)"/.exec(withMail)?.[1];
+  assert.ok(href, 'an Email link is there');
+  const u = new URL(href.replace(/&amp;/g, '&'));
+  assert.equal(u.pathname, 'team@example.com');
+  assert.equal(u.searchParams.get('subject'), 'Report: $A&B on MINTA');
+  assert.ok(u.searchParams.get('body').startsWith(`Report token $A&B ${A} on MINTA: `), 'the body carries the ticker and the token address');
+  assert.equal(/subject=[^&]* /.test(href), false, 'no raw spaces in the link');
+  assert.match(withMail, /on Telegram, on X or by email/);
+  for (const none of ['', 'not an address']) {
+    const m = render(none);
+    assert.equal(/mailto:/.test(m), false);
+    assert.equal(/>Email</.test(m), false);
+    assert.match(m, /on Telegram or X/);
+    assert.match(m, /Telegram/);
+  }
+  assert.equal(contact.REPORT_EMAIL, '', 'the address stays empty until the owner confirms it');
+});
+
+test('hidden and blocked tokens are out of the ticker (by token and by creator), the totals stay, and the first paint waits for the team\'s list at most 1.5 s', () => {
+  const { visibleFeed, hidesByCreator, NO_BLOCKS, BLOCKLIST_WAIT_MS } = load('src/lib/hidden.ts');
+  const items = [
+    { kind: 'stat', id: 's' },
+    { kind: 'launch', id: 'l1', token: A }, { kind: 'trade', id: 't1', token: B }, { kind: 'trade', id: 't2', token: C },
+  ];
+  const creators = { [A]: C, [B]: A, [C]: A };
+  const creatorOf = (t) => creators[t] ?? creators[Object.keys(creators).find((k) => k.toLowerCase() === t.toLowerCase())];
+  assert.equal(visibleFeed(items, creatorOf, [], [], NO_BLOCKS).length, 4);
+  assert.deepEqual(visibleFeed(items, creatorOf, [], [], { tokens: [A.toLowerCase()], creators: [] }).map((i) => i.id), ['s', 't1', 't2']);
+  assert.deepEqual(visibleFeed(items, creatorOf, [B.toLowerCase()], [], NO_BLOCKS).map((i) => i.id), ['s', 'l1', 't2']);
+  assert.deepEqual(visibleFeed(items, creatorOf, [], [], { tokens: [], creators: [A.toLowerCase()] }).map((i) => i.id), ['s', 'l1'], 'everything of a creator goes (B and C are A\'s)');
+  assert.deepEqual(visibleFeed(items, creatorOf, [], [C.toLowerCase()], NO_BLOCKS).map((i) => i.id), ['s', 't1', 't2'], 'a hidden creator\'s launch goes');
+  assert.equal(hidesByCreator([], NO_BLOCKS), false);
+  assert.equal(hidesByCreator([A], NO_BLOCKS), true);
+  assert.equal(BLOCKLIST_WAIT_MS, 1500);
+  // wiring: every place that lists tokens uses the lists, and waits for the first reading
+  const ticker = read('src/components/Ticker.tsx');
+  assert.match(ticker, /visibleFeed\(all, creatorOf, hiddenTokens, hiddenCreators, block\)/);
+  assert.match(ticker, /ready && /);
+  assert.match(read('src/pages/Explore.tsx'), /all && ready \? visibleLaunches/);
+  assert.match(read('src/pages/Token.tsx'), /launch === undefined \|\| !ready/);
+  assert.match(read('src/pages/Portfolio.tsx'), /visibleLaunches\(list, \[\], \[\], blockRef\.current\)\.map/);
+  assert.match(read('src/pages/Portfolio.tsx'), /visibleLaunches\(list, \[\], \[\], blockRef\.current\)\.filter/);
+  assert.match(read('src/components/Search.tsx'), /visibleLaunches\(list, hidden, hiddenCreators, block\)/);
+  const hid = read('src/components/Hidden.tsx');
+  assert.match(hid, /setTimeout\(\(\) => \{ if \(live\) setS\(\(p\) => \(p\.ready \? p : \{ \.\.\.p, ready: true \}\)\); \}, BLOCKLIST_WAIT_MS\)/);
+  assert.match(hid, /\.catch\(\(\) => NO_BLOCKS\)/, 'a failed file shows everything');
+});
+
+test('the hidden list holds 2,000 and the UI says when it is full', () => {
+  const { MAX_HIDDEN } = load('src/lib/hidden.ts');
+  assert.equal(MAX_HIDDEN, 2000);
+  assert.match(read('src/components/Hidden.tsx'), /hiding more drops the oldest/);
+});
+
+test('?app=1 is never an authority: it only decides whether the wallet note is shown', () => {
+  for (const f of fs.readdirSync(new URL('../src/', import.meta.url), { recursive: true }).filter((f) => /\.tsx?$/.test(f))) {
+    const src = read(`src/${f}`);
+    if (/lib[\\/]twa\.ts$/.test(f)) continue;
+    const uses = src.match(/IS_TWA/g) || [];
+    if (uses.length) assert.ok(/components[\\/]ui\.tsx$/.test(f), `${f} uses IS_TWA: only ui.tsx (the wallet note) may`);
+  }
+  const ui = read('src/components/ui.tsx');
+  for (const m of ui.matchAll(/IS_TWA[^\n]*/g)) assert.match(m[0], /TwaNote|lib\/twa|available/, 'IS_TWA only picks the wallet note');
 });

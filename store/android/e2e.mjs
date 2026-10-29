@@ -151,6 +151,42 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     await tctx.close();
   }
 
+  // 4d. A token MINTA's team blocks (a stand-in blocklist.json served for this check) is nowhere: not in the ticker, Explore, the top
+  // list or the search, and its page says why; blocking its creator does the same
+  if (tokenHash) {
+    const addr = tokenHash.replace('#/token/', '');
+    // the creator is on the token's page (the link to its address on the explorer)
+    await go(`/${tokenHash}`);
+    await page.reload({ waitUntil: 'domcontentloaded' }); await settle();
+    const creator = (await page.$$eval('.id-line a[href*="/address/"]', (as) => as.map((a) => a.getAttribute('href').split('/address/')[1]))).at(-1);
+    for (const [label, body] of [['token', { version: 1, tokens: [addr], creators: [] }], ['creator', { version: 1, tokens: [], creators: creator ? [creator] : [] }]]) {
+      if (label === 'creator' && !creator) { say('WARN', size, 'the token page shows no creator link: the creator block is not tested'); continue; }
+      const bctx = await browser.newContext({ viewport: cfg.viewport, deviceScaleFactor: 1, isMobile: cfg.mobile, hasTouch: cfg.touch, locale: 'en-US' });
+      await bctx.route('**/blocklist.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(body) }));
+      const bp = await bctx.newPage();
+      await skipSplash(bp);
+      await bp.goto(`${SITE}/#/`, { waitUntil: 'domcontentloaded' });
+      await bp.waitForTimeout(6000);
+      const links = await bp.locator(`a[href*="${addr}"]`).count();
+      ok(size, links === 0, `blocked ${label}: no link to the token anywhere on Explore (cards, top list, ticker)`, `(${links} found)`);
+      const html = await bp.locator('.ticker').innerHTML();
+      ok(size, !html.toLowerCase().includes(addr.toLowerCase()), `blocked ${label}: not in the ticker's markup`);
+      await bp.goto(`${SITE}/${tokenHash}`, { waitUntil: 'domcontentloaded' });
+      await bp.reload({ waitUntil: 'domcontentloaded' });
+      await bp.waitForTimeout(5000);
+      const bt = await bp.locator('body').innerText();
+      ok(size, /MINTA hides this token because it was reported/.test(bt) && !/Buy|Sell/.test(bt.replace(/Buy \/ sell/i, '')), `blocked ${label}: the token page says why and shows no trade panel`);
+      // the search finds nothing
+      await bp.goto(`${SITE}/#/`, { waitUntil: 'domcontentloaded' });
+      await bp.waitForTimeout(3000);
+      await bp.getByRole('button', { name: /Search/ }).first().click().catch(() => {});
+      await bp.keyboard.type('TEST');
+      await bp.waitForTimeout(800);
+      ok(size, (await bp.locator(`a[href*="${addr}"]`).count()) === 0, `blocked ${label}: the search does not offer it`);
+      await bctx.close();
+    }
+  }
+
   // 5. Pages that must load: wallet, docs, terms, privacy, AI assistants
   for (const [p, re, label] of [['/#/wallet', /YOUR USDC|Your USDC/i, 'Wallet'], ['/#/docs', /MINTA DOCS|Docs/i, 'Docs'], ['/terms/', /Terms of Service/i, 'Terms'], ['/privacy/', /Privacy Policy/i, 'Privacy'], ['/agents/', /AI assistant/i, 'AI assistants']]) {
     await go(p);

@@ -17,46 +17,15 @@ import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { sendVyreTx, type EmailSession } from '../lib/circle';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
 import PriceChart from '../components/PriceChart';
-import { BlockedToken, HideToken, useBlocklist } from '../components/Hidden';
+import { BlockedToken, HideToken, useBlocklistState } from '../components/Hidden';
 import { isHidden } from '../lib/hidden';
 import { LIQUIDITY_FACT } from '../lib/facts';
-import { REPORT_EMAIL, REPORT_TELEGRAM, REPORT_X, reportMailto, reportText } from '../lib/contact';
+import { ReportToken } from '../components/ReportToken';
 
 // kept back from a "max" buy so the wallet can still pay gas
 const GAS_RESERVE = 10n ** 16n; // 0.01 USDC
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC: less than this left, a buy can't pay its fee
 
-
-/**
- * "Report this token": anyone can flag a token whose name, picture, description or links break the terms (section 8).
- * MINTA keeps no server for reports, so nothing is sent from here: the panel gives the message to copy and links to MINTA's
- * own Telegram group and X account (and an email address once the owner confirms it, src/lib/contact.ts), where the reports
- * are read. It collects nothing.
- */
-function ReportToken({ token, sym }: { token: Address; sym: string }) {
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const text = reportText(sym, token);
-  const mail = reportMailto(REPORT_EMAIL, sym, token);
-  const copy = () => { navigator.clipboard?.writeText(text).then(() => setCopied(true), () => setCopied(false)); };
-  return (
-    <div className="report-token">
-      <button type="button" className="linkish small" aria-expanded={open} onClick={() => setOpen(!open)}>Report this token</button>
-      {open && (
-        <div className="note small" role="note">
-          <p>Names, pictures, descriptions and links are made by whoever launched the token. If this one is unlawful, hateful, a copy of someone else&rsquo;s work, or deceives people, tell MINTA. Copy this message, add what is wrong, and send it to MINTA {mail ? 'on Telegram, on X or by email' : 'on Telegram or X'}. MINTA may stop showing a token it is told about.</p>
-          <p className="mono break">{text}</p>
-          <p>
-            <button type="button" className="btn btn-line btn-sm" onClick={copy}>{copied ? 'Copied' : 'Copy the message'}</button>{' '}
-            <a className="btn btn-line btn-sm" href={REPORT_TELEGRAM} target="_blank" rel="noopener noreferrer">Telegram</a>{' '}
-            <a className="btn btn-line btn-sm" href={REPORT_X} target="_blank" rel="noopener noreferrer">X</a>
-            {mail && <>{' '}<a className="btn btn-line btn-sm" href={mail}>Email</a></>}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * A trade from an email wallet, once Circle signs for VYRE (the server's switch; until then the panel shows
@@ -77,7 +46,7 @@ async function emailTrade(withEmail: <T>(fn: (s: EmailSession) => Promise<T>) =>
 
 // (The page is keyed by its token in App, so each token starts with fresh state.)
 export default function Token({ token }: { token: Address }) {
-  const block = useBlocklist();
+  const { block, ready } = useBlocklistState();
   const { account, onVyre } = useWallet();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [market, setMarket] = useState<Market | null>(null);
@@ -157,8 +126,8 @@ export default function Token({ token }: { token: Address }) {
   }, [refresh]);
   useEffect(() => { refreshBalances().catch(() => {}); }, [refreshBalances]);
 
-  if (launch === undefined) {
-    return readErr
+  if (launch === undefined || !ready) {
+    return readErr && launch === undefined
       ? <div className="empty"><p>{readErr}</p><button className="btn btn-line btn-sm" type="button" onClick={() => refresh(true)}>Try again</button></div>
       : <Loading what="Reading the launch" />;
   }

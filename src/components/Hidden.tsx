@@ -3,7 +3,7 @@
 // token's page shows.
 import { useEffect, useState } from 'react';
 import { VYRE_CHAIN } from '../lib/chain';
-import { NO_BLOCKS, hideToken, loadHidden, parseBlocklist, showAllTokens, showToken, type Blocklist } from '../lib/hidden';
+import { BLOCKLIST_WAIT_MS, MAX_HIDDEN, NO_BLOCKS, hideToken, loadHidden, parseBlocklist, showAllTokens, showToken, type Blocklist } from '../lib/hidden';
 import { href } from '../lib/router';
 import { storeKey } from '../lib/storeKey';
 
@@ -36,19 +36,32 @@ export const showAll = () => { showAllTokens(store(), KEY); showAllTokens(store(
 
 // MINTA's own list: read once from this site when the app starts (a file next to the pages, so it asks nobody else)
 let blocklist: Promise<Blocklist> | null = null;
+let loaded: Blocklist | null = null;
 function loadBlocklist(): Promise<Blocklist> {
   blocklist ??= fetch('/blocklist.json', { cache: 'no-cache' })
     .then((r) => (r.ok ? r.json() : null))
     .then((v) => parseBlocklist(v))
-    .catch(() => NO_BLOCKS);
+    .catch(() => NO_BLOCKS)
+    .then((b) => { loaded = b; return b; });
   return blocklist;
 }
-/** The tokens and creators MINTA's team hides (nothing until the file is read, or if it can't be) */
-export function useBlocklist(): Blocklist {
-  const [b, setB] = useState<Blocklist>(NO_BLOCKS);
-  useEffect(() => { let live = true; loadBlocklist().then((v) => { if (live) setB(v); }); return () => { live = false; }; }, []);
-  return b;
+/**
+ * The tokens and creators MINTA's team hides, and whether the first reading is over. Until `ready` the lists, token pages and ticker
+ * show nothing of the tokens, so a blocked token is never drawn for a moment; `ready` comes when the file has loaded or failed (a
+ * failure shows everything) or after 1.5 seconds, so a slow file never blanks the app (a late file is applied when it arrives).
+ */
+export function useBlocklistState(): { block: Blocklist; ready: boolean } {
+  const [s, setS] = useState<{ block: Blocklist; ready: boolean }>(() => (loaded ? { block: loaded, ready: true } : { block: NO_BLOCKS, ready: false }));
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => { if (live) setS((p) => (p.ready ? p : { ...p, ready: true })); }, BLOCKLIST_WAIT_MS);
+    loadBlocklist().then((b) => { if (live) setS({ block: b, ready: true }); });
+    return () => { live = false; clearTimeout(t); };
+  }, []);
+  return s;
 }
+/** The tokens and creators MINTA's team hides (nothing until the file is read, or if it can't be) */
+export const useBlocklist = (): Blocklist => useBlocklistState().block;
 
 /** "Hide this token" and "Hide everything from this creator" on a token's page or card; "Show it again" once hidden: only on this device */
 export function HideToken({ token, creator, card = false }: { token: string; creator: string; card?: boolean }) {
@@ -69,9 +82,11 @@ export function HideToken({ token, creator, card = false }: { token: string; cre
 
 /** "N tokens hidden on this device. Show all": nothing when none are hidden */
 export function HiddenNote() {
-  const n = useHidden().length + useHiddenCreators().length;
+  const tokens = useHidden().length, creators = useHiddenCreators().length;
+  const n = tokens + creators;
   if (n === 0) return null;
-  return <p className="small muted hidden-note">{n} {n === 1 ? 'token or creator is' : 'tokens or creators are'} hidden on this device. <button type="button" className="linkish" onClick={showAll}>Show all</button></p>;
+  const full = tokens >= MAX_HIDDEN || creators >= MAX_HIDDEN;
+  return <p className="small muted hidden-note">{n} {n === 1 ? 'token or creator is' : 'tokens or creators are'} hidden on this device. <button type="button" className="linkish" onClick={showAll}>Show all</button>{full ? ` The list is full (${MAX_HIDDEN}): hiding more drops the oldest.` : ''}</p>;
 }
 
 /** What a token's page shows instead of the token when MINTA's team hides it */
