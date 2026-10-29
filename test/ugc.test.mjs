@@ -195,7 +195,12 @@ test('hidden and blocked tokens are out of the ticker (by token and by creator),
   assert.match(read('src/pages/Portfolio.tsx'), /pairVisible\(raw\.list, raw\.balances, block\)/);
   assert.match(read('src/components/Search.tsx'), /visibleLaunches\(list, hidden, hiddenCreators, block\)/);
   const hid = read('src/components/Hidden.tsx');
-  assert.match(hid, /setTimeout\(\(\) => \{ if \(live\) setS\(\(p\) => \(p\.ready \? p : \{ \.\.\.p, ready: true \}\)\); \}, BLOCKLIST_WAIT_MS\)/);
+  assert.match(hid, /strict \? undefined : setTimeout\(\(\) => \{ if \(live\) setS\(\(p\) => \(p\.ready \? p : \{ \.\.\.p, ready: true \}\)\); \}, BLOCKLIST_WAIT_MS\)/);
+  // a token's own page and the manage page wait for the file to load or fail (a reading is given up after 10 s), never for 1.5 s only
+  assert.match(hid, /useBlocklistState\(true\)/, 'the gate (manage page, launch notices) is strict');
+  assert.match(read('src/pages/Token.tsx'), /useBlocklistState\(true\)/, 'the token page is strict');
+  assert.match(hid, /AbortSignal\.timeout\(READ_TIMEOUT_MS\)/);
+  assert.match(hid, /READ_TIMEOUT_MS = 10_000/);
 });
 
 test('the hidden list holds 2,000 and the UI says when it is full', () => {

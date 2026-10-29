@@ -46,7 +46,7 @@ async function emailTrade(withEmail: <T>(fn: (s: EmailSession) => Promise<T>) =>
 
 // (The page is keyed by its token in App, so each token starts with fresh state.)
 export default function Token({ token }: { token: Address }) {
-  const { block, ready } = useBlocklistState();
+  const { block, ready } = useBlocklistState(true);
   const { account, onVyre } = useWallet();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [market, setMarket] = useState<Market | null>(null);

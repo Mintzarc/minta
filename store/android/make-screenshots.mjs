@@ -8,6 +8,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SETS, SCREENS, SITE, DOCS_WIDE_LAYOUT, skipSplash, firstTokenHash } from './viewports.mjs';
 
+/** In the page: the document position y in [from, from + range] where a picture of `height` starting there neither begins nor ends in the
+ *  middle of a line of text (no text line crosses y or y + height); `from` when there is none */
+const snapScript = ({ from, range, height }) => {
+  const rects = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.nodeValue.trim() || !n.parentElement || getComputedStyle(n.parentElement).visibility === 'hidden') continue;
+    const r = document.createRange();
+    r.selectNodeContents(n);
+    for (const q of r.getClientRects()) if (q.height > 0 && q.width > 0) rects.push({ top: q.top + window.scrollY, bottom: q.bottom + window.scrollY });
+  }
+  // a line counts as `m` px taller each way, so descenders and the gap above the next line are never cut: the widest margin that has an answer
+  const crosses = (y, m) => rects.some((q) => q.top - m < y && q.bottom + m > y);
+  for (const m of [8, 6, 4, 2, 0]) for (let y = from; y <= from + range; y += 1) if (!crosses(y, m) && !crosses(y + height, m)) return y;
+  return from;
+};
+
 const HERE = import.meta.dirname;
 const ROOT = path.join(HERE, '..', '..');
 const only = process.argv[2];
@@ -27,67 +44,79 @@ async function shots(key) {
     n += 1;
     const base = SITE;
     const file = path.join(out, `${String(n).padStart(2, '0')}-${s.name}.jpg`);
-    await page.setViewportSize(set.viewport);
-    await page.goto(`${base}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
-    if (s.path === null) await page.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
-    await page.waitForTimeout(3500); // figures, the chart and pictures arrive after the page itself
+    // a picture can be made in a narrower layout than the set's own (its article then fills the picture: `layoutWidth`)
+    const view = s.layoutWidth ? { viewport: { width: s.layoutWidth, height: Math.round((s.layoutWidth * 16) / 9) }, scale: set.viewport.width * set.scale / s.layoutWidth } : set;
+    const tmp = s.layoutWidth ? await browser.newContext({ viewport: view.viewport, deviceScaleFactor: view.scale, isMobile: set.mobile, hasTouch: set.touch, locale: 'en-US' }) : null;
+    const pg = tmp ? await tmp.newPage() : page;
+    if (tmp) await skipSplash(pg);
+    await pg.setViewportSize(view.viewport);
+    await pg.goto(`${base}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
+    if (s.path === null) await pg.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
+    await pg.waitForTimeout(3500); // figures, the chart and pictures arrive after the page itself
     let clip;
     if (s.clip === 'below-bar') {
       // the app's top bar (the ticker, the menu, Connect Wallet) is not part of the picture: it starts at the page body, and the
       // window is made that much taller so the picture has the set's full size
-      if (set.viewport.width >= 1000) {
+      if (view.viewport.width >= 1000) {
         // wide screens: the article column only (the side menu and the promo card are left out), exactly 16:9 on a width that is a
         // multiple of 16, in a 1,280 px layout so the article fills the picture
-        await page.setViewportSize({ width: DOCS_WIDE_LAYOUT, height: 900 });
-        await page.waitForTimeout(1200);
-        const col = await page.evaluate(() => { const r = document.querySelector('.docs-main').getBoundingClientRect(); return { x: r.left, width: r.width, top: document.querySelector('main').getBoundingClientRect().top }; });
+        await pg.setViewportSize({ width: DOCS_WIDE_LAYOUT, height: 900 });
+        await pg.waitForTimeout(1200);
+        const col = await pg.evaluate(() => { const r = document.querySelector('.docs-main').getBoundingClientRect(); return { x: r.left, width: r.width, top: document.querySelector('main').getBoundingClientRect().top }; });
         const width = Math.floor(col.width / 16) * 16, height = (width * 9) / 16;
         const top = Math.ceil(col.top);
-        await page.setViewportSize({ width: DOCS_WIDE_LAYOUT, height: top + Math.ceil(height) + 40 });
-        await page.waitForTimeout(800);
-        await page.evaluate(() => window.scrollTo(0, 0));
-        const content = await page.evaluate(() => document.querySelector('.docs-main').getBoundingClientRect().bottom);
+        await pg.setViewportSize({ width: DOCS_WIDE_LAYOUT, height: top + Math.ceil(height) + 40 });
+        await pg.waitForTimeout(800);
+        await pg.evaluate(() => window.scrollTo(0, 0));
+        const content = await pg.evaluate(() => document.querySelector('.docs-main').getBoundingClientRect().bottom);
         if (content - top < height) throw new Error(`${s.name} is shorter than the picture (${Math.round(content - top)} < ${height}): choose a longer article`);
-        clip = { x: col.x + (col.width - width) / 2, y: top, width, height };
+        const y = await pg.evaluate(snapScript, { from: top, range: 160, height });
+        clip = { x: col.x + (col.width - width) / 2, y, width, height };
       } else {
-        const top = Math.ceil(await page.evaluate(() => document.querySelector('main').getBoundingClientRect().top));
-        await page.setViewportSize({ width: set.viewport.width, height: set.viewport.height + top });
-        await page.waitForTimeout(800);
-        await page.evaluate(() => window.scrollTo(0, 0));
+        const top = Math.ceil(await pg.evaluate(() => document.querySelector('main').getBoundingClientRect().top));
+        await pg.setViewportSize({ width: view.viewport.width, height: view.viewport.height + top });
+        await pg.waitForTimeout(800);
+        await pg.evaluate(() => window.scrollTo(0, 0));
         // a docs page shorter than the picture is cut where it ends (no empty lower half); never flatter than a square
-        const end = await page.evaluate(() => document.querySelector('.docs-main').getBoundingClientRect().bottom);
-        const height = Math.max(set.viewport.width, Math.min(set.viewport.height, Math.floor(end - top)));
-        clip = { x: 0, y: top, width: set.viewport.width, height };
+        const end = await pg.evaluate(() => document.querySelector('.docs-main').getBoundingClientRect().bottom);
+        const height = Math.max(view.viewport.width, Math.min(view.viewport.height, Math.floor(end - top)));
+        // whole lines: the picture starts and ends between lines of text (when the page is longer than the picture)
+        const y = end - top > height + 1 ? await pg.evaluate(snapScript, { from: top, range: 160, height }) : top;
+        clip = { x: 0, y, width: view.viewport.width, height };
       }
     } else if (s.clip === 'report') {
-      const btn = page.getByRole('button', { name: 'Report this token' });
+      const btn = pg.getByRole('button', { name: 'Report this token' });
       if (!(await btn.count())) throw new Error('No "Report this token" button here: take this picture from a build that has it (npm run build, npx vite preview, MINTA_SITE=http://127.0.0.1:4173)');
       await btn.click();
-      await page.waitForTimeout(400);
+      await pg.waitForTimeout(400);
       // from the Report link to the end of the Hide buttons: no picture, no price, no trade panel
-      const box = await page.evaluate(() => {
+      const box = await pg.evaluate(() => {
         const r = document.querySelector('.report-token').getBoundingClientRect();
         const h = document.querySelector('.hide-row-page').getBoundingClientRect();
         return { x: 0, y: r.top + window.scrollY, bottom: h.bottom + window.scrollY + 8 };
       });
-      clip = { x: 0, y: box.y, width: set.viewport.width, height: box.bottom - box.y };
+      clip = { x: 0, y: box.y, width: view.viewport.width, height: box.bottom - box.y };
       // Play wants the long side at most twice the short side
       clip.height = Math.min(clip.height, 2 * clip.width);
       clip.height = Math.min(clip.height, 2 * clip.width);
       if (clip.height < 0.5 * clip.width) throw new Error(`report clip ${clip.width}x${clip.height} is too flat`);
     } else if (s.scrollTo) {
-      await page.evaluate((t) => {
+      // from just above the heading, moved to where the picture starts and ends between lines of text
+      const from = await pg.evaluate((t) => {
         const h = [...document.querySelectorAll('h1,h2,h3')].find((e) => e.textContent.trim().includes(t));
         if (!h) throw new Error(`no heading "${t}"`);
-        window.scrollTo(0, h.getBoundingClientRect().top + window.scrollY - 70);
+        return Math.max(0, h.getBoundingClientRect().top + window.scrollY - 70);
       }, s.scrollTo);
-      await page.waitForTimeout(300);
+      const y = await pg.evaluate(snapScript, { from, range: 160, height: view.viewport.height });
+      await pg.evaluate((v) => window.scrollTo(0, v), y);
+      await pg.waitForTimeout(300);
     } else {
-      await page.evaluate(() => window.scrollTo(0, 0));
+      await pg.evaluate(() => window.scrollTo(0, 0));
     }
     // JPEG has no alpha channel: Google Play wants JPEG or 24-bit PNG without alpha
-    await page.screenshot({ path: file, type: 'jpeg', quality: 92, ...(clip ? { clip, fullPage: s.clip === 'report' } : {}) });
-    const w = Math.round((clip ? clip.width : set.viewport.width) * set.scale), h = Math.round((clip ? clip.height : set.viewport.height) * set.scale);
+    await pg.screenshot({ path: file, type: 'jpeg', quality: 92, ...(clip ? { clip, fullPage: true } : {}) });
+    const w = Math.round((clip ? clip.width : view.viewport.width) * view.scale), h = Math.round((clip ? clip.height : view.viewport.height) * view.scale);
+    if (tmp) await tmp.close();
     console.log(`${set.dir}/${path.basename(file)}  ${w}x${h}  ${s.note}`);
   }
   await ctx.close();

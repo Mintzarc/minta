@@ -19,11 +19,12 @@ export const SETS = {
  *  `sets` lists where a screen is used (default: every set). */
 export const SCREENS = [
   { name: 'docs-fees', path: '/#/docs/fees', clip: 'below-bar', sets: ['tablet10', 'desktop'], note: 'Docs: fees and revenue' },
-  { name: 'docs-tokenomics', path: '/#/docs/tokenomics', clip: 'below-bar', note: 'Docs: supply and tax' },
+  { name: 'docs-tokenomics', path: '/#/docs/tokenomics', clip: 'below-bar', sets: ['phone', 'tablet10', 'desktop'], note: 'Docs: supply and tax' },
+  { name: 'docs-tokenomics-narrow', path: '/#/docs/tokenomics', clip: 'below-bar', layoutWidth: 480, sets: ['tablet7'], note: 'Docs: supply and tax, in a 480 px wide layout (a 7-inch tablet in a narrow window) so the article fills a 9:16 picture' },
   { name: 'docs-contracts', path: '/#/docs/contracts', clip: 'below-bar', sets: ['tablet7', 'tablet10', 'desktop'], note: 'Docs: contracts and review status' },
   { name: 'report', path: null, clip: 'report', sets: ['phone'], note: 'A token page cropped to the Report this token panel and the Hide buttons (no picture, no price)' },
   { name: 'agents', path: '/agents/', scrollTo: 'Safety rules', sets: ['phone', 'tablet7'], note: 'Use MINTA with an AI assistant: the safety rules' },
-  { name: 'terms', path: '/terms/', note: 'Terms' },
+  { name: 'terms', path: '/terms/', scrollTo: 'Terms of', note: 'Terms' },
 ];
 /** Wide screens show a docs page in this layout width (the article column is then 992 px: 16:9 is 992 x 558, every article fills it) */
 export const DOCS_WIDE_LAYOUT = 1280;

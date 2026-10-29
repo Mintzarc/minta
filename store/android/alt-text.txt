@@ -5,7 +5,7 @@ phone/01-docs-tokenomics.jpg: MINTA docs page "Tokenomics options" with cards fo
 phone/02-report.jpg: A token page cropped to the "Report this token" panel: a message to copy with the ticker and address, Copy, Telegram and X buttons, and links to hide the token or everything from its creator.
 phone/03-agents.jpg: The page on using MINTA with an AI assistant, showing its safety rules: the assistant prepares, you sign; never paste a private key; set a spend limit; these are real funds; check the numbers.
 phone/04-terms.jpg: The MINTA Terms of Service page, with the introduction and the first section.
-tablet-7in/01-docs-tokenomics.jpg: MINTA docs page "Tokenomics options" with cards for supply, tax, splitting the tax and first buy.
+tablet-7in/01-docs-tokenomics-narrow.jpg: MINTA docs page "Tokenomics options" with cards for supply, tax, splitting the tax and first buy.
 tablet-7in/02-docs-contracts.jpg: MINTA docs page "Smart contracts": a table of the contract names, addresses and what each does, and the review status.
 tablet-7in/03-agents.jpg: The page on using MINTA with an AI assistant, showing safety rules, numbered steps and a starter message to copy.
 tablet-7in/04-terms.jpg: The MINTA Terms of Service page, with the introduction and the first sections.

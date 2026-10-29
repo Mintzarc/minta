@@ -40,13 +40,15 @@ export const showAll = () => { showAllTokens(store(), KEY); showAllTokens(store(
 const BLOCKLIST_EVENT = 'minta-blocklist-changed';
 const REFRESH_EVERY_MS = 30 * 60 * 1000;
 const MIN_GAP_MS = 60 * 1000;
+/** A reading that takes longer than this counts as failed (everything is shown): it ends the wait of the pages that wait for it */
+const READ_TIMEOUT_MS = 10_000;
 let blocklist: Promise<Blocklist> | null = null;
 let loaded: Blocklist | null = null;
 let lastRead = 0;
 let refreshing = false;
 async function readBlocklist(): Promise<Blocklist | null> {
   try {
-    const r = await fetch('/blocklist.json', { cache: 'no-cache' });
+    const r = await fetch('/blocklist.json', { cache: 'no-cache', signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
     if (!r.ok) return null;
     const v = await r.json();
     return v && typeof v === 'object' && (v as { version?: unknown }).version === 1 ? parseBlocklist(v) : null;
@@ -82,15 +84,17 @@ function startRefresh() {
  * show nothing of the tokens, so a blocked token is never drawn for a moment; `ready` comes when the file has loaded or failed (a
  * failure shows everything) or after 1.5 seconds, so a slow file never blanks the app (a late file is applied when it arrives).
  */
-export function useBlocklistState(): { block: Blocklist; ready: boolean } {
+export function useBlocklistState(strict = false): { block: Blocklist; ready: boolean } {
   const [s, setS] = useState<{ block: Blocklist; ready: boolean }>(() => (loaded ? { block: loaded, ready: true } : { block: NO_BLOCKS, ready: false }));
   useEffect(() => {
     let live = true;
-    const t = setTimeout(() => { if (live) setS((p) => (p.ready ? p : { ...p, ready: true })); }, BLOCKLIST_WAIT_MS);
+    // lists, the ticker and the search stop waiting after 1.5 s; `strict` pages (a token's own page, the manage page) wait until the
+    // file has loaded or failed (a reading is given up after 10 s), so a slow file never lets a blocked token's page flash up
+    const t = strict ? undefined : setTimeout(() => { if (live) setS((p) => (p.ready ? p : { ...p, ready: true })); }, BLOCKLIST_WAIT_MS);
     loadBlocklist().then((b) => { if (live) setS({ block: b, ready: true }); });
     const changed = () => { if (live && loaded) setS({ block: loaded, ready: true }); };
     window.addEventListener(BLOCKLIST_EVENT, changed);
-    return () => { live = false; clearTimeout(t); window.removeEventListener(BLOCKLIST_EVENT, changed); };
+    return () => { live = false; if (t) clearTimeout(t); window.removeEventListener(BLOCKLIST_EVENT, changed); };
   }, []);
   return s;
 }
@@ -103,7 +107,7 @@ export const useBlocklist = (): Blocklist => useBlocklistState().block;
  * thin the lists, and the token page says "Hidden on this device".
  */
 export function useTokenGate(): { ready: boolean; blocked: (l: { token: string; creator: string }) => boolean } {
-  const { block, ready } = useBlocklistState();
+  const { block, ready } = useBlocklistState(true);
   return { ready, blocked: (l) => isHidden(l, [], [], block) };
 }
 

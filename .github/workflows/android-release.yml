@@ -20,6 +20,8 @@ permissions:
   contents: read
 jobs:
   bundle:
+    # only the main branch builds a release (the key's environment allows main only, and this stops a run from any other branch at once)
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # the four secrets live in this environment (Settings, Environments), which only the branch main may use

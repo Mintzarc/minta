@@ -125,6 +125,7 @@ test('the Gradle wrapper is pinned by checksum and every workflow validates it',
 test('the release runs in the android-release environment, and refuses to build unless the site names the Play key (RELEASE_CHECK=1)', () => {
   const rel = read('.github/workflows/android-release.yml');
   assert.match(rel, /environment: android-release/);
+  assert.match(rel, /bundle:\n(?:\s+#[^\n]*\n)?\s+if: github\.ref == 'refs\/heads\/main'/, 'the release job runs only on main');
   assert.match(rel, /RELEASE_CHECK=1 node --test test\/android\.test\.mjs/);
   assert.match(rel, /first_upload/);
   assert.ok(docs.includes('android-release') && docs.includes('first_upload'));
@@ -225,7 +226,8 @@ test('the store pictures meet Play\'s size rules: sets of at least four, ratios 
       if (d === 'tablet-7in') assert.ok(s.h >= s.w, `${f}: portrait`);
     }
   }
-  for (const f of sets['tablet-7in'].concat(sets.phone).filter((f) => /agents|terms/.test(f))) { const s = imageSize(f); if (/tablet-7in/.test(f)) assert.ok(Math.abs(s.w * 16 - s.h * 9) <= 16 * 2, `${f}: 9:16`); }
+  for (const f of sets['tablet-7in']) { const s = imageSize(f); assert.ok(Math.abs(s.w * 16 - s.h * 9) <= 16, `${f}: ${s.w}x${s.h} is not exactly 9:16`); }
+  for (const f of sets.phone) { const s = imageSize(f); if (!/report/.test(f)) assert.deepEqual([s.w, s.h], [1080, 1920], `${f}: phone pictures are 1080 x 1920 (the report crop is the one exception)`); }
 });
 
 test('the short description is at most 80 bytes with no trailing newline; every graphic has alt text', () => {
