@@ -91,16 +91,27 @@ export function visibleLaunches<T extends { token: string; creator: string }>(ro
 }
 
 /** What the ticker shows once hidden tokens are out: its trades and launches of a hidden token or of a hidden creator's tokens go; its totals stay.
- *  `creatorOf` gives a token's creator when it is known (the launches read so far); a token whose creator isn't known is judged by its address alone. */
+ *  `creatorOf` gives a token's creator when it is known. FAIL CLOSED: while any creator is hidden or blocked, an item whose token's creator is
+ *  not known yet is held back (the page then looks the creator up and the item appears if it is allowed). */
 export function visibleFeed<T extends { kind: string; token?: string }>(
   items: T[], creatorOf: (token: string) => string | undefined,
   hiddenTokens: readonly string[], hiddenCreators: readonly string[], block: Blocklist,
 ): T[] {
+  const byCreator = hiddenCreators.length > 0 || block.creators.length > 0;
   return items.filter((it) => {
     if (it.kind === 'stat' || !it.token) return true;
-    const creator = creatorOf(it.token) ?? '0x0000000000000000000000000000000000000000';
-    return !isHidden({ token: it.token, creator }, hiddenTokens, hiddenCreators, block);
+    const creator = creatorOf(it.token);
+    if (creator === undefined && byCreator) return false;
+    return !isHidden({ token: it.token, creator: creator ?? '' }, hiddenTokens, hiddenCreators, block);
   });
+}
+
+/** Each balance stays with the launch it was read for, and only then are the blocked launches taken out (filtering the launches first
+ *  and then reading balances by position would put every later balance against the wrong token) */
+export function pairVisible<T extends { token: string; creator: string }, B>(list: readonly T[], balances: readonly B[], block: Blocklist): { launch: T; balance: B }[] {
+  const out: { launch: T; balance: B }[] = [];
+  for (let i = 0; i < list.length; i++) if (!isHidden(list[i], [], [], block)) out.push({ launch: list[i], balance: balances[i] });
+  return out;
 }
 
 /** True when the lists hide anything by creator (then the launches must be read to know whose a token is) */

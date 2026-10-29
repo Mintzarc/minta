@@ -24,3 +24,10 @@ android/local.properties
 android/emulator-out/
 *.aab
 *.apk
+
+# upload and signing keys in any spelling
+*.jks
+*.keystore
+*.keystore.*
+*.p12
+*.pfx

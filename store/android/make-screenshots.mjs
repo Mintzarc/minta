@@ -6,7 +6,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
-import { SETS, SCREENS, SITE, skipSplash, firstTokenHash } from './viewports.mjs';
+import { SETS, SCREENS, SITE, DOCS_WIDE_LAYOUT, skipSplash, firstTokenHash } from './viewports.mjs';
 
 const HERE = import.meta.dirname;
 const ROOT = path.join(HERE, '..', '..');
@@ -28,33 +28,36 @@ async function shots(key) {
     const base = SITE;
     const file = path.join(out, `${String(n).padStart(2, '0')}-${s.name}.jpg`);
     await page.setViewportSize(set.viewport);
-    // a screen that shows a blocked token: this capture serves a blocklist.json that names the first token (the live file is empty)
-    await page.unroute('**/blocklist.json').catch(() => {});
-    if (s.blocklist) {
-      const addr = tokenHash.replace('#/token/', '');
-      await page.route('**/blocklist.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ version: 1, tokens: [addr], creators: [] }) }));
-    }
     await page.goto(`${base}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
     if (s.path === null) await page.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
     await page.waitForTimeout(3500); // figures, the chart and pictures arrive after the page itself
     let clip;
-    if (s.clip === 'below-bar' || s.clip === 'below-bar-full') {
+    if (s.clip === 'below-bar') {
       // the app's top bar (the ticker, the menu, Connect Wallet) is not part of the picture: it starts at the page body, and the
       // window is made that much taller so the picture has the set's full size
-      const top = Math.ceil(await page.evaluate(() => document.querySelector('main').getBoundingClientRect().top));
-      if (set.viewport.width >= 1000 && s.clip === 'below-bar') {
-        // wide screens: the article column only (the side menu and the promo card are left out), 16:9
-        const col = await page.evaluate(() => { const r = document.querySelector('.docs-main').getBoundingClientRect(); return { x: r.left, width: r.width }; });
-        const height = Math.round((col.width * 9) / 16);
-        await page.setViewportSize({ width: set.viewport.width, height: top + height + 40 });
+      if (set.viewport.width >= 1000) {
+        // wide screens: the article column only (the side menu and the promo card are left out), exactly 16:9 on a width that is a
+        // multiple of 16, in a 1,280 px layout so the article fills the picture
+        await page.setViewportSize({ width: DOCS_WIDE_LAYOUT, height: 900 });
+        await page.waitForTimeout(1200);
+        const col = await page.evaluate(() => { const r = document.querySelector('.docs-main').getBoundingClientRect(); return { x: r.left, width: r.width, top: document.querySelector('main').getBoundingClientRect().top }; });
+        const width = Math.floor(col.width / 16) * 16, height = (width * 9) / 16;
+        const top = Math.ceil(col.top);
+        await page.setViewportSize({ width: DOCS_WIDE_LAYOUT, height: top + Math.ceil(height) + 40 });
         await page.waitForTimeout(800);
         await page.evaluate(() => window.scrollTo(0, 0));
-        clip = { x: col.x, y: top, width: col.width, height };
+        const content = await page.evaluate(() => document.querySelector('.docs-main').getBoundingClientRect().bottom);
+        if (content - top < height) throw new Error(`${s.name} is shorter than the picture (${Math.round(content - top)} < ${height}): choose a longer article`);
+        clip = { x: col.x + (col.width - width) / 2, y: top, width, height };
       } else {
+        const top = Math.ceil(await page.evaluate(() => document.querySelector('main').getBoundingClientRect().top));
         await page.setViewportSize({ width: set.viewport.width, height: set.viewport.height + top });
         await page.waitForTimeout(800);
         await page.evaluate(() => window.scrollTo(0, 0));
-        clip = { x: 0, y: top, width: set.viewport.width, height: set.viewport.height };
+        // a docs page shorter than the picture is cut where it ends (no empty lower half); never flatter than a square
+        const end = await page.evaluate(() => document.querySelector('.docs-main').getBoundingClientRect().bottom);
+        const height = Math.max(set.viewport.width, Math.min(set.viewport.height, Math.floor(end - top)));
+        clip = { x: 0, y: top, width: set.viewport.width, height };
       }
     } else if (s.clip === 'report') {
       const btn = page.getByRole('button', { name: 'Report this token' });

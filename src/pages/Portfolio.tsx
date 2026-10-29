@@ -1,6 +1,6 @@
 // What the connected wallet holds on VYRE: USDC, and every launch token it has, at the pools' prices; and the launches
 // it created.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Address } from 'viem';
 import { getLaunchCount } from '../lib/pad';
 import { vyre } from '../lib/chain';
@@ -10,7 +10,7 @@ import { href } from '../lib/router';
 import { useWallet } from '../lib/wallet';
 import { ConnectButton, Loading, TokenPic } from '../components/ui';
 import { useBlocklistState } from '../components/Hidden';
-import { visibleLaunches } from '../lib/hidden';
+import { pairVisible, visibleLaunches } from '../lib/hidden';
 
 // how many launches to look through (newest first); a later version reads balances from the explorer's index instead
 const SCAN = 200;
@@ -20,14 +20,13 @@ interface Holding { launch: Listed; balance: bigint; value: number }
 export default function Portfolio() {
   const { account } = useWallet();
   const [usdc, setUsdc] = useState<bigint | null>(null);
-  const [holdings, setHoldings] = useState<Holding[] | null>(null);
-  const [mine, setMine] = useState<Listed[]>([]);
+  // what was read, as read: the launches with each launch's own balance. The team's blocklist is applied to it when drawn (and again when
+  // the list changes), after each balance has been paired with its launch
+  const [raw, setRaw] = useState<{ list: Listed[]; balances: (bigint | null)[] } | null>(null);
   const [scanned, setScanned] = useState({ seen: 0, total: 0 });
   const [failed, setFailed] = useState('');
   // tokens MINTA's team hides are not listed here either (a wallet's own Hide choices are not applied: these are its holdings)
   const { block, ready } = useBlocklistState();
-  const blockRef = useRef(block);
-  blockRef.current = block;
 
   useEffect(() => {
     if (!account || !ready) return;
@@ -42,12 +41,15 @@ export default function Portfolio() {
       setScanned({ seen: list.length, total });
       const missed = balances.filter((b) => b === null).length;
       if (missed) setFailed(`${missed} token balance${missed === 1 ? '' : 's'} couldn’t be read just now; reload to try again.`);
-      setHoldings(visibleLaunches(list, [], [], blockRef.current).map((l, i) => ({ launch: l, balance: balances[i] ?? 0n, value: l.market ? (Number((balances[i] ?? 0n) / 10n ** 12n) / 1e6) * l.market.price : 0 }))
-        .filter((h) => h.balance > 0n).sort((a, b) => b.value - a.value));
-      setMine(visibleLaunches(list, [], [], blockRef.current).filter((l) => l.creator.toLowerCase() === account.toLowerCase()));
-    })().catch(() => { if (live) { setFailed('Couldn’t read your holdings just now; reload to try again.'); setHoldings((h) => h ?? null); } });
+      setRaw({ list, balances });
+    })().catch(() => { if (live) { setFailed('Couldn’t read your holdings just now; reload to try again.'); } });
     return () => { live = false; };
-  }, [account, ready, block]);
+  }, [account, ready]);
+  const holdings = useMemo<Holding[] | null>(() => (raw
+    ? pairVisible(raw.list, raw.balances, block).map(({ launch: l, balance }) => ({ launch: l, balance: balance ?? 0n, value: l.market ? (Number((balance ?? 0n) / 10n ** 12n) / 1e6) * l.market.price : 0 }))
+      .filter((h) => h.balance > 0n).sort((a, b) => b.value - a.value)
+    : null), [raw, block]);
+  const mine = useMemo<Listed[]>(() => (raw && account ? visibleLaunches(raw.list, [], [], block).filter((l) => l.creator.toLowerCase() === account.toLowerCase()) : []), [raw, block, account]);
 
   if (!account) return <section className="narrow"><h1 className="display">Your <em>portfolio.</em></h1><p className="lede">Connect a wallet to see what you hold on VYRE.</p><ConnectButton /></section>;
   const total = (usdc ? Number(usdc / 10n ** 12n) / 1e6 : 0) + (holdings || []).reduce((a, h) => a + h.value, 0);

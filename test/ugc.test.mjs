@@ -178,6 +178,7 @@ test('hidden and blocked tokens are out of the ticker (by token and by creator),
   const creators = { [A]: C, [B]: A, [C]: A };
   const creatorOf = (t) => creators[t] ?? creators[Object.keys(creators).find((k) => k.toLowerCase() === t.toLowerCase())];
   assert.equal(visibleFeed(items, creatorOf, [], [], NO_BLOCKS).length, 4);
+  assert.equal(visibleFeed(items, () => undefined, [], [], NO_BLOCKS).length, 4, 'with no creator hidden, unknown creators matter nothing');
   assert.deepEqual(visibleFeed(items, creatorOf, [], [], { tokens: [A.toLowerCase()], creators: [] }).map((i) => i.id), ['s', 't1', 't2']);
   assert.deepEqual(visibleFeed(items, creatorOf, [B.toLowerCase()], [], NO_BLOCKS).map((i) => i.id), ['s', 'l1', 't2']);
   assert.deepEqual(visibleFeed(items, creatorOf, [], [], { tokens: [], creators: [A.toLowerCase()] }).map((i) => i.id), ['s', 'l1'], 'everything of a creator goes (B and C are A\'s)');
@@ -187,16 +188,14 @@ test('hidden and blocked tokens are out of the ticker (by token and by creator),
   assert.equal(BLOCKLIST_WAIT_MS, 1500);
   // wiring: every place that lists tokens uses the lists, and waits for the first reading
   const ticker = read('src/components/Ticker.tsx');
-  assert.match(ticker, /visibleFeed\(all, creatorOf, hiddenTokens, hiddenCreators, block\)/);
-  assert.match(ticker, /ready && /);
+  assert.match(ticker, /visibleFeed\(all, creatorKnown, hiddenTokens, hiddenCreators, block\)/);
+  assert.match(ticker, /ready \? visibleFeed/);
   assert.match(read('src/pages/Explore.tsx'), /all && ready \? visibleLaunches/);
   assert.match(read('src/pages/Token.tsx'), /launch === undefined \|\| !ready/);
-  assert.match(read('src/pages/Portfolio.tsx'), /visibleLaunches\(list, \[\], \[\], blockRef\.current\)\.map/);
-  assert.match(read('src/pages/Portfolio.tsx'), /visibleLaunches\(list, \[\], \[\], blockRef\.current\)\.filter/);
+  assert.match(read('src/pages/Portfolio.tsx'), /pairVisible\(raw\.list, raw\.balances, block\)/);
   assert.match(read('src/components/Search.tsx'), /visibleLaunches\(list, hidden, hiddenCreators, block\)/);
   const hid = read('src/components/Hidden.tsx');
   assert.match(hid, /setTimeout\(\(\) => \{ if \(live\) setS\(\(p\) => \(p\.ready \? p : \{ \.\.\.p, ready: true \}\)\); \}, BLOCKLIST_WAIT_MS\)/);
-  assert.match(hid, /\.catch\(\(\) => NO_BLOCKS\)/, 'a failed file shows everything');
 });
 
 test('the hidden list holds 2,000 and the UI says when it is full', () => {
@@ -215,3 +214,83 @@ test('?app=1 is never an authority: it only decides whether the wallet note is s
   const ui = read('src/components/ui.tsx');
   for (const m of ui.matchAll(/IS_TWA[^\n]*/g)) assert.match(m[0], /TwaNote|lib\/twa|available/, 'IS_TWA only picks the wallet note');
 });
+
+test('each balance stays with its own token when a blocked token sits in the middle of the list (Portfolio)', () => {
+  const { pairVisible, NO_BLOCKS } = load('src/lib/hidden.ts');
+  const list = [{ token: A, creator: A }, { token: B, creator: B }, { token: C, creator: C }, { token: `0x${'d'.repeat(40)}`, creator: A }];
+  const balances = [10n, 20n, 30n, 40n];
+  assert.deepEqual(pairVisible(list, balances, NO_BLOCKS).map((r) => [r.launch.token, r.balance]), list.map((l, i) => [l.token, balances[i]]));
+  const mid = pairVisible(list, balances, { tokens: [B.toLowerCase()], creators: [] });
+  assert.deepEqual(mid.map((r) => [r.launch.token, r.balance]), [[A, 10n], [C, 30n], [list[3].token, 40n]], 'C keeps 30, not 20');
+  const byCreator = pairVisible(list, balances, { tokens: [], creators: [A.toLowerCase()] });
+  assert.deepEqual(byCreator.map((r) => [r.launch.token, r.balance]), [[B, 20n], [C, 30n]]);
+});
+
+test('the ticker holds back an item whose creator is unknown while a creator is blocked, and shows the 33rd newest token\'s creator block once it is looked up', () => {
+  const { visibleFeed } = load('src/lib/hidden.ts');
+  const tok = (i) => `0x${(i + 1).toString(16).padStart(40, '0')}`;
+  const launches = Array.from({ length: 40 }, (_, i) => ({ token: tok(i), creator: i === 32 ? C : A })); // the 33rd newest is the blocked creator's
+  const first30 = launches.slice(0, 30);
+  const known = (list, extra = new Map()) => (t) => extra.get(t.toLowerCase()) ?? list.find((l) => l.token.toLowerCase() === t.toLowerCase())?.creator.toLowerCase();
+  const items = launches.map((l, i) => ({ kind: 'trade', id: `t${i}`, token: l.token }));
+  const block = { tokens: [], creators: [C.toLowerCase()] };
+  // before lookup: everything beyond the first 30 is held back (fail closed), including the blocked creator's
+  const before = visibleFeed(items, known(first30), [], [], block).map((i) => i.id);
+  assert.equal(before.includes('t32'), false);
+  assert.equal(before.includes('t35'), false, 'unknown creators are held back, not shown');
+  assert.equal(before.length, 30 - 0, 'the first 30 (none of them the blocked creator) show');
+  // after the lookup resolved the creators of the rest
+  const extra = new Map(launches.slice(30).map((l) => [l.token.toLowerCase(), l.creator.toLowerCase()]));
+  const after = visibleFeed(items, known(first30, extra), [], [], block).map((i) => i.id);
+  assert.equal(after.includes('t32'), false, 'the blocked creator\'s 33rd token stays out');
+  assert.equal(after.includes('t35'), true, 'an allowed token shows once its creator is known');
+  assert.equal(after.length, 39);
+  // wiring: the line looks tokens up one by one and re-reads when it changes
+  const ticker = read('src/components/Ticker.tsx');
+  assert.match(ticker, /getLaunch\(vyre, t as Address\)/);
+  assert.match(ticker, /\[all, byCreator\]/);
+});
+
+test('every page that shows a token by its address goes through the gate (token page, manage page, a launch just made, lists)', () => {
+  const pages = fs.readdirSync(new URL('../src/pages/', import.meta.url)).filter((f) => /\.tsx$/.test(f));
+  const renders = /TokenPic|TokenImage|page: 'token'|page: 'manage'|\.symbol\b/;
+  const gated = /useTokenGate|useBlocklistState/;
+  const missing = pages.filter((f) => { const src = read(`src/pages/${f}`); return renders.test(src) && !gated.test(src); });
+  assert.deepEqual(missing, [], 'pages that render a token without the blocklist gate');
+  for (const f of ['Token.tsx', 'Manage.tsx', 'Launch.tsx', 'Explore.tsx', 'Portfolio.tsx']) assert.match(read(`src/pages/${f}`), gated, f);
+  // the manage page: nothing of the token before the gate, then the same notice
+  const man = read('src/pages/Manage.tsx');
+  assert.match(man, /launch === undefined \|\| !gate\.ready/);
+  assert.match(man, /if \(gate\.blocked\(launch\)\) return <BlockedToken \/>;/);
+  assert.ok(man.indexOf('gate.blocked(launch)') < man.indexOf('<TokenPic'), 'the picture comes after the gate');
+  // a launch just made: no link, no symbol when blocked
+  const la = read('src/pages/Launch.tsx');
+  assert.match(la, /hidden by MINTA because it was reported/);
+  assert.match(la, /gate\.blocked\(\{ token: done\.token, creator: account \?\? '' \}\)/);
+});
+
+test('the team\'s list is read again when the app returns to the foreground and every 30 minutes; a bad first file shows everything; the search waits for it', () => {
+  const hid = read('src/components/Hidden.tsx');
+  assert.match(hid, /visibilitychange/);
+  assert.match(hid, /REFRESH_EVERY_MS = 30 \* 60 \* 1000/);
+  assert.match(hid, /MIN_GAP_MS = 60 \* 1000/);
+  assert.match(hid, /loaded = b \?\? NO_BLOCKS/, 'a first file that fails shows everything');
+  assert.match(hid, /if \(b && JSON\.stringify\(b\) !== JSON\.stringify\(loaded\)\)/, 'a later failure keeps the last good list');
+  assert.match(read('src/components/Search.tsx'), /ready \? visibleLaunches\(list, hidden, hiddenCreators, block\)\.filter/);
+});
+
+test('blocklist.json is served uncached; the release checks the live file; the checker accepts only the right shape', async () => {
+  const vercel = JSON.parse(read('vercel.json'));
+  const rule = vercel.headers.find((h) => h.source === '/blocklist.json');
+  assert.ok(rule && rule.headers.some((h) => h.key === 'Cache-Control' && h.value === 'no-cache, must-revalidate'));
+  const rel = read('.github/workflows/android-release.yml');
+  assert.match(rel, /curl -fsS --max-time 30 https:\/\/minta\.vyrechain\.com\/blocklist\.json/);
+  assert.match(rel, /node android\/scripts\/check-blocklist\.mjs/);
+  assert.match(rel, /name: Check the live blocklist file is valid\n\s+if: \$\{\{ !inputs\.first_upload \}\}/);
+  const { problems } = await import('../android/scripts/check-blocklist.mjs');
+  assert.deepEqual(problems(JSON.parse(read('public/blocklist.json'))), []);
+  for (const bad of [null, [], 'x', { version: 2, tokens: [], creators: [] }, { version: 1, tokens: 'a', creators: [] }, { version: 1, tokens: ['0x1'], creators: [] }, { version: 1, tokens: [A, A], creators: [] }, { version: 1, tokens: [] }]) assert.ok(problems(bad).length > 0, JSON.stringify(bad));
+  assert.ok(docs.includes('shows everything') && docs.includes('blocklist.json'), 'the docs say what a missing or invalid file does');
+});
+
+const docs = read('docs/ANDROID.md');

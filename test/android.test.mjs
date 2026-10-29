@@ -186,3 +186,65 @@ test('the shortcuts are named for what the app does (no "Launch" label) and the 
   assert.match(strings, /Explore tokens/);
   for (const c of ['LauncherActivity', 'ShortcutTrampolineActivity', 'ProfileInstallReceiver']) assert.ok(docs.includes(c), `docs list ${c}`);
 });
+
+// ---- the store files: sizes, ratios, descriptions, alt text ----
+function imageSize(file) {
+  const b = fs.readFileSync(path.join(ROOT, file));
+  if (b.readUInt32BE(0) === 0x89504e47) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20), kind: 'png', colorType: b[25] };
+  let i = 2;
+  while (i < b.length) {
+    if (b[i] !== 0xff) { i += 1; continue; }
+    const m = b[i + 1];
+    if (m >= 0xc0 && m <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(m)) return { w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5), kind: 'jpeg', components: b[i + 9] };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  throw new Error(`no size in ${file}`);
+}
+const storeImages = tracked.filter((f) => /^store\/android\/.+\.(jpg|png)$/.test(f) && fs.existsSync(path.join(ROOT, f)));
+
+test('the store pictures meet Play\'s size rules: sets of at least four, ratios up to 2:1, large screens 1,080-7,680 px and exactly 16:9 or 9:16, JPEG without alpha, under 8 MB', () => {
+  for (const f of storeImages) {
+    assert.ok(fs.statSync(path.join(ROOT, f)).size < 8 * 1024 * 1024, `${f} is under 8 MB`);
+  }
+  const icon = imageSize('store/android/icon-512.png');
+  assert.deepEqual([icon.w, icon.h, icon.colorType], [512, 512, 6], 'icon: 512 x 512, 32-bit with alpha');
+  assert.ok(fs.statSync(path.join(ROOT, 'store/android/icon-512.png')).size < 1024 * 1024);
+  const fg = imageSize('store/android/feature-graphic.jpg');
+  assert.deepEqual([fg.w, fg.h, fg.kind, fg.components], [1024, 500, 'jpeg', 3], 'feature graphic: 1024 x 500 JPEG, no alpha');
+  const sets = { phone: [], 'tablet-7in': [], 'tablet-10in': [], desktop: [] };
+  for (const f of storeImages) { const d = f.split('/')[2]; if (sets[d]) sets[d].push(f); }
+  for (const [d, files] of Object.entries(sets)) {
+    assert.ok(files.length >= 4 && files.length <= 8, `${d} has ${files.length} pictures (4 to 8)`);
+    for (const f of files) {
+      const s = imageSize(f);
+      assert.equal(s.kind, 'jpeg'); assert.equal(s.components, 3, `${f}: no alpha`);
+      const long = Math.max(s.w, s.h), short = Math.min(s.w, s.h);
+      assert.ok(long <= 2 * short + 1, `${f}: ${s.w}x${s.h} is longer than 2:1`);
+      assert.ok(long <= (d === 'phone' ? 3840 : 7680) && short >= (d === 'phone' ? 320 : 1080), `${f}: ${s.w}x${s.h} outside Play's pixel limits`);
+      if (d === 'tablet-10in' || d === 'desktop') assert.ok(Math.abs(s.w * 9 - s.h * 16) <= 16, `${f}: ${s.w}x${s.h} is not 16:9`);
+      if (d === 'tablet-7in') assert.ok(s.h >= s.w, `${f}: portrait`);
+    }
+  }
+  for (const f of sets['tablet-7in'].concat(sets.phone).filter((f) => /agents|terms/.test(f))) { const s = imageSize(f); if (/tablet-7in/.test(f)) assert.ok(Math.abs(s.w * 16 - s.h * 9) <= 16 * 2, `${f}: 9:16`); }
+});
+
+test('the short description is at most 80 bytes with no trailing newline; every graphic has alt text', () => {
+  const buf = fs.readFileSync(path.join(ROOT, 'store/android/short-description.txt'));
+  assert.ok(buf.length > 0 && buf.length <= 80, `short description is ${buf.length} bytes`);
+  assert.notEqual(buf[buf.length - 1], 10, 'no trailing newline');
+  assert.equal(buf.every((c) => c < 128), true, 'plain ASCII, so characters equal bytes');
+  const alt = read('store/android/alt-text.txt').split('\n').filter((l) => l && !l.startsWith('#'));
+  const described = new Set(alt.map((l) => l.slice(0, l.indexOf(':'))));
+  for (const f of storeImages) assert.ok(described.has(f.replace('store/android/', '')), `alt text for ${f}`);
+  for (const l of alt) assert.ok(l.length > 40 && l.length < 500, l.slice(0, 40));
+});
+
+test('key files of any spelling stay out of git (.gitignore), and the description says what the network services see', () => {
+  for (const name of ['upload.jks', 'minta-upload.keystore', 'x.keystore.bak', 'key.p12', 'key.pfx']) {
+    let ignored = true;
+    try { execFileSync('git', ['check-ignore', '-q', name], { cwd: ROOT }); } catch { ignored = false; }
+    assert.ok(ignored, `${name} is ignored`);
+  }
+  assert.match(read('store/android/full-description.txt'), /see your IP address when it loads data/);
+  assert.equal(/no tracking\b(?! cookies)/i.test(read('store/android/full-description.txt')), false, 'no bare "no tracking"');
+});

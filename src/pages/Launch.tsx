@@ -13,6 +13,7 @@ import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { addresses } from '../lib/market';
 import { forgetLaunch, kept, mayTakePlace, onLaunchMemory, placeOf, recentLaunch, resolveEarlier, type Place } from '../lib/faceid';
 import { ConnectButton, EmailTradeNote } from '../components/ui';
+import { useTokenGate } from '../components/Hidden';
 import { MintaMark, VyreGlyph } from '../components/Brand';
 import { LaunchFileFields, emptyLaunchFile, hasPicture, keptPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
@@ -118,6 +119,7 @@ function LaunchesClosed() {
 
 export default function Launch() {
   const { account, faceId } = useWallet();
+  const gate = useTokenGate();
   const emailCantTrade = useEmailCantTrade();
   const launchesOpen = useLaunchesOpen();
   const [name, setName] = useState('');
@@ -298,7 +300,9 @@ export default function Launch() {
                 : <>A launch is on its way to your wallet: confirm or reject it there first. Nothing in your wallet? <button type="button" className="linkish" onClick={() => window.location.reload()}>Reload the page</button> to start again.</>}</p>
             )}
             {!sent && !waiting && recent && (
-              <p className="note small" role="status">You launched $<bdi>{tokenText(recent.symbol)}</bdi>: <a href={href({ page: 'token', token: recent.token })}>open its page</a>. To launch another token, press Launch another.</p>
+              gate.blocked({ token: recent.token, creator: account ?? '' })
+                ? <p className="note small" role="status">The token you launched is hidden by MINTA because it was reported. To launch another token, press Launch another.</p>
+                : <p className="note small" role="status">You launched $<bdi>{tokenText(recent.symbol)}</bdi>: <a href={href({ page: 'token', token: recent.token })}>open its page</a>. To launch another token, press Launch another.</p>
             )}
             {!sent && !waiting && !recent && asideState && (
               <p className="note small" role="status">Your launch of $<bdi>{tokenText(asideState.symbol)}</bdi> from the Face ID wallet {short(asideState.sender)} was put aside, and it may still go through: <a href={`${EXPLORER}/address/${asideState.sender}`} target="_blank" rel="noopener noreferrer">see that wallet on the explorer</a>. To launch a token anyway, press Launch another.</p>
@@ -508,6 +512,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   sent: Sent | null; onSent: (s: Sent | null) => void; onClose: (why?: string) => void;
 }) {
   const { account, onVyre, faceId } = useWallet();
+  const gate = useTokenGate();
   const [step, setStep] = useState<Step>(sent ? 'wait' : 'review');
   const [note, setNote] = useState(sent ? 'Sent. Waiting for it to be confirmed…' : '');
   const [err, setErr] = useState('');
@@ -544,7 +549,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
 
   // once the page is ready, open it after a few seconds unless the creator chose to stay
   useEffect(() => {
-    if (!pageReady || stay || !done) return;
+    if (!pageReady || stay || !done || gate.blocked({ token: done.token, creator: account ?? '' })) return;
     if (secs <= 0) { window.location.hash = href({ page: 'token', token: done.token }); return; }
     const t = setTimeout(() => setSecs((s) => s - 1), 1000);
     return () => clearTimeout(t);
@@ -796,12 +801,18 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
         {step === 'ready' && done && (
           <div className="progress" role="status" aria-live="polite">
             {done.said && <p>{done.said}</p>}
-            <p>${iso(done.symbol)} is trading. {stay ? '' : `Opening its page in ${secs} s.`}</p>
-            <div className="row dialog-actions">
-              <a className="btn btn-accent" href={href({ page: 'token', token: done.token })}>View token</a>
-              {!stay && <button type="button" className="btn btn-line" onClick={() => setStay(true)}>Stay here</button>}
-              {stay && <a className="btn btn-line" href={href({ page: 'manage', token: done.token })}>Manage it</a>}
-            </div>
+            {gate.blocked({ token: done.token, creator: account ?? '' })
+              ? <p>Your token was made, and MINTA hides it because it was reported.</p>
+              : (
+                <>
+                  <p>${iso(done.symbol)} is trading. {stay ? '' : `Opening its page in ${secs} s.`}</p>
+                  <div className="row dialog-actions">
+                    <a className="btn btn-accent" href={href({ page: 'token', token: done.token })}>View token</a>
+                    {!stay && <button type="button" className="btn btn-line" onClick={() => setStay(true)}>Stay here</button>}
+                    {stay && <a className="btn btn-line" href={href({ page: 'manage', token: done.token })}>Manage it</a>}
+                  </div>
+                </>
+              )}
             <p className="small"><a href={`${EXPLORER}/tx/${done.hash}`} target="_blank" rel="noopener noreferrer">See the transaction</a></p>
           </div>
         )}

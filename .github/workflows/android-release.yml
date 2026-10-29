@@ -37,6 +37,11 @@ jobs:
       - name: Check the site's Digital Asset Links file names the Play signing key
         if: ${{ !inputs.first_upload }}
         run: RELEASE_CHECK=1 node --test test/android.test.mjs
+      - name: Check the live blocklist file is valid
+        if: ${{ !inputs.first_upload }}
+        run: |
+          curl -fsS --max-time 30 https://minta.vyrechain.com/blocklist.json -o "$RUNNER_TEMP/blocklist.json"
+          node android/scripts/check-blocklist.mjs "$RUNNER_TEMP/blocklist.json"
       - name: first_upload is ticked, so the Digital Asset Links check is skipped
         if: ${{ inputs.first_upload }}
         run: |

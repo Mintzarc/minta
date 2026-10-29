@@ -21,6 +21,8 @@ const srv = http.createServer((q, r) => {
 });
 
 let failed = 0;
+/** waits (up to 60 s) until `cond()` is true: the page has really asked the stand-in, so a slow machine can't make an assertion run too early */
+const until = async (cond, ms = 60000) => { const t = Date.now(); while (!cond() && Date.now() - t < ms) await new Promise((r) => setTimeout(r, 50)); return cond(); };
 const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what); } else console.log('ok  ', what); };
 /** words the mainnet pages must not carry (testnet-only things, and wording the project does not use) */
 const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:ly)? withdraw|layer ?2|layer-2|trustless|audited|decentralized|decentralised|cheapest|promoter|airdrop|guaranteed|platform fee|per trade/i;
@@ -47,6 +49,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     const ctx = await b.newContext({ viewport });
     await ctx.addInitScript(() => { try { window.localStorage.setItem('minta.splash', String(Date.now())); } catch { /* none */ } });
     const hosts = new Set();
+    const probe = { launchesReads: 0 }; // how many times the page has asked the stand-in whether launches are open
     const answerCall = (to, data) => {
       if (to.toLowerCase() === multicall) {
         const calls = viem.decodeFunctionData({ abi: m3, data }).args[0];
@@ -58,6 +61,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       if (to.toLowerCase() === pad) {
         const call = viem.decodeFunctionData({ abi: v2.padV2Abi, data });
         if (call.functionName === 'launchesOpen') {
+          probe.launchesReads += 1;
           if (launchesOpen === 'unreadable') throw new Error('unreadable');
           return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchesOpen', result: launchesOpen });
         }
@@ -121,7 +125,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     pg.on('console', (m) => m.type() === 'error' && !/Failed to load resource|net::ERR|CORS/.test(m.text()) && errs.push(m.text()));
     await pg.goto(base + hash);
     await pg.waitForSelector('.top');
-    return { pg, ctx, errs, hosts };
+    return { pg, ctx, errs, hosts, probe };
   };
   const body = (pg) => pg.locator('body').innerText();
 
@@ -176,8 +180,9 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
 
   // ---- the Create page, launches closed
   {
-    const { pg, ctx, errs } = await open('#/launch', false);
-    await pg.waitForSelector('[data-launches=closed], .wz', { timeout: 8000 });
+    const { pg, ctx, errs, probe } = await open('#/launch', false);
+    ok(await until(() => probe.launchesReads > 0), 'the Create page asks whether launches are open');
+    await pg.waitForSelector('[data-launches=closed]', { timeout: 30000 }).catch(() => {});
     const closed = await pg.locator('[data-launches=closed]').count();
     ok(closed === 1, 'with launches closed on chain, the Create page says so');
     ok(/Launches open soon/i.test(await body(pg)), 'in the words “Launches open soon”');
@@ -190,8 +195,9 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
 
   // ---- the Create page, launches open: the wizard, with the fee in words
   {
-    const { pg, ctx, errs } = await open('#/launch', true);
-    await pg.waitForSelector('.wz', { timeout: 8000 });
+    const { pg, ctx, errs, probe } = await open('#/launch', true);
+    ok(await until(() => probe.launchesReads > 0), 'the Create page asks whether launches are open (open case)');
+    await pg.waitForSelector('.wz', { timeout: 30000 });
     await pg.waitForTimeout(600);
     ok(await pg.locator('[data-launches=closed]').count() === 0, 'with launches open the Create page is the wizard');
     await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
@@ -225,8 +231,9 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
 
   // ---- the switch can't be read: the wizard stays usable (the transaction is simulated before the wallet is asked)
   {
-    const { pg, ctx } = await open('#/launch', 'unreadable');
-    await pg.waitForSelector('.wz', { timeout: 8000 });
+    const { pg, ctx, probe } = await open('#/launch', 'unreadable');
+    ok(await until(() => probe.launchesReads > 0), 'the Create page asks whether launches are open (unreadable case)');
+    await pg.waitForSelector('.wz', { timeout: 30000 });
     await pg.waitForTimeout(600);
     ok(await pg.locator('.wz').count() === 1 && await pg.locator('[data-launches=closed]').count() === 0, 'if the switch can’t be read the wizard is still there');
     await ctx.close();

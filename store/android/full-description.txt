@@ -12,7 +12,7 @@ WHAT YOU DO IN YOUR WALLET APP'S BROWSER
 This app cannot connect a wallet. To launch a token or trade one, open minta.vyrechain.com in the browser inside your wallet app (a browser tab in your wallet app) and connect there. There, a launch is one transaction (name, ticker, supply, tax, picture, links). The whole supply goes into the pool as one position that nothing can remove. The creator may buy part of the supply in the launch transaction. Tokens can fall to zero: this is not a safety guarantee. You trade a token with USDC.
 
 YOUR WALLET, YOUR KEYS
-MINTA never holds your funds or your keys, and has no accounts, no ads and no tracking. Anything that moves money is a transaction you sign in your own wallet.
+MINTA never holds your funds or your keys, and has no accounts, no ads, and no analytics or tracking cookies. The network services the app calls see your IP address when it loads data. Anything that moves money is a transaction you sign in your own wallet.
 
 WHAT IT COSTS
 - The creator of a token sets a tax of 1% to 10% on buys and 1% to 10% on sells. That tax is the only fee a trade pays. When it is paid out, a tenth of it goes to the platform and the rest to the creator's tax wallets.

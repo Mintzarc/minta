@@ -12,6 +12,7 @@ import { loweredTaxes, refusedForSplit, splitBps, taxSplitProblem } from '../lib
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton } from '../components/ui';
+import { BlockedToken, useTokenGate } from '../components/Hidden';
 import { LaunchFileFields, emptyLaunchFile, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { API_URL, hasContent, saveLaunchFile, withUploadedPicture, type LaunchFile } from '../lib/api';
 
@@ -38,6 +39,7 @@ async function padTx(wallet: WalletLike, call: PadCall): Promise<Hash> {
 export default function Manage({ token }: { token: Address }) {
   const { account, onVyre, confirmHint } = useWallet();
   const emailCantTrade = useEmailCantTrade();
+  const gate = useTokenGate();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [wallets, setWallets] = useState<Split | null>(null);
   const [pending, setPending] = useState<Address | null>(null);
@@ -69,12 +71,14 @@ export default function Manage({ token }: { token: Address }) {
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  if (launch === undefined) {
-    return readErr
+  if (launch === undefined || !gate.ready) {
+    return readErr && launch === undefined
       ? <div className="empty"><p>Couldn’t reach VYRE just now, so the launch couldn’t be read.</p><button className="btn btn-line btn-sm" type="button" onClick={() => { setReadErr(false); load(); }}>Try again</button></div>
       : <Loading what="Reading the launch" />;
   }
   if (launch === null) return <p className="err">That address isn’t a launch.</p>;
+  // a token or creator MINTA's team hides: no name, picture, creator or link to its pages
+  if (gate.blocked(launch)) return <BlockedToken />;
   const isCreator = !!account && getAddress(account) === getAddress(launch.creator);
   const isOffered = !!account && !!pending && getAddress(account) === getAddress(pending);
   const run = (call: PadCall, text: string) => async (say: (t: string) => void) => {

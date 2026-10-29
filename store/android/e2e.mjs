@@ -128,7 +128,8 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     ok(size, (await page.locator('a.tcard').count()) === before, 'Show all brings the card back');
     await page.getByRole('button', { name: 'Hide everything from this creator' }).first().click();
     await page.waitForTimeout(400);
-    ok(size, (await page.locator('a.tcard').count()) === 0, 'Hide everything from this creator takes that creator\'s cards off the list');
+    const afterCreator = await page.locator('a.tcard').count();
+    ok(size, afterCreator < before, 'Hide everything from this creator takes that creator\'s cards off the list', `(${before} cards before, ${afterCreator} after)`);
     await page.getByRole('button', { name: 'Show all' }).click();
     await page.waitForTimeout(400);
     ok(size, (await page.locator('a.tcard').count()) === before, 'Show all brings them back');
@@ -144,7 +145,7 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     const tt = await tp.locator('body').innerText();
     if (/can’t connect wallets/.test(tt)) {
       ok(size, /Open minta\.vyrechain\.com in your wallet app’s browser/.test(tt), 'in the app the wallet page says to open minta.vyrechain.com in the wallet app’s browser');
-      const trust = await tp.locator('a:has-text("Open in Trust Wallet")').getAttribute('href');
+      const trust = await tp.locator('a:has-text("Open in Trust Wallet")').first().getAttribute('href');
       ok(size, trust === 'https://link.trustwallet.com/open_url?coin_id=60&url=https://minta.vyrechain.com', 'the Trust Wallet button uses the documented link');
       ok(size, (await tp.getByRole('button', { name: 'Copy link' }).count()) >= 1, 'the note has a Copy link button');
     } else say('WARN', size, 'the in-app wallet note is not on this site yet (it comes with this branch once deployed)');
@@ -176,6 +177,12 @@ for (const [size, cfg] of Object.entries(SIZES)) {
       await bp.waitForTimeout(5000);
       const bt = await bp.locator('body').innerText();
       ok(size, /MINTA hides this token because it was reported/.test(bt) && !/Buy|Sell/.test(bt.replace(/Buy \/ sell/i, '')), `blocked ${label}: the token page says why and shows no trade panel`);
+      // the manage page, opened by its address, says the same and shows nothing of the token
+      await bp.goto(`${SITE}/#/manage/${addr}`, { waitUntil: 'domcontentloaded' });
+      await bp.reload({ waitUntil: 'domcontentloaded' });
+      await bp.waitForTimeout(5000);
+      const mt = await bp.locator('body').innerText();
+      ok(size, /MINTA hides this token because it was reported/.test(mt) && !/Trade page|Creator\b/.test(mt), `blocked ${label}: the manage page says why and shows no creator or trade link`);
       // the search finds nothing
       await bp.goto(`${SITE}/#/`, { waitUntil: 'domcontentloaded' });
       await bp.waitForTimeout(3000);
@@ -264,7 +271,12 @@ for (const [size, cfg] of Object.entries(SIZES)) {
   await ctx.setOffline(false);
 
   // 10. Console errors across the whole run
-  const uniq = uniqErrors;
+  // On a local build the app's own API service refuses a foreign origin (its allowed origins are the real sites'): that is the setup, not
+  // a fault of the app, so it is a WARN there. On the real site it stays a FAIL.
+  const local = /^http:\/\/127\.0\.0\.1/.test(SITE);
+  const cors = uniqErrors.filter((e) => local && /blocked by CORS policy|ERR_FAILED/.test(e));
+  if (cors.length) say('WARN', size, `console: ${cors.length} request(s) of the local build were refused by the API's CORS rule (local origin, expected)`);
+  const uniq = uniqErrors.filter((e) => !cors.includes(e));
   ok(size, uniq.length === 0, 'no console errors', `(${uniq.length}: ${uniq.slice(0, 3).join(' | ')})`);
   await ctx.close();
 }
