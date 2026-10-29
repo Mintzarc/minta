@@ -210,6 +210,8 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<LaunchFileState>(emptyLaunchFile);
   const [touched, setTouched] = useState(false);
+  // saving a picture, description or links needs the Terms accepted (they say what tokens may not be), as launching does
+  const [accepted, setAccepted] = useState(false);
   // the file this editor just saved: when the launch then points at it, the editor already shows it (and its "Saved" stays up)
   const saved = useRef('');
   useEffect(() => {
@@ -261,7 +263,11 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
           <LaunchFileFields value={state} onChange={(v) => { setTouched(true); setState(v); }} />
           {uri && !state.useOwn && emptied && <p className="small">Nothing here would be kept in a file, so saving removes the launch’s picture, description and links.</p>}
           {problem && <p className="err small">{problem}</p>}
-          <TxButton className="btn btn-line" label="Save" disabled={!!problem || !touched}
+          <label className="check accept-terms">
+            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
+            <span>I accept the <a href="/terms/" target="_blank" rel="noopener noreferrer">Terms</a>: no picture, description or link that breaks the law, copies someone else’s work or deceives people.</span>
+          </label>
+          <TxButton className="btn btn-line" label="Save" disabled={!!problem || !touched || !accepted}
             run={async (say) => {
               let next = '';
               if (state.useOwn) next = state.own.trim();

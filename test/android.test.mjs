@@ -144,18 +144,45 @@ test('the listing says first, plainly, what the app does and does not do, and li
   const full = read('store/android/full-description.txt');
   assert.ok(full.startsWith("In this app you can browse, read and report. To launch or trade, open minta.vyrechain.com in your wallet app's browser."));
   assert.match(read('store/android/short-description.txt'), /wallet/);
+  assert.match(full, /nothing can remove[^.]*\./i);
+  assert.match(full, /may buy part of the supply/);
+  assert.match(full, /not a safety guarantee/);
   const bullets = full.slice(full.indexOf('WHAT YOU CAN DO IN THIS APP'), full.indexOf("WHAT YOU DO IN YOUR WALLET APP'S BROWSER"));
   assert.equal(/\b(launch a token|trade|buy|sell|connect)\b/i.test(bullets), false, 'the in-app list names nothing that needs a wallet');
   assert.match(full, /This app cannot connect a wallet/);
-  // screenshots: only screens that work in the app (no wizard, wallet page or trade panel), no NEW pill, no token picture first
+  // screenshots: only unmodified screens or clips of them that work in the app; no style injected to hide anything
   const vp = read('store/android/viewports.mjs');
-  assert.equal(/name: 'launch'|name: 'wallet'/.test(vp), false);
-  assert.match(vp, /name: 'docs'[\s\S]*name: 'explore'/, 'the docs front page comes before the token list');
-  assert.match(read('store/android/make-screenshots.mjs'), /\.tk-tag \{ display: none/);
-  assert.match(read('store/android/make-screenshots.mjs'), /\.trade-card \{ display: none/);
-  assert.equal(/Launch and explore/.test(read('store/android/make-screenshots.mjs')), false, 'the feature graphic does not say the app launches');
+  const names = [...vp.matchAll(/name: '([a-z-]+)'/g)].map((m) => m[1]);
+  assert.equal(names.filter((n) => /^(launch|wallet|explore|token|create|portfolio)$/.test(n)).length, 0, 'no wizard, wallet, token-list or token-picture screen');
+  const mk = read('store/android/make-screenshots.mjs');
+  assert.equal(/addStyleTag|display: none|hideTrade/.test(mk + vp.replace(/\/\*[\s\S]*?\*\//g, '')), false, 'no style is injected');
+  assert.match(mk, /clip/);
+  assert.equal(/Launch and explore/.test(mk), false, 'the feature graphic does not say the app launches');
+  // at least four pictures in every set (Play: 4 or more for large screens)
+  for (const set of ['phone', 'tablet7', 'tablet10', 'desktop']) {
+    const n = [...vp.matchAll(/\{ name: '[a-z-]+'[^}]*\}/g)].filter((m) => { const sets = /sets: \[([^\]]*)\]/.exec(m[0]); return !sets || sets[1].includes(`'${set}'`); }).length;
+    assert.ok(n >= 4, `${set} has ${n} pictures`);
+  }
 });
 
 test('the docs carry no business notes beyond MINTA\'s own facts', () => {
   assert.equal(/STAGR|your other app|your account has|older organi[sz]ation|Only One|VYRE team/i.test(docs), false);
+});
+
+test('the release workflow warns visibly when the links check is skipped, really fails on a bad bundle, and always removes the decoded key', () => {
+  const rel = read('.github/workflows/android-release.yml');
+  assert.match(rel, /::warning title=Digital Asset Links check skipped::/);
+  assert.match(rel, />> "\$GITHUB_STEP_SUMMARY"/);
+  assert.equal(/jarsigner[^\n]*\|\s*head/.test(rel), false, 'the signature check is not piped to head');
+  assert.match(rel, /grep -q "jar verified"/);
+  assert.match(rel, /name: Remove the decoded key file\n\s+if: always\(\)\n\s+run: rm -f "\$RUNNER_TEMP\/upload\.keystore"/);
+  assert.equal((rel.match(/rm -f/g) || []).length, 1, 'one removal, in the always() step');
+  assert.ok(docs.includes('`main` only') && docs.includes('Merge `android` into `main`'), 'the docs restrict the environment to main and say to merge first');
+});
+
+test('the shortcuts are named for what the app does (no "Launch" label) and the docs list the exported components', () => {
+  const strings = read('android/app/src/main/res/values/strings.xml');
+  assert.equal(/Launch a token/.test(strings + docs), false);
+  assert.match(strings, /Explore tokens/);
+  for (const c of ['LauncherActivity', 'ShortcutTrampolineActivity', 'ProfileInstallReceiver']) assert.ok(docs.includes(c), `docs list ${c}`);
 });

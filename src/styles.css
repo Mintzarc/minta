@@ -613,3 +613,5 @@ html.splash-on { overflow: hidden; }
 .hidden-note { margin: 8px 0; }
 .accept-terms { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0; min-height: 48px; }
 .accept-terms input { width: 24px; height: 24px; flex: none; margin-top: 2px; }
+.hide-row { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.hide-row-page { margin: 0; }

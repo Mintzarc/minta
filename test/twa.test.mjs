@@ -15,7 +15,7 @@ function twa() {
   return module.exports;
 }
 const memory = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v), m }; };
-const { detectTwa, TRUST_WALLET_LINK, TWA_NOTE, SITE_URL } = twa();
+const { detectTwa, searchWithoutApp, TRUST_WALLET_LINK, TWA_NOTE, SITE_URL } = twa();
 
 test('the app is recognised by its referrer, or by ?app=1 on its start address, and remembered for the visit', () => {
   const a = memory();
@@ -63,4 +63,16 @@ test('the Android app opens the site with ?app=1 so detection does not rest on t
   assert.match(m, /DEFAULT_URL"\s+android:value="https:\/\/minta\.vyrechain\.com\/\?app=1"/);
   const sc = read('android/app/src/main/res/xml/shortcuts.xml');
   for (const d of sc.match(/android:data="[^"]+"/g)) assert.match(d, /\?app=1/);
+});
+
+test('after detection ?app=1 is taken off the address, other query parts stay, and a visit without it is untouched', () => {
+  assert.equal(searchWithoutApp('?app=1'), '');
+  assert.equal(searchWithoutApp('?app=1&ref=abc'), '?ref=abc');
+  assert.equal(searchWithoutApp('?ref=abc&app=1'), '?ref=abc');
+  assert.equal(searchWithoutApp('?ref=abc'), '?ref=abc');
+  assert.equal(searchWithoutApp(''), '');
+  assert.equal(searchWithoutApp('?app=0'), '?app=0');
+  const src = read('src/lib/twa.ts');
+  assert.match(src, /window\.history\.replaceState\(/);
+  assert.ok(src.indexOf('detectTwa(document.referrer') < src.indexOf('replaceState'), 'the visit is remembered before the address is changed');
 });

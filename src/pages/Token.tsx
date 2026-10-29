@@ -17,7 +17,9 @@ import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { sendVyreTx, type EmailSession } from '../lib/circle';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
 import PriceChart from '../components/PriceChart';
-import { HideToken } from '../components/Hidden';
+import { BlockedToken, HideToken, useBlocklist } from '../components/Hidden';
+import { isHidden } from '../lib/hidden';
+import { LIQUIDITY_FACT } from '../lib/facts';
 import { REPORT_EMAIL, REPORT_TELEGRAM, REPORT_X, reportMailto, reportText } from '../lib/contact';
 
 // kept back from a "max" buy so the wallet can still pay gas
@@ -75,6 +77,7 @@ async function emailTrade(withEmail: <T>(fn: (s: EmailSession) => Promise<T>) =>
 
 // (The page is keyed by its token in App, so each token starts with fresh state.)
 export default function Token({ token }: { token: Address }) {
+  const block = useBlocklist();
   const { account, onVyre } = useWallet();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [market, setMarket] = useState<Market | null>(null);
@@ -161,6 +164,8 @@ export default function Token({ token }: { token: Address }) {
   }
   if (launch === null) return <div className="empty"><p>No token at this address on MINTA. Check the full link and address. Just launched it? Check the transaction in your wallet: a missing page doesn’t mean the launch failed.</p><a href={href({ page: 'explore' })}>Back to all tokens</a></div>;
 
+  // a token MINTA's team hides (public/blocklist.json): the page says so instead of showing it
+  if (isHidden(launch, [], [], block)) return <BlockedToken />;
   const after = () => { refresh(true); refreshBalances().catch(() => {}); };
   const sym = tokenText(launch.symbol);
   return (
@@ -182,7 +187,7 @@ export default function Token({ token }: { token: Address }) {
       </div>
       {meta?.description && plainText(meta.description) && <p className="description" dir="auto">{plainText(meta.description)}</p>}
       <ReportToken token={launch.token} sym={sym} />
-      <HideToken token={launch.token} />
+      <HideToken token={launch.token} creator={launch.creator} />
 
       <dl className="stat-strip">
         <div><dt>Price</dt><dd>{market ? price(market.price) : '—'}</dd></div>
@@ -211,7 +216,8 @@ export default function Token({ token }: { token: Address }) {
           <div><span>Sell tax</span><b>{pct(launch.sellTaxBps)}</b></div>
           {launch.partner && <div><span>Partner fee</span><b>{pct(launch.partnerFeeBps)} (<AddressLink address={launch.partner} />)</b></div>}
           <div><span>Supply</span><b>{amount(launch.totalSupply, 0)}</b></div>
-          <div><span>Liquidity</span><b>Locked for good</b></div>
+          <div><span>Liquidity</span><b>Held in the pool</b></div>
+          <p className="muted small span-all">{LIQUIDITY_FACT}</p>
           <div className="span-all"><span>{NETWORK.testnet ? 'Tax goes to' : 'Creator’s side of the tax goes to'}</span>
             {split === null ? <b>—</b> : split.wallets.length === 0 ? <b>The creator (<AddressLink address={launch.creator} />)</b> : (
               <ul className="split-list">{split.wallets.map((w, i) => <li key={w}><AddressLink address={w} /> <b>{pct(split.bps[i])}</b></li>)}</ul>

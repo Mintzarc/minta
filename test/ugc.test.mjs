@@ -52,17 +52,73 @@ test('hiding a token keeps its address on the device, once, lowercased; showing 
   assert.deepEqual(loadHidden(null, K), []);
 });
 
-test('hidden tokens are left out of Explore, the top list and the search; a hidden list that is empty changes nothing', () => {
-  const { withoutHidden } = load('src/lib/hidden.ts');
-  const rows = [{ token: A }, { token: B }, { token: C }];
-  assert.equal(withoutHidden(rows, []), rows, 'the same list when nothing is hidden');
-  assert.deepEqual(withoutHidden(rows, [B.toLowerCase()]), [{ token: A }, { token: C }]);
-  assert.match(read('src/pages/Explore.tsx'), /withoutHidden\(all, hidden\)/);
-  assert.match(read('src/components/Search.tsx'), /withoutHidden\(list, hidden\)/);
-  assert.match(read('src/pages/Explore.tsx'), /className="linkish small hide-card" onClick=\{\(\) => hide\(l\.token\)\}/);
-  assert.match(read('src/pages/Token.tsx'), /<HideToken token=\{launch\.token\} \/>/);
+test('hidden tokens and creators, and the team\'s list, are left out of Explore, the top list and the search; with nothing hidden nothing changes', () => {
+  const { visibleLaunches, isHidden, NO_BLOCKS } = load('src/lib/hidden.ts');
+  const rows = [{ token: A, creator: C }, { token: B, creator: C }, { token: C, creator: A }];
+  assert.equal(visibleLaunches(rows, [], [], NO_BLOCKS), rows, 'the same list when nothing is hidden');
+  assert.deepEqual(visibleLaunches(rows, [B.toLowerCase()], [], NO_BLOCKS), [rows[0], rows[2]]);
+  assert.deepEqual(visibleLaunches(rows, [], [C.toLowerCase()], NO_BLOCKS), [rows[2]], 'everything from a creator goes');
+  assert.deepEqual(visibleLaunches(rows, [], [], { tokens: [A.toLowerCase()], creators: [] }), [rows[1], rows[2]]);
+  assert.deepEqual(visibleLaunches(rows, [], [], { tokens: [], creators: [A.toLowerCase()] }), [rows[0], rows[1]]);
+  assert.equal(isHidden(rows[0], [], [], NO_BLOCKS), false);
+  assert.equal(isHidden(rows[0], [], [], { tokens: [A.toLowerCase()], creators: [] }), true);
+  assert.match(read('src/pages/Explore.tsx'), /visibleLaunches\(all, hidden, hiddenCreators, block\)/);
+  assert.match(read('src/components/Search.tsx'), /visibleLaunches\(list, hidden, hiddenCreators, block\)/);
+  assert.match(read('src/pages/Explore.tsx'), /<HideToken token=\{l\.token\} creator=\{l\.creator\} card \/>/);
+  assert.match(read('src/pages/Token.tsx'), /<HideToken token=\{launch\.token\} creator=\{launch\.creator\} \/>/);
   assert.match(read('src/pages/Wallet.tsx'), /<HiddenNote \/>/);
   assert.match(read('src/pages/Explore.tsx'), /<HiddenNote \/>/);
+  const hid = read('src/components/Hidden.tsx');
+  assert.match(hid, /Hide everything from this creator/);
+  assert.match(hid, /Show all/);
+});
+
+test('public/blocklist.json has the documented schema (version 1, token and creator addresses), starts empty, and is read from this site only', () => {
+  const { parseBlocklist, NO_BLOCKS, MAX_BLOCKLIST } = load('src/lib/hidden.ts');
+  const file = JSON.parse(read('public/blocklist.json'));
+  assert.deepEqual(Object.keys(file).sort(), ['creators', 'tokens', 'version']);
+  assert.equal(file.version, 1);
+  for (const k of ['tokens', 'creators']) {
+    assert.ok(Array.isArray(file[k]));
+    for (const a of file[k]) assert.match(a, /^0x[0-9a-fA-F]{40}$/, `${k}: ${a}`);
+    assert.equal(new Set(file[k].map((a) => a.toLowerCase())).size, file[k].length, `${k}: no duplicates`);
+  }
+  assert.deepEqual(file.tokens, [], 'starts empty');
+  assert.deepEqual(file.creators, []);
+  // what the app takes from a file
+  assert.deepEqual(parseBlocklist({ version: 1, tokens: [A, 'x', A.toUpperCase().replace('0X', '0x'), 7], creators: [B] }), { tokens: [A], creators: [B.toLowerCase()] });
+  for (const bad of [null, 'text', [], { version: 2, tokens: [A] }, {}, { tokens: [A] }]) assert.deepEqual(parseBlocklist(bad), NO_BLOCKS);
+  assert.deepEqual(parseBlocklist({ version: 1, tokens: 'nope', creators: { a: 1 } }), NO_BLOCKS);
+  assert.ok(parseBlocklist({ version: 1, tokens: Array.from({ length: MAX_BLOCKLIST + 10 }, (_, i) => `0x${i.toString(16).padStart(40, '0')}`), creators: [] }).tokens.length === MAX_BLOCKLIST);
+  const hid = read('src/components/Hidden.tsx');
+  assert.match(hid, /fetch\('\/blocklist\.json'/);
+  assert.equal(/https?:\/\//.test(hid.replace(/\/\/.*$/gm, '')), false, 'no other host is asked');
+  // a blocked token's page says why and gives a way back
+  assert.match(hid, /MINTA hides this token because it was reported\./);
+  assert.match(hid, /Back to all tokens/);
+  assert.match(read('src/pages/Token.tsx'), /if \(isHidden\(launch, \[\], \[\], block\)\) return <BlockedToken \/>;/);
+});
+
+test('a stored hidden list is read in bounded time: a 50,000-address value is cut at the limit, an oversized one is dropped unread', () => {
+  const { parseHidden, MAX_HIDDEN } = load('src/lib/hidden.ts');
+  const big = JSON.stringify(Array.from({ length: 2000 }, (_, i) => `0x${i.toString(16).padStart(40, '0')}`));
+  assert.equal(parseHidden(big).length, MAX_HIDDEN);
+  const huge = JSON.stringify(Array.from({ length: 50000 }, (_, i) => `0x${i.toString(16).padStart(40, '0')}`));
+  const t0 = performance.now();
+  assert.deepEqual(parseHidden(huge), []);
+  assert.ok(performance.now() - t0 < 100, 'under 100 ms');
+  const junk = JSON.stringify(Array.from({ length: 2400 }, (_, i) => (i % 2 ? 'x' : `0x${i.toString(16).padStart(40, '0')}`)));
+  const t1 = performance.now();
+  assert.ok(parseHidden(junk).length <= MAX_HIDDEN);
+  assert.ok(performance.now() - t1 < 100);
+});
+
+test('saving a launch\'s picture, description or links in Manage needs the Terms accepted too', () => {
+  const src = read('src/pages/Manage.tsx');
+  assert.match(src, /const \[accepted, setAccepted\] = useState\(false\)/);
+  assert.match(src, /<input type="checkbox" checked=\{accepted\}/);
+  assert.match(src, /label="Save" disabled=\{!!problem \|\| !touched \|\| !accepted\}/);
+  assert.match(src, /href="\/terms\/"/);
 });
 
 test('the report message names the ticker and address; the email link exists only with a valid address and is prefilled', () => {

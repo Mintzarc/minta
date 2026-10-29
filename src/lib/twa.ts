@@ -29,8 +29,22 @@ export function detectTwa(referrer: string, search: string, store: Store | null)
   return now;
 }
 
+/** The query string without `app=1` (so a link shared from inside the app doesn't carry it); '' or '?…' */
+export function searchWithoutApp(search: string): string {
+  const q = new URLSearchParams(search);
+  if (q.get('app') !== '1') return search;
+  q.delete('app');
+  const rest = q.toString();
+  return rest ? `?${rest}` : '';
+}
+
 export const IS_TWA: boolean = typeof window !== 'undefined' && (() => {
   let store: Store | null = null;
   try { store = window.sessionStorage; } catch { /* storage blocked */ }
-  return detectTwa(document.referrer, window.location.search, store);
+  const is = detectTwa(document.referrer, window.location.search, store);
+  // seen and remembered for the visit: the address no longer needs `?app=1`, and a link shared from here shouldn't carry it
+  if (is && window.location.search !== searchWithoutApp(window.location.search)) {
+    try { window.history.replaceState(window.history.state, '', `${window.location.pathname}${searchWithoutApp(window.location.search)}${window.location.hash}`); } catch { /* the address stays as it is */ }
+  }
+  return is;
 })();

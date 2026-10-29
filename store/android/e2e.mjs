@@ -126,6 +126,12 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     await showAll.click();
     await page.waitForTimeout(400);
     ok(size, (await page.locator('a.tcard').count()) === before, 'Show all brings the card back');
+    await page.getByRole('button', { name: 'Hide everything from this creator' }).first().click();
+    await page.waitForTimeout(400);
+    ok(size, (await page.locator('a.tcard').count()) === 0, 'Hide everything from this creator takes that creator\'s cards off the list');
+    await page.getByRole('button', { name: 'Show all' }).click();
+    await page.waitForTimeout(400);
+    ok(size, (await page.locator('a.tcard').count()) === before, 'Show all brings them back');
   } else say('WARN', size, 'Hide this token is not on this site yet (it comes with this branch once deployed)');
 
   // 4c. Inside the Android app (its start address carries ?app=1) the connect places say the app cannot connect wallets
@@ -155,6 +161,12 @@ for (const [size, cfg] of Object.entries(SIZES)) {
   }
   await go('/privacy/');
   ok(size, (await page.locator('#delete').count()) === 1, 'the privacy page has the "Deleting your data" section (#delete)');
+
+  // 5b. The list MINTA's team keeps (tokens and creators it hides)
+  const bl = await ctx.request.get(`${SITE}/blocklist.json`);
+  const blj = bl.status() === 200 ? await bl.json().catch(() => null) : null;
+  if (bl.status() === 200 && blj) ok(size, blj.version === 1 && Array.isArray(blj.tokens) && Array.isArray(blj.creators), 'blocklist.json is served with its schema (version 1, tokens, creators)');
+  else say('FAIL', size, `blocklist.json is not served (status ${bl.status()}): deploy this branch's web part`);
 
   // 6. Digital Asset Links file (what lets the Android app open without a browser bar)
   const al = await ctx.request.get(`${SITE}/.well-known/assetlinks.json`);

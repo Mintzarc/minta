@@ -19,6 +19,7 @@ import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
 import { NETWORK, scoped } from '../lib/network';
 import { useLaunchesOpen } from '../lib/launches';
 import { TAX_GOES, creatorTaxLine } from '../lib/fees';
+import { LIQUIDITY_FACT } from '../lib/facts';
 
 /** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself */
 const OPENING_MARKET_CAP = LAUNCH_LIMITS.openingMarketCap;
@@ -270,7 +271,7 @@ export default function Launch() {
         <div className="create-main">
           <p className="eyebrow accent">Create a launch</p>
           <h1 className="display">Bring your idea<br />to <em>VYRE.</em></h1>
-          <p className="lede">Launch your token on MINTA in a few steps.<br />One transaction, live at once, with locked liquidity.</p>
+          <p className="lede">Launch your token on MINTA in a few steps.<br />One transaction, live at once. The whole supply goes into the pool as one position that nothing can remove.</p>
         <form className="wz" onSubmit={submit} noValidate>
           <ol className="wz-steps" aria-label="Steps">
             {STEP_LABELS.map(([title, sub], i) => (
@@ -323,7 +324,7 @@ export default function Launch() {
                 <dl className="setting-cards">
                   <div><dt>Launch type</dt><dd>Instant</dd><small>One transaction; trading opens at once, with no approval or waiting.</small></div>
                   <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))}</dd><small>The same for every launch on MINTA.</small></div>
-                  <div><dt>Liquidity</dt><dd>Locked</dd><small>The whole supply goes into the pool, and its liquidity can’t be removed.</small></div>
+                  <div><dt>Liquidity</dt><dd>One position</dd><small>{LIQUIDITY_FACT}</small></div>
                 </dl>
                 <label className="field"><span>Dev buy <span className="muted">(optional, USDC)</span></span>
                   <input inputMode="decimal" value={firstBuy} onChange={(e) => setFirstBuy(e.target.value)} placeholder="0" />
@@ -476,7 +477,7 @@ function Preview({ name, symbol, meta, params, buyTax, sellTax, openPrice, check
           <div><dt>Price</dt><dd>{price(openPrice)}</dd></div>
           <div><dt>Market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))}</dd></div>
           <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}</dd></div>
-          <div><dt>Liquidity</dt><dd>Locked</dd></div>
+          <div><dt>Liquidity</dt><dd>One position</dd></div>
         </dl>
       </div>
       <div className="pv-box checklist">
@@ -748,7 +749,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
           <>
             {params && <dl className="review-list">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
             {replacing && sent && <p className="note small">This takes the place of your launch of $<bdi>{tokenText(sent.symbol)}</bdi> that hasn’t gone through: the same place in your wallet’s sequence, so only one of the two can ever run.</p>}
-            <p className="small muted">The taxes can be lowered later, never raised. The liquidity is locked for good. Check the details before you create it.</p>
+            <p className="small muted">The taxes can be lowered later, never raised. {LIQUIDITY_FACT} Check the details before you create it.</p>
             {switched && <p className="err small" role="alert">Your wallet changed to {short(account!)}. Go back and review again with the wallet you mean to create it from.</p>}
             {err && <p className="err small" role="alert">{err}{fileFailed || faceId ? '' : ' If your wallet shows the launch as sent, check it on the explorer before trying again.'}
               {earlierHash && <> <a href={`${EXPLORER}/tx/${earlierHash}`} target="_blank" rel="noopener noreferrer">See what went through</a>.</>}</p>}

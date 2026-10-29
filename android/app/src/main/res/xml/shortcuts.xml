@@ -12,14 +12,14 @@
             android:data="https://minta.vyrechain.com/?app=1#/" />
     </shortcut>
     <shortcut
-        android:shortcutId="launch"
+        android:shortcutId="docs"
         android:enabled="true"
         android:icon="@mipmap/ic_launcher"
-        android:shortcutShortLabel="@string/shortcut_launch">
+        android:shortcutShortLabel="@string/shortcut_docs">
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.vyrechain.minta"
             android:targetClass="com.google.androidbrowserhelper.trusted.LauncherActivity"
-            android:data="https://minta.vyrechain.com/?app=1#/launch" />
+            android:data="https://minta.vyrechain.com/?app=1#/docs" />
     </shortcut>
 </shortcuts>

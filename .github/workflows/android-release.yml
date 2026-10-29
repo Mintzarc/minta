@@ -37,6 +37,11 @@ jobs:
       - name: Check the site's Digital Asset Links file names the Play signing key
         if: ${{ !inputs.first_upload }}
         run: RELEASE_CHECK=1 node --test test/android.test.mjs
+      - name: first_upload is ticked, so the Digital Asset Links check is skipped
+        if: ${{ inputs.first_upload }}
+        run: |
+          echo "::warning title=Digital Asset Links check skipped::first_upload was ticked: public/.well-known/assetlinks.json is not required to name the Play signing key for this build. Add the fingerprint after the upload (docs/ANDROID.md, step 9)."
+          echo "Digital Asset Links check SKIPPED (first_upload). The installed app will show a browser bar until the Play signing fingerprint is added to assetlinks.json." >> "$GITHUB_STEP_SUMMARY"
       - name: Check the inputs and that the secrets exist
         env:
           VERSION_CODE: ${{ inputs.version_code }}
@@ -66,14 +71,17 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KS"
           export MINTA_KEYSTORE_FILE="$KS"
           ./gradlew --no-daemon bundleRelease -PmintaVersionCode="$VERSION_CODE" -PmintaVersionName="$VERSION_NAME"
-          rm -f "$KS"
+      - name: Remove the decoded key file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.keystore"
       - name: Check the bundle is signed and has the right package
         working-directory: android
         run: |
           AAB=app/build/outputs/bundle/release/app-release.aab
           test -f "$AAB"
-          jarsigner -verify "$AAB" | head -3
-          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -c 'com.vyrechain.minta'
+          jarsigner -verify "$AAB" > "$RUNNER_TEMP/verify.txt" 2>&1 || { cat "$RUNNER_TEMP/verify.txt"; exit 1; }
+          grep -q "jar verified" "$RUNNER_TEMP/verify.txt"
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml | grep -aq 'com.vyrechain.minta'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: minta-release-aab

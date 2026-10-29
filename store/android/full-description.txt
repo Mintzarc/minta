@@ -9,7 +9,7 @@ WHAT YOU CAN DO IN THIS APP
 - Read the docs, the terms and the privacy policy, and the page on using MINTA with an AI assistant that prepares things while you sign in your own wallet.
 
 WHAT YOU DO IN YOUR WALLET APP'S BROWSER
-This app cannot connect a wallet. To launch a token or trade one, open minta.vyrechain.com in the browser inside your wallet app (a browser tab in your wallet app) and connect there. There, a launch is one transaction (name, ticker, supply, tax, picture, links), the whole supply goes into the pool as one position, and the launch contract has no function that takes it out. You trade a token with USDC.
+This app cannot connect a wallet. To launch a token or trade one, open minta.vyrechain.com in the browser inside your wallet app (a browser tab in your wallet app) and connect there. There, a launch is one transaction (name, ticker, supply, tax, picture, links). The whole supply goes into the pool as one position that nothing can remove. The creator may buy part of the supply in the launch transaction. Tokens can fall to zero: this is not a safety guarantee. You trade a token with USDC.
 
 YOUR WALLET, YOUR KEYS
 MINTA never holds your funds or your keys, and has no accounts, no ads and no tracking. Anything that moves money is a transaction you sign in your own wallet.

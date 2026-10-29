@@ -10,6 +10,7 @@ import { MILESTONE_TEXT } from '../lib/stats';
 import { API_URL } from '../lib/api';
 import { VyreGlyph } from '../components/Brand';
 import { AddressLink } from '../components/ui';
+import { LIQUIDITY_FACT } from '../lib/facts';
 import './docs.css';
 
 /** The pictures (public/art, served beside the app) */
@@ -91,7 +92,7 @@ const ARTICLES: Article[] = [
         body: (
           <>
             <p>MINTA is a launchpad on the VYRE chain. Anyone can create a token in one transaction, trade it with USDC, and {NETWORK.testnet ? 'earn a tax on every trade of a token they created' : 'receive the creator’s tax on every trade of a token they created (a tenth of each payout goes to the platform wallet)'}.</p>
-            <p>Each token’s whole supply goes into its own pool from the first block, and that pool’s liquidity is locked for good. There is no approval step, no schedule and no waiting list: you launch when you like, and the token is trading in the same moment.</p>
+            <p>Each token’s whole supply goes into its own pool from the first block, and that pool’s liquidity can’t be removed (see Liquidity in the pool, below). There is no approval step, no schedule and no waiting list: you launch when you like, and the token is trading in the same moment.</p>
           </>
         ),
       },
@@ -100,7 +101,7 @@ const ARTICLES: Article[] = [
         body: (
           <div className="feat-grid">
             <div><Icon name="bolt" /><b>Easy token creation</b><p>Name it, set the supply and the tax, press Create. One transaction.</p></div>
-            <div><Icon name="lock" /><b>Locked liquidity</b><p>The pool’s liquidity can’t be removed, by anyone, ever. Only the launchpad adds to it.</p></div>
+            <div><Icon name="lock" /><b>Liquidity in the pool</b><p>The pool’s liquidity can’t be removed, by anyone. Only the launchpad adds to it. {LIQUIDITY_FACT}</p></div>
             <div><Icon name="coin" /><b>Paid in USDC</b><p>{NETWORK.testnet ? 'Creators keep a tax of up to 10% on every trade, paid in USDC.' : 'Creators set a tax of 1% to 10% a side on every trade, paid in USDC; a tenth of each payout goes to the platform wallet.'} They can lower it later, never raise it.</p></div>
             <div><Icon name="users" /><b>Your own wallet</b><p>Connect MetaMask, Rabby, Coinbase Wallet or any browser wallet. You keep your keys; MINTA never holds them.</p></div>
           </div>
@@ -313,7 +314,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
         body: (
           <div className="faq">
             <details open><summary>What do I need to start?</summary><p>{NETWORK.testnet ? 'Test USDC (from the faucet) and a browser wallet such as MetaMask, Rabby or Coinbase Wallet, set to VYRE Testnet. It’s a testnet, so nothing costs real money.' : `USDC on VYRE and a browser wallet such as MetaMask, Rabby or Coinbase Wallet, set to ${NETWORK.label}. The Wallet page moves USDC to VYRE from Arc.`}</p></details>
-            <details><summary>Can the liquidity be pulled?</summary><p>No. Each pool’s liquidity is locked in the contract and only the launchpad can add to it; nobody can remove it.</p></details>
+            <details><summary>Can the liquidity be pulled?</summary><p>No. Only the launchpad can add to a pool, and nobody can remove its liquidity. {LIQUIDITY_FACT}</p></details>
             <details><summary>Can a creator raise the tax?</summary><p>No. A creator can lower either tax at any time and can never raise it.</p></details>
             <details><summary>What does a trade cost in gas?</summary><p>{NETWORK.testnet ? 'On the testnet, a buy has cost about six millionths of a dollar. ' : ''}<Ext to="https://vyrechain.com/gas">The gas page has the measurements, and every number links to a real transaction.</Ext></p></details>
             <details><summary>Does MINTA check a transaction before I sign it?</summary><p>Yes, as a hint, for the transactions you send on VYRE from a browser wallet. Just before your wallet asks you to confirm, MINTA asks a check service ({API_HOST}) to run the transaction without sending it, and the service looks up the addresses in it with a third-party security service. If it finds something (the transaction would fail, it would let a contract spend an unlimited amount of a token, it would give permission to a contract that isn’t one of the launchpad’s own, or a security service has flagged an address in it), MINTA shows it first, with Continue anyway and Cancel. MINTA’s own approvals are always for the exact amount, so you shouldn’t see this in normal use. It waits less than a second, and if the check is slow or unavailable MINTA goes on without saying anything. It can miss things, so read what your wallet shows before you confirm. (A sale’s exact-amount permission is signed as part of the sale itself, before this check sees the transaction that carries it.) What is sent is listed in the <a href={NETWORK.testnet ? '/privacy-testnet/' : '/privacy/'}>privacy policy</a>.</p></details>
@@ -464,7 +465,8 @@ export default function Docs({ article, section }: { article?: string; section?:
             <div className="hero-copy">
               <p className="eyebrow">Welcome to MINTA</p>
               <h1 className="display">Build.<br /><em>Launch.</em> Grow.</h1>
-              <p className="lede">The launchpad on the VYRE chain.<br />Instant launches. Locked liquidity. Paid in USDC.</p>
+              <p className="lede">The launchpad on the VYRE chain.<br />Instant launches. Paid in USDC.</p>
+              <p className="small muted">{LIQUIDITY_FACT}</p>
               <div className="row">
                 <a className="btn btn-accent" href={href({ page: 'launch' })}>Get Started <Arrow /></a>
                 <a className="btn btn-line" href={href({ page: 'docs', article: 'launch-model' })}><Icon name="doc" />How launches work</a>

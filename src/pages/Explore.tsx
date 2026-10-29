@@ -13,8 +13,8 @@ import { Loading, TokenPic } from '../components/ui';
 import Spark from '../components/Spark';
 import TokenCard from '../components/TokenCard';
 import { TopByLiquidity } from '../components/TopTokens';
-import { HiddenNote, hide, useHidden } from '../components/Hidden';
-import { withoutHidden } from '../lib/hidden';
+import { HiddenNote, HideToken, useBlocklist, useHidden, useHiddenCreators } from '../components/Hidden';
+import { visibleLaunches } from '../lib/hidden';
 import { matches } from '../components/Search';
 
 const PAGE = 36;
@@ -40,8 +40,10 @@ export default function Explore({ q = '' }: { q?: string }) {
   const term = searchTerm(q);
   const [all, setList] = useState<Listed[] | null>(null);
   const hidden = useHidden();
-  // tokens hidden on this device are left out of every list below
-  const list = useMemo(() => (all ? withoutHidden(all, hidden) : null), [all, hidden]);
+  const hiddenCreators = useHiddenCreators();
+  const block = useBlocklist();
+  // tokens and creators hidden on this device, and those MINTA's team hides, are left out of every list below
+  const list = useMemo(() => (all ? visibleLaunches(all, hidden, hiddenCreators, block) : null), [all, hidden, hiddenCreators, block]);
   const [stats, setStats] = useState<Map<Address, Stats>>(new Map());
   const [holders, setHolders] = useState<Map<Address, number | null>>(new Map());
   const [total, setTotal] = useState(0);
@@ -197,7 +199,7 @@ export default function Explore({ q = '' }: { q?: string }) {
         <div className="empty"><p>{q ? 'No token matches that.' : tab === 'graduated' ? (statsState === 'ok' ? 'No token is at the milestone right now.' : statsState === 'error' ? 'The figures couldn’t load: retrying.' : 'Loading the figures…') : 'No tokens here yet.'}</p><a className="btn btn-line btn-sm" href={href({ page: 'launch' })}>Create a token</a></div>
       )}
       {rows && rows.length > 0 && view === 'grid' && (
-        <ul className="cards">{rows.map((l) => <li key={l.token}><TokenCard l={l} s={st(l)} /><button type="button" className="linkish small hide-card" onClick={() => hide(l.token)}>Hide this token</button></li>)}</ul>
+        <ul className="cards">{rows.map((l) => <li key={l.token}><TokenCard l={l} s={st(l)} /><HideToken token={l.token} creator={l.creator} card /></li>)}</ul>
       )}
       {rows && rows.length > 0 && view === 'list' && <TokenTable rows={rows} stats={stats} holders={holders} />}
       {list && list.length > 0 && list[list.length - 1].index > 0 && (

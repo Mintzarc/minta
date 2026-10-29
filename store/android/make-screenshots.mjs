@@ -2,11 +2,11 @@
 //   node store/android/make-screenshots.mjs            all sets, the icon and the feature graphic
 //   node store/android/make-screenshots.mjs phone      one set (phone | tablet7 | tablet10 | desktop | assets)
 // Needs the repo's packages (npm ci) and Playwright's Chromium (npx playwright install chromium) on your computer.
-// Screens that need a signed-in wallet are shown signed out: that is what a new visitor sees. Nothing is mocked.
+// Only unmodified screens and clips of them are used (see SCREENS in viewports.mjs): nothing is mocked and no style is injected.
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
-import { SETS, SCREENS, SITE, LIVE_SITE, skipSplash, firstTokenHash } from './viewports.mjs';
+import { SETS, SCREENS, SITE, skipSplash, firstTokenHash } from './viewports.mjs';
 
 const HERE = import.meta.dirname;
 const ROOT = path.join(HERE, '..', '..');
@@ -23,27 +23,62 @@ async function shots(key) {
   const tokenHash = await firstTokenHash(page);
   let n = 0;
   for (const s of SCREENS) {
+    if (s.sets && !s.sets.includes(key)) continue;
     n += 1;
-    const base = s.live ? LIVE_SITE : SITE;
+    const base = SITE;
+    const file = path.join(out, `${String(n).padStart(2, '0')}-${s.name}.jpg`);
+    await page.setViewportSize(set.viewport);
     await page.goto(`${base}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
     if (s.path === null) await page.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
-    await page.waitForTimeout(3500); // prices, the chart and pictures arrive after the page itself
-    // the ticker's "NEW" pill is a moment-in-time label: not shown in store pictures
-    await page.addStyleTag({ content: '.tk-tag { display: none !important; }' });
-    if (s.hideTrade) await page.addStyleTag({ content: '.trade-card { display: none !important; }' });
-    if (s.report) {
+    await page.waitForTimeout(3500); // figures, the chart and pictures arrive after the page itself
+    let clip;
+    if (s.clip === 'below-bar') {
+      // the app's top bar (the ticker, the menu, Connect Wallet) is not part of the picture: it starts at the page body, and the
+      // window is made that much taller so the picture has the set's full size
+      const top = Math.ceil(await page.evaluate(() => document.querySelector('main').getBoundingClientRect().top));
+      if (set.viewport.width >= 1000) {
+        // wide screens: the article column only (the side menu and the promo card are left out), 16:9
+        const col = await page.evaluate(() => { const r = document.querySelector('.docs-main').getBoundingClientRect(); return { x: r.left, width: r.width }; });
+        const height = Math.round((col.width * 9) / 16);
+        await page.setViewportSize({ width: set.viewport.width, height: top + height + 40 });
+        await page.waitForTimeout(800);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        clip = { x: col.x, y: top, width: col.width, height };
+      } else {
+        await page.setViewportSize({ width: set.viewport.width, height: set.viewport.height + top });
+        await page.waitForTimeout(800);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        clip = { x: 0, y: top, width: set.viewport.width, height: set.viewport.height };
+      }
+    } else if (s.clip === 'report') {
       const btn = page.getByRole('button', { name: 'Report this token' });
       if (!(await btn.count())) throw new Error('No "Report this token" button here: take this picture from a build that has it (npm run build, npx vite preview, MINTA_SITE=http://127.0.0.1:4173)');
       await btn.click();
-      await btn.scrollIntoViewIfNeeded();
       await page.waitForTimeout(400);
+      // from the Report link to the end of the token facts: no picture, no trade panel
+      const box = await page.evaluate(() => {
+        const r = document.querySelector('.report-token').getBoundingClientRect();
+        const f = document.querySelector('.stat-strip').getBoundingClientRect();
+        return { x: 0, y: r.top + window.scrollY - 12, bottom: f.bottom + window.scrollY + 12 };
+      });
+      clip = { x: 0, y: box.y, width: set.viewport.width, height: box.bottom - box.y };
+      // Play wants the long side at most twice the short side: a taller panel is cut at that (the facts' last lines may be cut)
+      clip.height = Math.min(clip.height, 2 * clip.width);
+      if (clip.height < 0.5 * clip.width) throw new Error(`report clip ${clip.width}x${clip.height} is too flat`);
+    } else if (s.scrollTo) {
+      await page.evaluate((t) => {
+        const h = [...document.querySelectorAll('h1,h2,h3')].find((e) => e.textContent.trim().includes(t));
+        if (!h) throw new Error(`no heading "${t}"`);
+        window.scrollTo(0, h.getBoundingClientRect().top + window.scrollY - 70);
+      }, s.scrollTo);
+      await page.waitForTimeout(300);
     } else {
       await page.evaluate(() => window.scrollTo(0, 0));
     }
-    const file = path.join(out, `${String(n).padStart(2, '0')}-${s.name}.jpg`);
     // JPEG has no alpha channel: Google Play wants JPEG or 24-bit PNG without alpha
-    await page.screenshot({ path: file, type: 'jpeg', quality: 92 });
-    console.log(`${set.dir}/${path.basename(file)}  ${set.viewport.width * set.scale}x${set.viewport.height * set.scale}  ${s.note}`);
+    await page.screenshot({ path: file, type: 'jpeg', quality: 92, ...(clip ? { clip, fullPage: s.clip === 'report' } : {}) });
+    const w = Math.round((clip ? clip.width : set.viewport.width) * set.scale), h = Math.round((clip ? clip.height : set.viewport.height) * set.scale);
+    console.log(`${set.dir}/${path.basename(file)}  ${w}x${h}  ${s.note}`);
   }
   await ctx.close();
 }
