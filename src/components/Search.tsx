@@ -2,6 +2,8 @@
 // without its $) or a full address, shows up to eight matches (arrow keys to move, Enter to open, Escape to close), and
 // "View all matches" applies the search to the token list.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useHidden } from './Hidden';
+import { withoutHidden } from '../lib/hidden';
 import { getAddress } from 'viem';
 import { isAddr, price, tokenText } from '../lib/format';
 import { cacheAge, cachedLaunches, listLaunches, type Listed } from '../lib/market';
@@ -56,7 +58,8 @@ export function SearchPanel({ list: given, initial = '', onClose, onViewAll }: {
     return () => { document.body.style.overflow = ''; (back.current as HTMLElement | null)?.focus?.(); };
   }, []);
 
-  const found = useMemo(() => list.filter((l) => matches(l, q)), [list, q]);
+  const hidden = useHidden();
+  const found = useMemo(() => withoutHidden(list, hidden).filter((l) => matches(l, q)), [list, q, hidden]);
   const shown = found.slice(0, 8);
   const s = q.trim().replace(/^\$/, '');
   // a full address that isn't among the loaded launches: offer to open it anyway (its page says if it isn't one)

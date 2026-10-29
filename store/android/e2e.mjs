@@ -106,7 +106,43 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     ok(size, (await page.getByRole('button', { name: 'Connect Wallet' }).count()) >= 1, 'with no wallet the last step asks to connect one (there is nothing to send)');
     o = await overflow(page);
     ok(size, o.sw <= o.iw + 1, 'the wizard has no sideways overflow', `(${o.sw} > ${o.iw})`);
+    const accept = page.getByRole('checkbox', { name: /accept the Terms/ });
+    if (await accept.count()) ok(size, !(await accept.isChecked()), 'the final step has an "I accept the Terms" box, unchecked');
+    else say('WARN', size, 'the "I accept the Terms" box is not on this site yet (it comes with this branch once deployed)');
+    ok(size, !/can’t connect wallets/.test(await page.locator('body').innerText()), 'outside the Android app there is no "app can’t connect wallets" note');
     ok(size, sent.length === 0, 'no transaction was sent');
+  }
+
+  // 4b. Hide a token on this device, and show all again
+  await go('/#/');
+  const hideBtn = page.getByRole('button', { name: 'Hide this token' });
+  if (await hideBtn.count()) {
+    const before = await page.locator('a.tcard').count();
+    await hideBtn.first().click();
+    await page.waitForTimeout(400);
+    ok(size, (await page.locator('a.tcard').count()) === before - 1, 'Hide this token takes the card off the Explore list');
+    const showAll = page.getByRole('button', { name: 'Show all' });
+    ok(size, (await showAll.count()) === 1, 'a "tokens are hidden on this device. Show all" line appears');
+    await showAll.click();
+    await page.waitForTimeout(400);
+    ok(size, (await page.locator('a.tcard').count()) === before, 'Show all brings the card back');
+  } else say('WARN', size, 'Hide this token is not on this site yet (it comes with this branch once deployed)');
+
+  // 4c. Inside the Android app (its start address carries ?app=1) the connect places say the app cannot connect wallets
+  {
+    const tctx = await browser.newContext({ viewport: cfg.viewport, deviceScaleFactor: 1, isMobile: cfg.mobile, hasTouch: cfg.touch, locale: 'en-US' });
+    const tp = await tctx.newPage();
+    await skipSplash(tp);
+    await tp.goto(`${SITE}/?app=1#/wallet`, { waitUntil: 'domcontentloaded' });
+    await tp.waitForTimeout(3500);
+    const tt = await tp.locator('body').innerText();
+    if (/can’t connect wallets/.test(tt)) {
+      ok(size, /Open minta\.vyrechain\.com in your wallet app’s browser/.test(tt), 'in the app the wallet page says to open minta.vyrechain.com in the wallet app’s browser');
+      const trust = await tp.locator('a:has-text("Open in Trust Wallet")').getAttribute('href');
+      ok(size, trust === 'https://link.trustwallet.com/open_url?coin_id=60&url=https://minta.vyrechain.com', 'the Trust Wallet button uses the documented link');
+      ok(size, (await tp.getByRole('button', { name: 'Copy link' }).count()) >= 1, 'the note has a Copy link button');
+    } else say('WARN', size, 'the in-app wallet note is not on this site yet (it comes with this branch once deployed)');
+    await tctx.close();
   }
 
   // 5. Pages that must load: wallet, docs, terms, privacy, AI assistants

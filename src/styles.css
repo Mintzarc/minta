@@ -606,3 +606,10 @@ html.splash-on { overflow: hidden; }
 .report-token .note { margin-top: 8px; }
 .report-token .btn { display: inline-flex; align-items: center; min-height: 48px; }
 .report-token .linkish { min-height: 48px; }
+.twa-note { margin-top: 10px; }
+.twa-note .btn { display: inline-flex; align-items: center; min-height: 48px; }
+.hide-card, .hide-token { min-height: 48px; display: inline-flex; align-items: center; }
+.cards > li { display: flex; flex-direction: column; }
+.hidden-note { margin: 8px 0; }
+.accept-terms { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0; min-height: 48px; }
+.accept-terms input { width: 24px; height: 24px; flex: none; margin-top: 2px; }

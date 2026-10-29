@@ -17,35 +17,38 @@ import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { sendVyreTx, type EmailSession } from '../lib/circle';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
 import PriceChart from '../components/PriceChart';
+import { HideToken } from '../components/Hidden';
+import { REPORT_EMAIL, REPORT_TELEGRAM, REPORT_X, reportMailto, reportText } from '../lib/contact';
 
 // kept back from a "max" buy so the wallet can still pay gas
 const GAS_RESERVE = 10n ** 16n; // 0.01 USDC
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC: less than this left, a buy can't pay its fee
 
-const REPORT_TELEGRAM = 'https://t.me/+HDa2YpR0piA3ZWE0';
-const REPORT_X = 'https://x.com/MintaLaunchpad';
 
 /**
  * "Report this token": anyone can flag a token whose name, picture, description or links break the terms (section 8).
  * MINTA keeps no server for reports, so nothing is sent from here: the panel gives the message to copy and links to MINTA's
- * own Telegram group and X account, where the reports are read. It collects nothing.
+ * own Telegram group and X account (and an email address once the owner confirms it, src/lib/contact.ts), where the reports
+ * are read. It collects nothing.
  */
 function ReportToken({ token, sym }: { token: Address; sym: string }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const text = `Report token $${sym} ${token} on MINTA: `;
+  const text = reportText(sym, token);
+  const mail = reportMailto(REPORT_EMAIL, sym, token);
   const copy = () => { navigator.clipboard?.writeText(text).then(() => setCopied(true), () => setCopied(false)); };
   return (
     <div className="report-token">
       <button type="button" className="linkish small" aria-expanded={open} onClick={() => setOpen(!open)}>Report this token</button>
       {open && (
         <div className="note small" role="note">
-          <p>Names, pictures, descriptions and links are made by whoever launched the token. If this one is unlawful, hateful, a copy of someone else&rsquo;s work, or deceives people, tell MINTA. Copy this message, add what is wrong, and send it to MINTA on Telegram or X. MINTA may stop showing a token it is told about.</p>
+          <p>Names, pictures, descriptions and links are made by whoever launched the token. If this one is unlawful, hateful, a copy of someone else&rsquo;s work, or deceives people, tell MINTA. Copy this message, add what is wrong, and send it to MINTA {mail ? 'on Telegram, on X or by email' : 'on Telegram or X'}. MINTA may stop showing a token it is told about.</p>
           <p className="mono break">{text}</p>
           <p>
             <button type="button" className="btn btn-line btn-sm" onClick={copy}>{copied ? 'Copied' : 'Copy the message'}</button>{' '}
             <a className="btn btn-line btn-sm" href={REPORT_TELEGRAM} target="_blank" rel="noopener noreferrer">Telegram</a>{' '}
             <a className="btn btn-line btn-sm" href={REPORT_X} target="_blank" rel="noopener noreferrer">X</a>
+            {mail && <>{' '}<a className="btn btn-line btn-sm" href={mail}>Email</a></>}
           </p>
         </div>
       )}
@@ -179,6 +182,7 @@ export default function Token({ token }: { token: Address }) {
       </div>
       {meta?.description && plainText(meta.description) && <p className="description" dir="auto">{plainText(meta.description)}</p>}
       <ReportToken token={launch.token} sym={sym} />
+      <HideToken token={launch.token} />
 
       <dl className="stat-strip">
         <div><dt>Price</dt><dd>{market ? price(market.price) : '—'}</dd></div>

@@ -30,7 +30,7 @@ test('targetSdk, minSdk and the first versionCode are what the docs say', () => 
   const target = Number(/targetSdk (\d+)/.exec(gradle)[1]);
   const compile = Number(/compileSdk (\d+)/.exec(gradle)[1]);
   const min = Number(/minSdk (\d+)/.exec(gradle)[1]);
-  assert.ok(target >= 36, 'Google Play needs API 36 or higher for new apps from 2026-08-31');
+  assert.ok(target >= 36, 'Google Play needs API 36 or higher for new apps from 31 August 2026');
   assert.ok(compile >= target);
   assert.ok(docs.includes(`target API ${target}`), 'docs name the target API level');
   assert.ok(docs.includes(`minimum API ${min}`), 'docs name the minimum API level');
@@ -40,7 +40,7 @@ test('targetSdk, minSdk and the first versionCode are what the docs say', () => 
 });
 
 test('the app opens the live site, verifies its links, and asks for no permissions', () => {
-  assert.ok(manifest.includes(`android:value="${SITE}/"`));
+  assert.ok(manifest.includes(`android:value="${SITE}/?app=1"`));
   assert.ok(manifest.includes('android:autoVerify="true"') && manifest.includes('android:host="minta.vyrechain.com"'));
   assert.ok(read('android/app/src/main/res/values/strings.xml').includes(`\\"site\\": \\"${SITE}\\"`));
   assert.equal(/<uses-permission/.test(manifest), false);
@@ -82,7 +82,7 @@ test('nothing secret-like is in android/ (no key files, no stored passwords, no 
 });
 
 test('the workflows pin every action to a full commit, use only the allowed ones, and read the key only from secrets', () => {
-  const allowed = new Set(['actions/checkout', 'actions/setup-java', 'actions/setup-node', 'actions/upload-artifact', 'android-actions/setup-android', 'reactivecircus/android-emulator-runner']);
+  const allowed = new Set(['gradle/actions/wrapper-validation', 'actions/checkout', 'actions/setup-java', 'actions/setup-node', 'actions/upload-artifact', 'android-actions/setup-android', 'reactivecircus/android-emulator-runner']);
   for (const f of ['android-release.yml', 'android-debug.yml', 'android-emulator.yml']) {
     const t = read(`.github/workflows/${f}`);
     const uses = [...t.matchAll(/uses:\s*(\S+)@(\S+)/g)];
@@ -113,4 +113,49 @@ test('the store listing text fits Play\'s limits and keeps to the wording rules'
   for (const w of [/layer ?2/i, /\bon Arc\b/i, /trustless/i, /\baudited\b/i, /instant withdraw/i, /cheapest/i, /airdrop/i, /guaranteed/i, /\bfree\b/i, /\bbest\b/i, /#1/, /\btop\b/i]) assert.equal(w.test(all), false, `banned wording ${w}`);
   assert.match(full, /not affiliated with or endorsed by Circle/);
   assert.match(full, /fall to zero|lose (all|everything)|can lose/i);
+});
+
+test('the Gradle wrapper is pinned by checksum and every workflow validates it', () => {
+  const props = read('android/gradle/wrapper/gradle-wrapper.properties');
+  assert.match(props, /distributionSha256Sum=[0-9a-f]{64}/);
+  assert.ok(props.includes('gradle-8.14.3-bin.zip'));
+  for (const f of ['android-release.yml', 'android-debug.yml', 'android-emulator.yml']) assert.match(read(`.github/workflows/${f}`), /gradle\/actions\/wrapper-validation@[0-9a-f]{40}/, f);
+});
+
+test('the release runs in the android-release environment, and refuses to build unless the site names the Play key (RELEASE_CHECK=1)', () => {
+  const rel = read('.github/workflows/android-release.yml');
+  assert.match(rel, /environment: android-release/);
+  assert.match(rel, /RELEASE_CHECK=1 node --test test\/android\.test\.mjs/);
+  assert.match(rel, /first_upload/);
+  assert.ok(docs.includes('android-release') && docs.includes('first_upload'));
+});
+
+// Run with RELEASE_CHECK=1 (the release workflow does): the links file must carry the Play app-signing fingerprint
+test('RELEASE_CHECK: assetlinks.json names com.vyrechain.minta with at least one SHA-256 fingerprint', { skip: !process.env.RELEASE_CHECK && 'only with RELEASE_CHECK=1' }, () => {
+  const links = JSON.parse(read('public/.well-known/assetlinks.json'));
+  assert.ok(links.length >= 1, 'public/.well-known/assetlinks.json is empty: paste the Play app signing key fingerprint first (docs/ANDROID.md step 9), or tick first_upload for the very first upload');
+  for (const l of links) {
+    assert.equal(l.target.package_name, PACKAGE);
+    assert.ok(l.target.sha256_cert_fingerprints.length >= 1);
+  }
+});
+
+test('the listing says first, plainly, what the app does and does not do, and lists only what works in it', () => {
+  const full = read('store/android/full-description.txt');
+  assert.ok(full.startsWith("In this app you can browse, read and report. To launch or trade, open minta.vyrechain.com in your wallet app's browser."));
+  assert.match(read('store/android/short-description.txt'), /wallet/);
+  const bullets = full.slice(full.indexOf('WHAT YOU CAN DO IN THIS APP'), full.indexOf("WHAT YOU DO IN YOUR WALLET APP'S BROWSER"));
+  assert.equal(/\b(launch a token|trade|buy|sell|connect)\b/i.test(bullets), false, 'the in-app list names nothing that needs a wallet');
+  assert.match(full, /This app cannot connect a wallet/);
+  // screenshots: only screens that work in the app (no wizard, wallet page or trade panel), no NEW pill, no token picture first
+  const vp = read('store/android/viewports.mjs');
+  assert.equal(/name: 'launch'|name: 'wallet'/.test(vp), false);
+  assert.match(vp, /name: 'docs'[\s\S]*name: 'explore'/, 'the docs front page comes before the token list');
+  assert.match(read('store/android/make-screenshots.mjs'), /\.tk-tag \{ display: none/);
+  assert.match(read('store/android/make-screenshots.mjs'), /\.trade-card \{ display: none/);
+  assert.equal(/Launch and explore/.test(read('store/android/make-screenshots.mjs')), false, 'the feature graphic does not say the app launches');
+});
+
+test('the docs carry no business notes beyond MINTA\'s own facts', () => {
+  assert.equal(/STAGR|your other app|your account has|older organi[sz]ation|Only One|VYRE team/i.test(docs), false);
 });

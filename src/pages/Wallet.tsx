@@ -18,6 +18,7 @@ import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
 import { FAUCET_OFFERED, IS_TESTNET, NETWORK, USDC_LABEL } from '../lib/network';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
 import { useWallet } from '../lib/wallet';
+import { HiddenNote } from '../components/Hidden';
 import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
 import { promoterStatus, topupLink } from '../lib/api';
 import { moveToVyre } from '../lib/circle';
@@ -81,6 +82,7 @@ export default function Wallet() {
       <p className="eyebrow">Wallet</p>
       <h1 className="display">Your <em>USDC.</em></h1>
       <p className="lede">{faceId ? 'Get USDC into your Face ID wallet, send it, or move it to Arc.' : 'Add USDC to VYRE, or move it back to Arc.'} USDC pays for everything on VYRE: gas and trades.{IS_TESTNET ? ` On the testnet it’s ${USDC_LABEL} with no value.` : ''}</p>
+      <HiddenNote />
       {!account && <ConnectButton />}
       {account && (
         <div className="card row-between">

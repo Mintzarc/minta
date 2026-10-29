@@ -12,21 +12,31 @@ on:
         description: 'versionName shown to people, for example 1.0.0'
         required: true
         default: '1.0.0'
+      first_upload:
+        description: 'Tick for the very first upload to Play only: the app-signing fingerprint does not exist yet, so the assetlinks check is skipped'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   bundle:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # the four secrets live in this environment (Settings, Environments), which only the branches main and android may use
+    environment: android-release
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      - uses: gradle/actions/wrapper-validation@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Check the site's Digital Asset Links file names the Play signing key
+        if: ${{ !inputs.first_upload }}
+        run: RELEASE_CHECK=1 node --test test/android.test.mjs
       - name: Check the inputs and that the secrets exist
         env:
           VERSION_CODE: ${{ inputs.version_code }}

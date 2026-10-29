@@ -144,6 +144,9 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
     await pg.fill('.wz-step input[placeholder="MYT"]', 'MYT');
     for (let i = 0; i < 4; i++) await pg.click('.wz-next');
+    // the Terms box must be ticked before Review does anything (the button is off until then)
+    ok(await pg.locator('.wz-step button[type=submit]:has-text("Review")').isDisabled(), 'Review is off until the Terms are accepted');
+    await pg.check('.accept-terms input');
     await pg.click('.wz-step button[type=submit]:has-text("Review")', { timeout: 5000 }).catch(() => {});
     await pg.waitForSelector('[role=dialog][aria-labelledby=review-title]', { timeout: 5000 }).catch(() => {});
     const dlg = pg.locator('[role=dialog][aria-labelledby=review-title]');

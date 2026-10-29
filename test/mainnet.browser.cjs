@@ -141,7 +141,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(await pg.locator('.home-top .topcap').count() === 1 && /Top by liquidity/i.test(home), 'it leads with the top list');
     ok(/Live/i.test(await pg.locator('.tk-live').innerText()) && /mainnet/i.test(await pg.locator('.tk-live').innerText()), 'the ticker says mainnet');
     await pg.waitForTimeout(800);
-    ok([...hosts].every((h) => /^(?:rpc|api|explorer)\.vyrechain\.com$|^fonts\.(?:googleapis|gstatic)\.com$/.test(h)), `only mainnet hosts are asked (${[...hosts].join(', ') || 'none'})`);
+    ok([...hosts].every((h) => /^(?:rpc|api|explorer)\.vyrechain\.com$/.test(h)), `only mainnet hosts are asked (${[...hosts].join(', ') || 'none'})`);
     ok(errs.length === 0, 'nothing throws on the home page' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }

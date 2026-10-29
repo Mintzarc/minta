@@ -9,7 +9,7 @@
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.vyrechain.minta"
             android:targetClass="com.google.androidbrowserhelper.trusted.LauncherActivity"
-            android:data="https://minta.vyrechain.com/#/" />
+            android:data="https://minta.vyrechain.com/?app=1#/" />
     </shortcut>
     <shortcut
         android:shortcutId="launch"
@@ -20,6 +20,6 @@
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.vyrechain.minta"
             android:targetClass="com.google.androidbrowserhelper.trusted.LauncherActivity"
-            android:data="https://minta.vyrechain.com/#/launch" />
+            android:data="https://minta.vyrechain.com/?app=1#/launch" />
     </shortcut>
 </shortcuts>

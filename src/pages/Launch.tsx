@@ -136,6 +136,8 @@ export default function Launch() {
   const [recent, setRecent] = useState<Launched | null>(() => launched ?? (faceId ? recentLaunch(faceId.address) : null));
   // what the dialog said as it closed (a launch that didn't run, with the form's details gone): shown on the form
   const [notice, setNotice] = useState('');
+  // the Terms must be accepted before a launch goes to the review (they say what tokens may not be: Terms, sections 8 and 9)
+  const [accepted, setAccepted] = useState(false);
   const [waiting, setWaiting] = useState(inWallet);
   const [asideState, setAside] = useState<Aside | null>(aside);
   // what the dialog left behind (it may have finished after this page was left and opened again)
@@ -236,6 +238,7 @@ export default function Launch() {
     if (recent || asideState) {
       launched = null; aside = null; keep(); if (faceId) forgetLaunch(faceId.address); setRecent(null); setAside(null); return;
     }
+    if (!accepted) { setNotice('Accept the Terms to go on.'); return; }
     setTouched(true);
     if (firstBad >= 0) { setTried((t) => (t.includes(firstBad) ? t : [...t, firstBad])); return; }
     if (!problem && account) setReviewing(account);
@@ -379,8 +382,14 @@ export default function Launch() {
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
                 </dl>
                 {touched && problem && !sent && <p className="err small" role="alert">{problem}{firstBad >= 0 && <> <button type="button" className="linkish" onClick={() => goTo(firstBad)}>Go to that step</button>.</>}</p>}
+                {!sent && !recent && !asideState && (
+                  <label className="check accept-terms">
+                    <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
+                    <span>I accept the <a href="/terms/" target="_blank" rel="noopener noreferrer">Terms</a>: no token that breaks the law, copies someone else’s work or deceives people.</span>
+                  </label>
+                )}
                 {!account ? <ConnectButton /> : emailCantTrade ? <EmailTradeNote /> : (
-                  <button className="btn btn-accent btn-wide" type="submit" disabled={!sent && waiting}>{sent ? 'Check it' : recent || asideState ? 'Launch another' : 'Review'}</button>
+                  <button className="btn btn-accent btn-wide" type="submit" disabled={(!sent && waiting) || (!sent && !recent && !asideState && !accepted)}>{sent ? 'Check it' : recent || asideState ? 'Launch another' : 'Review'}</button>
                 )}
                 <p className="small muted">You’ll see every detail once more, then confirm in your wallet.</p>
               </fieldset>

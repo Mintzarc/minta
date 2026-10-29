@@ -6,7 +6,7 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
-import { SETS, SCREENS, SITE, skipSplash, firstTokenHash } from './viewports.mjs';
+import { SETS, SCREENS, SITE, LIVE_SITE, skipSplash, firstTokenHash } from './viewports.mjs';
 
 const HERE = import.meta.dirname;
 const ROOT = path.join(HERE, '..', '..');
@@ -24,10 +24,22 @@ async function shots(key) {
   let n = 0;
   for (const s of SCREENS) {
     n += 1;
-    await page.goto(`${SITE}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
-    if (s.name === 'token') await page.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
+    const base = s.live ? LIVE_SITE : SITE;
+    await page.goto(`${base}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
+    if (s.path === null) await page.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
     await page.waitForTimeout(3500); // prices, the chart and pictures arrive after the page itself
-    await page.evaluate(() => window.scrollTo(0, 0));
+    // the ticker's "NEW" pill is a moment-in-time label: not shown in store pictures
+    await page.addStyleTag({ content: '.tk-tag { display: none !important; }' });
+    if (s.hideTrade) await page.addStyleTag({ content: '.trade-card { display: none !important; }' });
+    if (s.report) {
+      const btn = page.getByRole('button', { name: 'Report this token' });
+      if (!(await btn.count())) throw new Error('No "Report this token" button here: take this picture from a build that has it (npm run build, npx vite preview, MINTA_SITE=http://127.0.0.1:4173)');
+      await btn.click();
+      await btn.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
+    } else {
+      await page.evaluate(() => window.scrollTo(0, 0));
+    }
     const file = path.join(out, `${String(n).padStart(2, '0')}-${s.name}.jpg`);
     // JPEG has no alpha channel: Google Play wants JPEG or 24-bit PNG without alpha
     await page.screenshot({ path: file, type: 'jpeg', quality: 92 });
@@ -48,7 +60,7 @@ async function assets() {
   await page.setViewportSize({ width: 512, height: 512 });
   await page.setContent(`<body style="margin:0;background:transparent"><img src="data:image/png;base64,${logo}" width="512" height="512" style="display:block;clip-path:polygon(0 1px,1px 1px,1px 0,100% 0,100% 100%,0 100%)"></body>`);
   await page.screenshot({ path: path.join(out, 'icon-512.png'), omitBackground: true, type: 'png' });
-  // the 1024 x 500 feature graphic: MINTA's own art, the name and the tagline; no interface, no prices, no claims
+  // the 1024 x 500 feature graphic: MINTA's own art, the name and a line that says what the app does; no interface, no prices, no claims
   await page.setViewportSize({ width: 1024, height: 500 });
   await page.setContent(`<style>
     body{margin:0;width:1024px;height:500px;position:relative;overflow:hidden;background:#03070b url(data:image/webp;base64,${hero}) center/cover;font-family:system-ui,sans-serif;color:#e9f5f4}
@@ -57,7 +69,7 @@ async function assets() {
     .t img{width:400px;display:block}
     .t p{margin:26px 0 0;width:430px;font-size:32px;line-height:1.25;font-weight:600;letter-spacing:.2px}
     .t small{display:block;margin-top:12px;font-size:21px;opacity:.8}
-  </style><div class="shade"></div><div class="t"><img src="data:image/webp;base64,${word}" alt="MINTA"><p>Launch and explore tokens on VYRE</p><small>Real USDC. Tokens can fall to zero.</small></div>`);
+  </style><div class="shade"></div><div class="t"><img src="data:image/webp;base64,${word}" alt="MINTA"><p>Browse and report tokens on VYRE</p><small>Real USDC. Tokens can fall to zero.</small></div>`);
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(out, 'feature-graphic.jpg'), type: 'jpeg', quality: 93 });
   console.log('icon-512.png  512x512 (32-bit PNG)\nfeature-graphic.jpg  1024x500 (JPEG, no alpha)');

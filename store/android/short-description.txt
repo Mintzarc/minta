@@ -1,1 +1,1 @@
-Launch and explore tokens on VYRE. Real USDC; tokens can fall to zero.
+Browse and report tokens on VYRE. To launch or trade, use your wallet's browser.
