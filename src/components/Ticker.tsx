@@ -8,6 +8,19 @@ import { feedItems, loadFeed, type FeedItem, type FeedState } from '../lib/feed'
 import { ago, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
 import { NETWORK } from '../lib/network';
+import type { Address } from 'viem';
+import { cachedLaunches } from '../lib/market';
+import { getLaunch } from '../lib/pad';
+import { vyre } from '../lib/chain';
+import { hidesByCreator, visibleFeed } from '../lib/hidden';
+import { useBlocklistState, useHidden, useHiddenCreators } from './Hidden';
+
+/** token (lowercase) -> creator (lowercase), for the tokens the line shows: from the launches already read, else looked up */
+const creators = new Map<string, string>();
+function creatorKnown(token: string): string | undefined {
+  const t = token.toLowerCase();
+  return creators.get(t) ?? cachedLaunches()?.find((l) => l.token.toLowerCase() === t)?.creator.toLowerCase();
+}
 
 const POLL_MS = 20_000;
 const SECONDS_PER_ITEM = 5;
@@ -32,7 +45,30 @@ function Item({ it }: { it: FeedItem }) {
 }
 
 export default function Ticker() {
-  const [items, setItems] = useState<FeedItem[]>([]);
+  const [all, setItems] = useState<FeedItem[]>([]);
+  const hiddenTokens = useHidden();
+  const hiddenCreators = useHiddenCreators();
+  const { block, ready } = useBlocklistState();
+  // A token's creator is needed only when a creator is hidden or blocked. Each token in the line is then looked up (once, kept), and
+  // an item whose creator isn't known yet is held back: it appears when its creator is known and allowed (fail closed).
+  const byCreator = hidesByCreator(hiddenCreators, block);
+  const [, setSeen] = useState(0);
+  useEffect(() => {
+    if (!byCreator) return;
+    let live = true;
+    const todo = [...new Set(all.filter((i) => 'token' in i).map((i) => (i as { token: string }).token.toLowerCase()))].filter((t) => !creatorKnown(t));
+    (async () => {
+      for (let i = 0; i < todo.length && live; i += 4) {
+        await Promise.all(todo.slice(i, i + 4).map(async (t) => {
+          try { const l = await getLaunch(vyre, t as Address); if (l) creators.set(t, l.creator.toLowerCase()); } catch { /* stays held back; asked again when the line changes */ }
+        }));
+        if (live) setSeen((n) => n + 1);
+      }
+    })();
+    return () => { live = false; };
+  }, [all, byCreator]);
+  // nothing is drawn until the team's list has been read (at most 1.5 s)
+  const items = ready ? visibleFeed(all, creatorKnown, hiddenTokens, hiddenCreators, block) : [];
   const [paused, setPaused] = useState(false);
   const state = useRef<FeedState | undefined>(undefined);
 

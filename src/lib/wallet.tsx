@@ -66,7 +66,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [faceId, setFaceId] = useState<FaceIdSession | null>(loadFaceId);
 
   useEffect(() => onWalletsChanged(() => setAvailable(wallets())), []);
-  useEffect(() => { walletConfig().then(setEmailConfig).catch(() => setEmailConfig(null)); }, []);
+  // email sign-in is a testnet offer: on mainnet the sign-in service is never asked (nothing about the visit leaves for it)
+  useEffect(() => { if (NETWORK.emailSignIn) walletConfig().then(setEmailConfig).catch(() => setEmailConfig(null)); }, []);
 
   const keepEmail = useCallback((s: EmailSession | null) => {
     setEmail(s);

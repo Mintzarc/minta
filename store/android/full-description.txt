@@ -1,0 +1,31 @@
+In this app you can browse, read and report. To launch or trade, open minta.vyrechain.com in your wallet app's browser.
+
+MINTA is a launchpad on VYRE, a chain that runs on USDC. This app lets you look through the tokens people have launched, read how each one is set up and trading, and report any that break the rules.
+
+WHAT YOU CAN DO IN THIS APP
+- Explore every launch on VYRE: new, trending and graduated, with price, market cap, 24-hour volume and holders.
+- Open a token's page: its chart, latest trades, its tax settings and where the tax goes, and the links its creator added.
+- Report a token whose name, picture, description or links break the terms, and hide a token on your own device.
+- Read the docs, the terms and the privacy policy, and the page on using MINTA with an AI assistant that prepares things while you sign in your own wallet.
+
+WHAT YOU DO IN YOUR WALLET APP'S BROWSER
+This app cannot connect a wallet. To launch a token or trade one, open minta.vyrechain.com in the browser inside your wallet app (a browser tab in your wallet app) and connect there. There, a launch is one transaction (name, ticker, supply, tax, picture, links). The whole supply goes into the pool as one position that nothing can remove. The creator may buy part of the supply in the launch transaction. Tokens can fall to zero: this is not a safety guarantee. You trade a token with USDC.
+
+YOUR WALLET, YOUR KEYS
+MINTA never holds your funds or your keys, and has no accounts, no ads, and no analytics or tracking cookies. The network services the app calls see your IP address when it loads data. Anything that moves money is a transaction you sign in your own wallet.
+
+WHAT IT COSTS
+- The creator of a token sets a tax of 1% to 10% on buys and 1% to 10% on sells. That tax is the only fee a trade pays. When it is paid out, a tenth of it goes to the platform and the rest to the creator's tax wallets.
+- The network fee for a transaction is paid in USDC: about a twentieth of a cent.
+- Moving USDC back to Arc takes about a day.
+
+RISKS
+This is real money. Anyone can launch a token, and a token can fall to zero: you can lose everything you put in. Names, pictures and descriptions are made by the people who launch tokens, not checked by MINTA, and nothing here is advice. Only people aged 18 and over should use MINTA.
+
+MINTA is not affiliated with or endorsed by Circle. USDC is issued by Circle.
+
+CONTACT
+MINTA on Telegram: https://t.me/+HDa2YpR0piA3ZWE0
+MINTA on X: @MintaLaunchpad
+Terms: https://minta.vyrechain.com/terms/
+Privacy: https://minta.vyrechain.com/privacy/

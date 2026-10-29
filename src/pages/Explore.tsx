@@ -13,6 +13,8 @@ import { Loading, TokenPic } from '../components/ui';
 import Spark from '../components/Spark';
 import TokenCard from '../components/TokenCard';
 import { TopByLiquidity } from '../components/TopTokens';
+import { HiddenNote, HideToken, useBlocklistState, useHidden, useHiddenCreators } from '../components/Hidden';
+import { visibleLaunches } from '../lib/hidden';
 import { matches } from '../components/Search';
 
 const PAGE = 36;
@@ -36,7 +38,13 @@ const savedView = (): 'grid' | 'list' => { try { return localStorage.getItem(VIE
 export default function Explore({ q = '' }: { q?: string }) {
   // the search as it may be shown back (a link chooses it: only a plain search is echoed)
   const term = searchTerm(q);
-  const [list, setList] = useState<Listed[] | null>(null);
+  const [all, setList] = useState<Listed[] | null>(null);
+  const hidden = useHidden();
+  const hiddenCreators = useHiddenCreators();
+  const { block, ready } = useBlocklistState();
+  // tokens and creators hidden on this device, and those MINTA's team hides, are left out of every list below; nothing of the
+  // list is drawn until the team's file has been read (at most 1.5 s), so a blocked token is not shown for a moment
+  const list = useMemo(() => (all && ready ? visibleLaunches(all, hidden, hiddenCreators, block) : null), [all, ready, hidden, hiddenCreators, block]);
   const [stats, setStats] = useState<Map<Address, Stats>>(new Map());
   const [holders, setHolders] = useState<Map<Address, number | null>>(new Map());
   const [total, setTotal] = useState(0);
@@ -183,6 +191,7 @@ export default function Explore({ q = '' }: { q?: string }) {
           </div>
           {q && <p className="small filter-note">Showing tokens matching {term ? <>“<bdi>{term}</bdi>”</> : 'your search'}. <a href={href({ page: 'explore' })}>Clear</a></p>}
           {tab !== 'trending' && <p className="muted small milestone-note">Milestone: {MILESTONE_TEXT} of USDC bought into a token’s pool, net of sales{NETWORK.testnet ? ' (a testnet figure)' : ''}. Graduated shows the tokens at or above it now.</p>}
+          <HiddenNote />
           {statsState === 'error' && <p className="err small">The 24-hour figures couldn’t load just now: retrying. Figures shown may be out of date.</p>}
         </>
       )}
@@ -191,7 +200,7 @@ export default function Explore({ q = '' }: { q?: string }) {
         <div className="empty"><p>{q ? 'No token matches that.' : tab === 'graduated' ? (statsState === 'ok' ? 'No token is at the milestone right now.' : statsState === 'error' ? 'The figures couldn’t load: retrying.' : 'Loading the figures…') : 'No tokens here yet.'}</p><a className="btn btn-line btn-sm" href={href({ page: 'launch' })}>Create a token</a></div>
       )}
       {rows && rows.length > 0 && view === 'grid' && (
-        <ul className="cards">{rows.map((l) => <li key={l.token}><TokenCard l={l} s={st(l)} /></li>)}</ul>
+        <ul className="cards">{rows.map((l) => <li key={l.token}><TokenCard l={l} s={st(l)} /><HideToken token={l.token} creator={l.creator} card /></li>)}</ul>
       )}
       {rows && rows.length > 0 && view === 'list' && <TokenTable rows={rows} stats={stats} holders={holders} />}
       {list && list.length > 0 && list[list.length - 1].index > 0 && (

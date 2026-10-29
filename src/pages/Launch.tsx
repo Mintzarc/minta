@@ -13,12 +13,14 @@ import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { addresses } from '../lib/market';
 import { forgetLaunch, kept, mayTakePlace, onLaunchMemory, placeOf, recentLaunch, resolveEarlier, type Place } from '../lib/faceid';
 import { ConnectButton, EmailTradeNote } from '../components/ui';
+import { useTokenGate } from '../components/Hidden';
 import { MintaMark, VyreGlyph } from '../components/Brand';
 import { LaunchFileFields, emptyLaunchFile, hasPicture, keptPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { hasContent, saveLaunchFile, withUploadedPicture } from '../lib/api';
 import { NETWORK, scoped } from '../lib/network';
 import { useLaunchesOpen } from '../lib/launches';
 import { TAX_GOES, creatorTaxLine } from '../lib/fees';
+import { LIQUIDITY_FACT } from '../lib/facts';
 
 /** USDC (18 decimals): every launch opens at this market cap, a rule of VyrePad itself */
 const OPENING_MARKET_CAP = LAUNCH_LIMITS.openingMarketCap;
@@ -117,6 +119,7 @@ function LaunchesClosed() {
 
 export default function Launch() {
   const { account, faceId } = useWallet();
+  const gate = useTokenGate();
   const emailCantTrade = useEmailCantTrade();
   const launchesOpen = useLaunchesOpen();
   const [name, setName] = useState('');
@@ -136,6 +139,8 @@ export default function Launch() {
   const [recent, setRecent] = useState<Launched | null>(() => launched ?? (faceId ? recentLaunch(faceId.address) : null));
   // what the dialog said as it closed (a launch that didn't run, with the form's details gone): shown on the form
   const [notice, setNotice] = useState('');
+  // the Terms must be accepted before a launch goes to the review (they say what tokens may not be: Terms, sections 8 and 9)
+  const [accepted, setAccepted] = useState(false);
   const [waiting, setWaiting] = useState(inWallet);
   const [asideState, setAside] = useState<Aside | null>(aside);
   // what the dialog left behind (it may have finished after this page was left and opened again)
@@ -236,6 +241,7 @@ export default function Launch() {
     if (recent || asideState) {
       launched = null; aside = null; keep(); if (faceId) forgetLaunch(faceId.address); setRecent(null); setAside(null); return;
     }
+    if (!accepted) { setNotice('Accept the Terms to go on.'); return; }
     setTouched(true);
     if (firstBad >= 0) { setTried((t) => (t.includes(firstBad) ? t : [...t, firstBad])); return; }
     if (!problem && account) setReviewing(account);
@@ -267,7 +273,7 @@ export default function Launch() {
         <div className="create-main">
           <p className="eyebrow accent">Create a launch</p>
           <h1 className="display">Bring your idea<br />to <em>VYRE.</em></h1>
-          <p className="lede">Launch your token on MINTA in a few steps.<br />One transaction, live at once, with locked liquidity.</p>
+          <p className="lede">Launch your token on MINTA in a few steps.<br />One transaction, live at once. The whole supply goes into the pool as one position that nothing can remove.</p>
         <form className="wz" onSubmit={submit} noValidate>
           <ol className="wz-steps" aria-label="Steps">
             {STEP_LABELS.map(([title, sub], i) => (
@@ -294,7 +300,11 @@ export default function Launch() {
                 : <>A launch is on its way to your wallet: confirm or reject it there first. Nothing in your wallet? <button type="button" className="linkish" onClick={() => window.location.reload()}>Reload the page</button> to start again.</>}</p>
             )}
             {!sent && !waiting && recent && (
-              <p className="note small" role="status">You launched $<bdi>{tokenText(recent.symbol)}</bdi>: <a href={href({ page: 'token', token: recent.token })}>open its page</a>. To launch another token, press Launch another.</p>
+              !gate.ready
+                ? <p className="note small" role="status">Your launch went through. One moment…</p>
+                : gate.blocked({ token: recent.token, creator: account ?? '' })
+                ? <p className="note small" role="status">The token you launched is hidden by MINTA because it was reported. To launch another token, press Launch another.</p>
+                : <p className="note small" role="status">You launched $<bdi>{tokenText(recent.symbol)}</bdi>: <a href={href({ page: 'token', token: recent.token })}>open its page</a>. To launch another token, press Launch another.</p>
             )}
             {!sent && !waiting && !recent && asideState && (
               <p className="note small" role="status">Your launch of $<bdi>{tokenText(asideState.symbol)}</bdi> from the Face ID wallet {short(asideState.sender)} was put aside, and it may still go through: <a href={`${EXPLORER}/address/${asideState.sender}`} target="_blank" rel="noopener noreferrer">see that wallet on the explorer</a>. To launch a token anyway, press Launch another.</p>
@@ -320,7 +330,7 @@ export default function Launch() {
                 <dl className="setting-cards">
                   <div><dt>Launch type</dt><dd>Instant</dd><small>One transaction; trading opens at once, with no approval or waiting.</small></div>
                   <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))}</dd><small>The same for every launch on MINTA.</small></div>
-                  <div><dt>Liquidity</dt><dd>Locked</dd><small>The whole supply goes into the pool, and its liquidity can’t be removed.</small></div>
+                  <div><dt>Liquidity</dt><dd>One position</dd><small>{LIQUIDITY_FACT}</small></div>
                 </dl>
                 <label className="field"><span>Dev buy <span className="muted">(optional, USDC)</span></span>
                   <input inputMode="decimal" value={firstBuy} onChange={(e) => setFirstBuy(e.target.value)} placeholder="0" />
@@ -379,8 +389,14 @@ export default function Launch() {
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
                 </dl>
                 {touched && problem && !sent && <p className="err small" role="alert">{problem}{firstBad >= 0 && <> <button type="button" className="linkish" onClick={() => goTo(firstBad)}>Go to that step</button>.</>}</p>}
+                {!sent && !recent && !asideState && (
+                  <label className="check accept-terms">
+                    <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
+                    <span>I accept the <a href="/terms/" target="_blank" rel="noopener noreferrer">Terms</a>: no token that breaks the law, copies someone else’s work or deceives people.</span>
+                  </label>
+                )}
                 {!account ? <ConnectButton /> : emailCantTrade ? <EmailTradeNote /> : (
-                  <button className="btn btn-accent btn-wide" type="submit" disabled={!sent && waiting}>{sent ? 'Check it' : recent || asideState ? 'Launch another' : 'Review'}</button>
+                  <button className="btn btn-accent btn-wide" type="submit" disabled={(!sent && waiting) || (!sent && !recent && !asideState && !accepted)}>{sent ? 'Check it' : recent || asideState ? 'Launch another' : 'Review'}</button>
                 )}
                 <p className="small muted">You’ll see every detail once more, then confirm in your wallet.</p>
               </fieldset>
@@ -467,7 +483,7 @@ function Preview({ name, symbol, meta, params, buyTax, sellTax, openPrice, check
           <div><dt>Price</dt><dd>{price(openPrice)}</dd></div>
           <div><dt>Market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))}</dd></div>
           <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}</dd></div>
-          <div><dt>Liquidity</dt><dd>Locked</dd></div>
+          <div><dt>Liquidity</dt><dd>One position</dd></div>
         </dl>
       </div>
       <div className="pv-box checklist">
@@ -498,6 +514,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   sent: Sent | null; onSent: (s: Sent | null) => void; onClose: (why?: string) => void;
 }) {
   const { account, onVyre, faceId } = useWallet();
+  const gate = useTokenGate();
   const [step, setStep] = useState<Step>(sent ? 'wait' : 'review');
   const [note, setNote] = useState(sent ? 'Sent. Waiting for it to be confirmed…' : '');
   const [err, setErr] = useState('');
@@ -533,12 +550,14 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   useEffect(() => { if (sent) checkSent(sent); }, []);
 
   // once the page is ready, open it after a few seconds unless the creator chose to stay
+  // (nothing of the token, no link and no redirect, until the team's list has been read: gate.ready)
+  const doneBlocked = !!done && gate.blocked({ token: done.token, creator: account ?? '' });
   useEffect(() => {
-    if (!pageReady || stay || !done) return;
+    if (!pageReady || !gate.ready || stay || !done || doneBlocked) return;
     if (secs <= 0) { window.location.hash = href({ page: 'token', token: done.token }); return; }
     const t = setTimeout(() => setSecs((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [pageReady, stay, secs, done]);
+  }, [pageReady, gate.ready, doneBlocked, stay, secs, done]);
 
   // back to the review (or the form, with the message, if its details were changed or are gone: the page was left
   // and opened again), with the page's hash cleared
@@ -739,7 +758,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
           <>
             {params && <dl className="review-list">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
             {replacing && sent && <p className="note small">This takes the place of your launch of $<bdi>{tokenText(sent.symbol)}</bdi> that hasn’t gone through: the same place in your wallet’s sequence, so only one of the two can ever run.</p>}
-            <p className="small muted">The taxes can be lowered later, never raised. The liquidity is locked for good. Check the details before you create it.</p>
+            <p className="small muted">The taxes can be lowered later, never raised. {LIQUIDITY_FACT} Check the details before you create it.</p>
             {switched && <p className="err small" role="alert">Your wallet changed to {short(account!)}. Go back and review again with the wallet you mean to create it from.</p>}
             {err && <p className="err small" role="alert">{err}{fileFailed || faceId ? '' : ' If your wallet shows the launch as sent, check it on the explorer before trying again.'}
               {earlierHash && <> <a href={`${EXPLORER}/tx/${earlierHash}`} target="_blank" rel="noopener noreferrer">See what went through</a>.</>}</p>}
@@ -786,12 +805,20 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
         {step === 'ready' && done && (
           <div className="progress" role="status" aria-live="polite">
             {done.said && <p>{done.said}</p>}
-            <p>${iso(done.symbol)} is trading. {stay ? '' : `Opening its page in ${secs} s.`}</p>
-            <div className="row dialog-actions">
-              <a className="btn btn-accent" href={href({ page: 'token', token: done.token })}>View token</a>
-              {!stay && <button type="button" className="btn btn-line" onClick={() => setStay(true)}>Stay here</button>}
-              {stay && <a className="btn btn-line" href={href({ page: 'manage', token: done.token })}>Manage it</a>}
-            </div>
+            {!gate.ready
+              ? <p>Your token was made. One moment…</p>
+              : doneBlocked
+              ? <p>Your token was made, and MINTA hides it because it was reported.</p>
+              : (
+                <>
+                  <p>${iso(done.symbol)} is trading. {stay ? '' : `Opening its page in ${secs} s.`}</p>
+                  <div className="row dialog-actions">
+                    <a className="btn btn-accent" href={href({ page: 'token', token: done.token })}>View token</a>
+                    {!stay && <button type="button" className="btn btn-line" onClick={() => setStay(true)}>Stay here</button>}
+                    {stay && <a className="btn btn-line" href={href({ page: 'manage', token: done.token })}>Manage it</a>}
+                  </div>
+                </>
+              )}
             <p className="small"><a href={`${EXPLORER}/tx/${done.hash}`} target="_blank" rel="noopener noreferrer">See the transaction</a></p>
           </div>
         )}
