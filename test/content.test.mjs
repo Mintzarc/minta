@@ -187,7 +187,8 @@ test('no page names a service host of the network outside src/lib/network.ts, sr
   const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n')
     .filter((f) => (/^src\/.+\.tsx?$/.test(f) || f === 'index.html') && f !== 'src/lib/chain.ts' && f !== 'src/lib/api.ts' && f !== 'src/lib/network.ts');
   const comment = /^\s*(?:\/\/|\*|\/\*|\{\/\*)/;
-  const host = /\b[a-z0-9-]+\.vyrechain\.com\b/i;
+  // MINTA's own address (the canonical link and the search-engine data in index.html) is not a service of the network
+  const host = /\b(?!minta\.vyrechain\.com\b)[a-z0-9-]+\.vyrechain\.com\b/i;
   const found = [];
   for (const f of files) read(f).split('\n').forEach((l, i) => { if (!comment.test(l) && host.test(l)) found.push(`${f}:${i + 1} (${l.match(host)[0]})`); });
   assert.deepEqual(found, []);
