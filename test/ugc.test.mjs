@@ -299,3 +299,15 @@ test('blocklist.json is served uncached; the release checks the live file; the c
 });
 
 const docs = read('docs/ANDROID.md');
+
+test('the notices after a launch hold back the token, its links and the redirect until the team\'s list has been read', () => {
+  const la = read('src/pages/Launch.tsx');
+  assert.match(la, /!gate\.ready\n\s+\? <p className="note small" role="status">Your launch went through\. One moment…<\/p>/, 'the "You launched" note');
+  assert.match(la, /if \(!pageReady \|\| !gate\.ready \|\| stay \|\| !done \|\| doneBlocked\) return;/, 'the redirect');
+  assert.match(la, /\[pageReady, gate\.ready, doneBlocked, stay, secs, done\]/);
+  assert.match(la, /\{!gate\.ready\n\s+\? <p>Your token was made\. One moment…<\/p>/, 'the done panel');
+  // no link to the token or its manage page sits before the gate in either place
+  const from = la.indexOf('Your token was made. One moment');
+  const done = la.slice(from, la.indexOf('See the transaction', from));
+  assert.ok(done.indexOf('One moment') < done.indexOf("page: 'token'") && done.indexOf('hides it because') < done.indexOf("page: 'token'"));
+});

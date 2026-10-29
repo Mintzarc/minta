@@ -300,7 +300,9 @@ export default function Launch() {
                 : <>A launch is on its way to your wallet: confirm or reject it there first. Nothing in your wallet? <button type="button" className="linkish" onClick={() => window.location.reload()}>Reload the page</button> to start again.</>}</p>
             )}
             {!sent && !waiting && recent && (
-              gate.blocked({ token: recent.token, creator: account ?? '' })
+              !gate.ready
+                ? <p className="note small" role="status">Your launch went through. One moment…</p>
+                : gate.blocked({ token: recent.token, creator: account ?? '' })
                 ? <p className="note small" role="status">The token you launched is hidden by MINTA because it was reported. To launch another token, press Launch another.</p>
                 : <p className="note small" role="status">You launched $<bdi>{tokenText(recent.symbol)}</bdi>: <a href={href({ page: 'token', token: recent.token })}>open its page</a>. To launch another token, press Launch another.</p>
             )}
@@ -548,12 +550,14 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   useEffect(() => { if (sent) checkSent(sent); }, []);
 
   // once the page is ready, open it after a few seconds unless the creator chose to stay
+  // (nothing of the token, no link and no redirect, until the team's list has been read: gate.ready)
+  const doneBlocked = !!done && gate.blocked({ token: done.token, creator: account ?? '' });
   useEffect(() => {
-    if (!pageReady || stay || !done || gate.blocked({ token: done.token, creator: account ?? '' })) return;
+    if (!pageReady || !gate.ready || stay || !done || doneBlocked) return;
     if (secs <= 0) { window.location.hash = href({ page: 'token', token: done.token }); return; }
     const t = setTimeout(() => setSecs((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [pageReady, stay, secs, done]);
+  }, [pageReady, gate.ready, doneBlocked, stay, secs, done]);
 
   // back to the review (or the form, with the message, if its details were changed or are gone: the page was left
   // and opened again), with the page's hash cleared
@@ -801,7 +805,9 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
         {step === 'ready' && done && (
           <div className="progress" role="status" aria-live="polite">
             {done.said && <p>{done.said}</p>}
-            {gate.blocked({ token: done.token, creator: account ?? '' })
+            {!gate.ready
+              ? <p>Your token was made. One moment…</p>
+              : doneBlocked
               ? <p>Your token was made, and MINTA hides it because it was reported.</p>
               : (
                 <>
