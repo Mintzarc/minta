@@ -10,7 +10,8 @@ import type { EIP1193Provider } from 'viem';
 import { VYRE_CHAIN } from './chain';
 import { SITE_URL } from './twa';
 import {
-  WC_EVENTS, WC_OPTIONAL_METHODS, WC_RELAY_TIMEOUT_MS, WC_RELAY_URL, WC_REQUIRED_METHODS, classifyWcError, sessionHasAccount, wcLiveCheck, wcMessage, wcProjectId,
+  WC_EVENTS, WC_OPTIONAL_METHODS, WC_RELAY_TIMEOUT_MS, WC_RELAY_URL, WC_REQUIRED_METHODS,
+  classifyWcError, sessionHasAccount, wcLiveCheck, wcMessage, wcProjectId,
   type WcFailure,
 } from './wcstate';
 
@@ -160,6 +161,11 @@ export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailur
     const [chainId, accounts] = await Promise.all([raw.request({ method: 'eth_chainId' }).catch(() => null), raw.request({ method: 'eth_accounts' }).catch(() => null)]);
     const r = wcLiveCheck({ wantChain: CHAIN_ID, chainId, account, accounts, expiry: raw.session?.expiry, now: Date.now() });
     if (!r.ok) { if (r.why === 'expired') onLost('expired'); throw new WcError(r.why, r.message); }
+    // eth_accounts and the session must name the same VYRE account (a lying provider must not show one address and sign as another)
+    const onSession = sessionHasAccount(raw.session?.namespaces?.eip155?.accounts, CHAIN_ID, raw.session?.expiry, Date.now());
+    if (!onSession || onSession.toLowerCase() !== account.toLowerCase()) {
+      throw new WcError('other', 'The account in your wallet changed, so nothing was sent. Disconnect and connect again.');
+    }
   };
   const request = async (args: { method: string; params?: unknown }) => {
     if (args && SWITCHES.has(args.method)) {

@@ -47,7 +47,13 @@ const provider: WcProvider = {
   },
   on(e, fn) { if (!listeners.has(e)) listeners.set(e, new Set()); listeners.get(e)!.add(fn); return provider; },
   removeListener(e, fn) { listeners.get(e)?.delete(fn); return provider; },
-  get session() { return w.__fake.expiry === undefined ? undefined : { expiry: w.__fake.expiry }; },
+  get session() {
+    // always list the stand-in’s account on its chain (the app requires the session and eth_accounts to agree on VYRE)
+    return {
+      expiry: w.__fake.expiry ?? Math.floor(Date.now() / 1000) + 86_400,
+      namespaces: { eip155: { accounts: [`eip155:${w.__fake.chain}:${w.__fake.account}`] } },
+    };
+  },
   async disconnect() { w.__disconnects++; },
 } as unknown as WcProvider;
 

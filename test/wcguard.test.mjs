@@ -80,3 +80,25 @@ test('a raw transaction cannot be bound to the connected account, so it is refus
   await assert.rejects(() => g.request({ method: 'eth_sendRawTransaction', params: ['0xdead'] }), /nothing was sent|cannot|refused|raw/i);
   assert.equal(sent.length, 0);
 });
+
+test('a session that lists a different VYRE account than eth_accounts is refused before anything is signed', async () => {
+  // a hostile or buggy provider can answer eth_accounts with one address while the WalletConnect session is another:
+  // signing must follow the session, so the app must not treat them as the same connection
+  const { guardWc } = loadGuard();
+  const sent = [];
+  const raw = fakeRaw(sent);
+  raw.session = {
+    expiry: Math.floor(Date.now() / 1000) + 3600,
+    namespaces: { eip155: { accounts: [`eip155:3045:${OTHER}`] } },
+  };
+  const g = guardWc(raw, ME, () => {});
+  await assert.rejects(() => g.request({ method: 'personal_sign', params: ['0x6869', ME] }), /account/i);
+  assert.equal(sent.length, 0);
+});
+
+test('adopting a WalletConnect provider requires the eth_accounts address to be the one the session lists on VYRE', () => {
+  const src = fs.readFileSync(new URL('../src/lib/wallet.tsx', import.meta.url), 'utf8');
+  const adopt = src.slice(src.indexOf('const adoptWc'), src.indexOf('const connectWalletConnect'));
+  assert.match(adopt, /sessionHasAccount/);
+  assert.match(adopt, /namespaces\?\.eip155\?\.accounts/);
+});
