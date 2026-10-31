@@ -30,10 +30,10 @@
     <section>
       <h2>The short version</h2>
       <ul>
-        <li>There are no accounts, no ads, no analytics and no tracking. This site sets no cookies.</li>
+        <li>There are no accounts, no ads, no analytics and no tracking cookies. This site sets no cookies. The services the pages call (section 2) see your IP address when the app loads data, and so does the WalletConnect service if you connect a wallet with it.</li>
         <li>Blockchains are public: your wallet address and everything it does on VYRE can be seen by anyone, for good.</li>
         <li>MINTA never holds your funds or your keys.</li>
-        <li>MINTA is a set of static pages with no server of its own. When it needs one (token figures, pictures, card checkout where offered, email sign-in, promoter codes, a check of the transactions you send on VYRE before you sign them) it calls services run by others (a blockchain RPC, the network’s explorer, an image-and-checkout API, a promoter lookup, a faucet, Circle’s transfer service, a transaction check), described below.</li>
+        <li>MINTA is a set of static pages with no server of its own. When it needs one (token figures, pictures, card checkout where offered, email sign-in, promoter codes, a check of the transactions you send on VYRE before you sign them, a WalletConnect pairing) it calls services run by others (a blockchain RPC, the network’s explorer, an image-and-checkout API, a promoter lookup, a faucet, Circle’s transfer service, a transaction check, WalletConnect’s relay), described below. The pages’ fonts are served from this site, so no font service sees you.</li>
       </ul>
     </section>
 
@@ -48,7 +48,7 @@
         <table>
           <thead><tr><th>When you…</th><th>Who receives what</th></tr></thead>
           <tbody>
-            <tr><td>Open any page</td><td>The host (Vercel) sees your IP address and browser as part of serving the files, under its own policy. Google Fonts, which the pages load their fonts from, sees your IP address too. The sign-in service (api.vyrechain.com) is asked whether email sign-in is offered, so it receives your IP address.</td></tr>
+            <tr><td>Open any page</td><td>The host (Vercel) sees your IP address and browser as part of serving the files, under its own policy. The pages’ fonts are served from this site, so no font service sees you. The sign-in service (api.vyrechain.com) is asked whether email sign-in is offered, so it receives your IP address.</td></tr>
             <tr><td>Browse tokens, trade, or read balances</td><td>The network’s public RPC (testnet-rpc.vyrechain.com) receives your requests, including the wallet address whose balance is read, and your IP address, to limit how often each caller can use it. Its operator’s privacy policy says how long that is kept.</td></tr>
             <tr><td>Open any page (the ticker along the top), the token list or a token’s page</td><td>Your browser asks the network’s explorer (explorer.vyrechain.com) for a token’s holder count and for the block at a given time, so the explorer receives the tokens shown and your IP address. Its operator’s privacy policy says what it keeps.</td></tr>
             <tr><td>Create a token with a picture, description and links</td><td>The picture you choose is shrunk and re-saved in your browser first (which drops anything but the image itself) and then sent to the picture service (api.vyrechain.com) together with the description and links you enter. They are public, and not stored with anything that identifies you; your IP address is used only to limit how many pictures one caller can send an hour. They are kept so the token’s page can show them.</td></tr>
@@ -59,6 +59,7 @@
             <tr><td>Open the Wallet page</td><td>The faucet (testnet-rpc.vyrechain.com/faucet) is asked how much test USDC it gives and whether it’s open; asking it for test USDC sends it your wallet address. It receives your IP address too. Its operator’s privacy policy says what it keeps.</td></tr>
             <tr><td>Open the Wallet page with a wallet connected</td><td>The promoter service (testnet-rpc.vyrechain.com) is asked whether that wallet has applied to be a promoter, for the promoter link card, so it receives your wallet address and your IP address.</td></tr>
             <tr><td>Bring USDC from another network (the Wallet page)</td><td>Your browser asks Circle’s transfer service (iris-api-sandbox.circle.com) for its current fees while the Wallet page is open (every 15 seconds), and, for each transfer you started, its status by the transfer’s transaction hash until it arrives. Circle receives those and your IP address. The public nodes of those networks receive your wallet address, to read balances (see section 4).</td></tr>
+            <tr><td>Connect a wallet with WalletConnect (a choice you make in the connect menu)</td><td>Only when you pick it, your browser loads WalletConnect’s code (from MINTA’s own site) and opens a connection to the WalletConnect relay (relay.walletconnect.org). The relay passes encrypted messages between this page and your wallet app: it sees your IP address, MINTA’s WalletConnect project ID and the pairing, and while the connection lasts it relays each request to your wallet app (the contents are encrypted for your wallet app, so the relay cannot read them). WalletConnect’s verification service (verify.walletconnect.org) is opened in a hidden frame of the page each time MINTA asks your wallet app to connect or sign; it sees your IP address, MINTA’s project ID and MINTA’s web address. Your wallet app may in turn contact WalletConnect’s other services under its own terms. MINTA turns off the library’s usage reporting. The relay never receives your keys. Nothing is sent to WalletConnect if you don’t pick it. Its operator’s privacy policy says what it keeps.</td></tr>
           </tbody>
         </table>
       </div>
@@ -77,9 +78,10 @@
         <li><b>Circle</b>: email sign-in, and moving USDC between networks.</li>
         <li><b>GoPlus</b> (a public address-security service): the transaction check asks it about the addresses in a transaction you are about to sign, never your own address, amounts or call data. It receives those addresses and the check service’s server address, and its own privacy policy applies to what it keeps.</li>
         <li><b>Vercel</b>: hosts MINTA’s pages.</li>
-        <li><b>Google Fonts</b>: the pages’ fonts.</li>
         <li><b>Blockchain services</b>: for the features that move USDC between networks, MINTA reads balances from public nodes of other networks (Arc and test networks), sending your wallet address.</li>
-        <li><b>Where a token’s creator chose</b>: a token’s details (its description and links) load from the address its creator gave (for example IPFS), which sees your IP address. Its picture is shown only when it is kept by the picture service (api.vyrechain.com); a picture link to another site is never loaded.</li>
+        <li><b>WalletConnect</b> (Reown): only if you choose WalletConnect in the connect menu, its relay (relay.walletconnect.org) sees your IP address and carries the encrypted messages between this page and your wallet app, and its verification service (verify.walletconnect.org) also sees your IP address (section 2). Portions &copy; 2025 Reown, Inc. All Rights Reserved. <a href="/licenses/walletconnect.txt">Its license</a>.</li>
+        <li><b>Trust Wallet</b>: only if you press “Open in Trust Wallet” or “Open Trust Wallet”, your browser goes to link.trustwallet.com, which sees your IP address (and, for the WalletConnect link, the pairing address), and then opens that app.</li>
+        <li><b>Where a token’s creator chose</b>: a token’s details (its description and links) load from the address its creator gave. When that address is an <code>ipfs://</code> link, MINTA asks the public gateway at ipfs.io, which sees your IP address; an <code>https://</code> link is fetched from that host. Its picture is shown only when it is kept by the picture service (api.vyrechain.com); a picture link to another site is never loaded.</li>
       </ul>
     </section>
 

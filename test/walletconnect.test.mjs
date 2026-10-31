@@ -214,6 +214,24 @@ test('wording: the privacy page, terms and listing say what WalletConnect sees, 
   for (const w of [/layer ?2/i, /trustless/i, /\baudited\b/i, /instant withdraw/i, /cheapest/i, /decentrali[sz]ed/i, /airdrop/i]) assert.equal(w.test(all), false, String(w));
 });
 
+test('the testnet privacy page stays true: no bare “no tracking”, no Google Fonts claim, and WalletConnect is named', () => {
+  // the same app code (WalletConnect, self-hosted fonts) ships in a testnet build; its privacy page must not contradict that
+  const priv = read('public/privacy-testnet/index.html');
+  assert.equal(/no tracking\b(?! cookies)/i.test(priv), false, 'no bare "no tracking"');
+  assert.equal(/Google Fonts/i.test(priv), false, 'fonts are served from this site, not Google');
+  assert.match(priv, /fonts are served from this site|from this same site/i);
+  assert.match(priv, /relay\.walletconnect\.org/);
+  assert.match(priv, /verify\.walletconnect\.org/);
+  assert.match(priv, /WalletConnect/);
+});
+
+test('privacy and the Play data-safety text name the IPFS gateway the pages actually ask', () => {
+  // src/lib/market.ts turns ipfs:// into https://ipfs.io/ipfs/… before fetch; that host must be disclosed
+  assert.match(read('src/lib/market.ts'), /https:\/\/ipfs\.io\/ipfs\//);
+  assert.match(read('public/privacy/index.html'), /ipfs\.io/);
+  assert.match(read('docs/ANDROID.md'), /ipfs\.io/);
+});
+
 test('the connect sheet and the buttons: the sheet names no remote picture, the code is drawn as one path, the menu offers WalletConnect', () => {
   const sheet = read('src/components/WalletConnectSheet.tsx');
   assert.equal(/<img|dangerouslySetInnerHTML|innerHTML/.test(sheet), false);

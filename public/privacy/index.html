@@ -75,7 +75,7 @@
         <li><b>Arc’s public RPC</b> (rpc.mainnet.arc.io): reads your balance and withdrawal status on Arc, receiving your wallet address (see section 2).</li>
         <li><b>WalletConnect</b> (Reown): only if you choose WalletConnect in the connect menu, its relay (relay.walletconnect.org) sees your IP address and carries the encrypted messages between this page and your wallet app, and its verification service (verify.walletconnect.org) also sees your IP address (section 2). Portions &copy; 2025 Reown, Inc. All Rights Reserved. <a href="/licenses/walletconnect.txt">Its license</a>.</li>
         <li><b>Trust Wallet</b>: only if you press “Open in Trust Wallet” or “Open Trust Wallet” (shown in the Android app and in the WalletConnect window), your browser goes to link.trustwallet.com, which sees your IP address (and, for the WalletConnect link, the pairing address), and then opens that app.</li>
-        <li><b>Where a token’s creator chose</b>: a token’s details (its description and links) load from the address its creator gave (for example IPFS), which sees your IP address. Its picture is shown only when it is kept by the picture service (api.vyrechain.com); a picture link to another site is never loaded.</li>
+        <li><b>Where a token’s creator chose</b>: a token’s details (its description and links) load from the address its creator gave. When that address is an <code>ipfs://</code> link, MINTA asks the public gateway at ipfs.io, which sees your IP address; an <code>https://</code> link is fetched from that host. Its picture is shown only when it is kept by the picture service (api.vyrechain.com); a picture link to another site is never loaded.</li>
       </ul>
     </section>
 

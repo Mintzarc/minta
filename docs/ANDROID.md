@@ -112,7 +112,7 @@ The principle: say Yes to sharing wherever MINTA is not sure a recipient is only
 | The transaction check (on api.vyrechain.com) | wallet address, destination, call data and USDC amount of a transaction, just before the wallet asks to sign; it asks GoPlus about the other addresses only |
 | GoPlus (address security) | the addresses in a transaction other than the user's own, and the check service's server address (never the user's IP or address) |
 | rpc.mainnet.arc.io (Arc's public RPC) | IP address and wallet address (balance and withdrawal status on the Wallet page) |
-| Where a token's creator chose (for example IPFS) | IP address, when a token's details load from there |
+| Where a token's creator chose (an https host, or ipfs.io when the link is ipfs://) | IP address, when a token's details load from there |
 | Trust Wallet (link.trustwallet.com) | IP address, only if the user presses "Open in Trust Wallet" or "Open Trust Wallet" (the second also carries the WalletConnect pairing address) |
 | WalletConnect relay (relay.walletconnect.org) and verification service (verify.walletconnect.org, a hidden frame the library opens at each connect or sign request), run by Reown | IP address, MINTA's WalletConnect project ID, the pairing and MINTA's web address, and the encrypted messages between the page and the wallet app, only if the user chooses WalletConnect. MINTA starts the library with its usage reporting off (verified against the real relay: no request to its usage-reporting host). |
 
