@@ -22,7 +22,7 @@ const WalletIcon = () => (
 
 /** Connects a browser wallet or signs in with email; `header` makes it the top bar's button (a wallet icon on phones) */
 /**
- * Inside MINTA's Android app (which cannot connect a wallet) with no wallet in the browser: says so and gives the way that works.
+ * Inside MINTA's Android app (where no wallet app can reach into the page) with no wallet in the browser: says what works (WalletConnect, or the wallet app's own browser).
  * Only the Trust Wallet link is a wallet deep link, in the form Trust Wallet documents; for the others it is plain instructions.
  */
 export function TwaNote() {
@@ -41,7 +41,7 @@ export function TwaNote() {
 }
 
 export function ConnectButton({ compact = false, header = false }: { compact?: boolean; header?: boolean }) {
-  const { account, available, connect, disconnect, walletName, email, emailConfig, faceId, createFaceIdWallet, signInWithFaceId } = useWallet();
+  const { account, available, connect, disconnect, walletName, email, emailConfig, faceId, createFaceIdWallet, signInWithFaceId, connectWalletConnect, wcState, wcNotice } = useWallet();
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState('');
   const [emailOpen, setEmailOpen] = useState(false);
@@ -66,6 +66,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
             </div>
           )}
         </div>
+        {wcNotice && <p className="small err" role="status">{wcNotice}</p>}
       </div>
     );
   }
@@ -116,7 +117,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
             {!IS_TWA && available.length === 0 && !FACE_ID_OFFERED && (
               <div className="small" role="status">
                 <p><b>No wallet found in this browser.</b></p>
-                <p className="muted">MINTA works with a browser wallet such as MetaMask, Rabby or Coinbase Wallet. On a phone, open this page in your wallet app’s own browser.</p>
+                <p className="muted">MINTA works with a browser wallet such as MetaMask, Rabby or Coinbase Wallet, or with WalletConnect (below) and a wallet app on your phone. On a phone you can also open this page in your wallet app’s own browser.</p>
                 <p><a href="https://vyrechain.com/docs/network/" target="_blank" rel="noopener noreferrer">How to add {NETWORK.label} to your wallet</a></p>
               </div>
             )}
@@ -125,6 +126,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
                 {w.icon && <img src={w.icon} alt="" width={20} height={20} />}{w.name}
               </button>
             ))}
+            <button role="menuitem" type="button" className="wallet-choice" disabled={!!busy || !!again || (wcState.kind !== 'idle' && wcState.kind !== 'failed')} onClick={() => { setOpen(false); connectWalletConnect(); }}>WalletConnect</button>
             {emailOn && <button role="menuitem" type="button" className="wallet-choice" disabled={!!busy || !!again} onClick={() => { setOpen(false); setEmailOpen(true); }}>Sign in with email</button>}
             {err && <p className="err small" role="alert">{err}</p>}
           </div>
@@ -134,6 +136,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
         <button className={`btn btn-line ${compact ? 'btn-sm' : ''}`} type="button" onClick={() => setEmailOpen(true)}>Sign in with email</button>
       )}
       {emailOpen && <EmailSignIn onClose={() => setEmailOpen(false)} />}
+      {wcNotice && <p className="small err" role="status">{wcNotice}</p>}
       {IS_TWA && !header && available.length === 0 && <TwaNote />}
     </div>
   );

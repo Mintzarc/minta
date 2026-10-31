@@ -1,4 +1,4 @@
-In this app you can browse, read and report. To launch or trade, open minta.vyrechain.com in your wallet app's browser.
+Browse, read and report tokens on VYRE. To launch or trade, connect your wallet app with WalletConnect.
 
 MINTA is a launchpad on VYRE, a chain that runs on USDC. This app lets you look through the tokens people have launched, read how each one is set up and trading, and report any that break the rules.
 
@@ -8,11 +8,11 @@ WHAT YOU CAN DO IN THIS APP
 - Report a token whose name, picture, description or links break the terms, and hide a token on your own device.
 - Read the docs, the terms and the privacy policy, and the page on using MINTA with an AI assistant that prepares things while you sign in your own wallet.
 
-WHAT YOU DO IN YOUR WALLET APP'S BROWSER
-This app cannot connect a wallet. To launch a token or trade one, open minta.vyrechain.com in the browser inside your wallet app (a browser tab in your wallet app) and connect there. There, a launch is one transaction (name, ticker, supply, tax, picture, links). The whole supply goes into the pool as one position that nothing can remove. The creator may buy part of the supply in the launch transaction. Tokens can fall to zero: this is not a safety guarantee. You trade a token with USDC.
+CONNECT YOUR WALLET APP
+To launch a token or trade one, tap Connect Wallet, choose WalletConnect, and approve in your wallet app (you can also open minta.vyrechain.com in the browser inside your wallet app). Every transaction is then signed in your wallet app. A launch is one transaction (name, ticker, supply, tax, picture, links). The whole supply goes into the pool as one position that nothing can remove. The creator may buy part of the supply in the launch transaction. Tokens can fall to zero: this is not a safety guarantee. You trade a token with USDC.
 
 YOUR WALLET, YOUR KEYS
-MINTA never holds your funds or your keys, and has no accounts, no ads, and no analytics or tracking cookies. The network services the app calls see your IP address when it loads data. Anything that moves money is a transaction you sign in your own wallet.
+MINTA never holds your funds or your keys, and has no accounts, no ads, and no analytics or tracking cookies. The network services the app calls see your IP address when it loads data, and so does the WalletConnect service if you connect a wallet with it. Anything that moves money is a transaction you sign in your own wallet.
 
 WHAT IT COSTS
 - The creator of a token sets a tax of 1% to 10% on buys and 1% to 10% on sells. That tax is the only fee a trade pays. When it is paid out, a tenth of it goes to the platform and the rest to the creator's tax wallets.

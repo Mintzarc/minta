@@ -1,1 +1,1 @@
-Browse and report tokens on VYRE. To launch or trade, use your wallet's browser.
+Launch and trade tokens on VYRE. Connect your wallet app with WalletConnect.

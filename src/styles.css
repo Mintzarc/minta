@@ -615,3 +615,4 @@ html.splash-on { overflow: hidden; }
 .accept-terms input { width: 24px; height: 24px; flex: none; margin-top: 2px; }
 .hide-row { display: flex; flex-wrap: wrap; gap: 0 16px; }
 .hide-row-page { margin: 0; }
+.wc-qr { width: min(260px, 100%); height: auto; justify-self: center; border-radius: 8px; }

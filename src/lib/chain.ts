@@ -135,6 +135,10 @@ const onChain = async (provider: EIP1193Provider, id: number) => {
 
 /** Asks the wallet to switch to a chain, adding it first if it doesn't know it; throws unless it's on it after */
 export async function switchTo(provider: EIP1193Provider, chain: Chain): Promise<void> {
+  // a WalletConnect connection is made for VYRE alone (lib/wc.ts): it can't be moved to another network
+  if ((provider as { isMintaWalletConnect?: boolean }).isMintaWalletConnect === true && chain.id !== VYRE_CHAIN.id) {
+    throw new Error(`This wallet connection works on ${VYRE_CHAIN.name} only, so it can’t be used on ${chain.name}. Use your wallet app directly for that step.`);
+  }
   if (await onChain(provider, chain.id)) return;
   try {
     await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hex(chain.id) }] });

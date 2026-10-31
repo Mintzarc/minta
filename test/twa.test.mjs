@@ -40,8 +40,9 @@ test('nothing is detected anywhere else: a website, another app, another value, 
   assert.equal(detectTwa('', '?app=1', broken), true, 'blocked storage does not stop detection');
 });
 
-test('the note says the app cannot connect wallets, and the only wallet link is Trust Wallet’s documented form', () => {
-  assert.equal(TWA_NOTE, 'This app can’t connect wallets. Open minta.vyrechain.com in your wallet app’s browser.');
+test('the note points to WalletConnect first and the wallet app’s browser second, and the only wallet link is Trust Wallet’s documented form', () => {
+  assert.equal(TWA_NOTE, 'Connect with WalletConnect: your wallet app opens, you approve there, and every transaction is signed in it. Or open minta.vyrechain.com in your wallet app’s browser.');
+  assert.equal(/can.t connect wallets|cannot connect/i.test(TWA_NOTE), false, 'the old claim is gone');
   assert.equal(TRUST_WALLET_LINK, 'https://link.trustwallet.com/open_url?coin_id=60&url=https://minta.vyrechain.com');
   assert.equal(SITE_URL, 'https://minta.vyrechain.com');
   const src = read('src/components/ui.tsx');

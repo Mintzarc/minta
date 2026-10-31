@@ -25,11 +25,11 @@
   <main>
     <p class="eyebrow">Legal</p>
     <h1>Terms of <em>Service</em></h1>
-    <p class="lede">Effective October 29, 2026. These terms cover MINTA, the website at this address and the MINTA Android app that opens it, which show, launch and trade tokens on VYRE Mainnet (the Android app itself cannot connect a wallet: launching and trading there happen in a wallet app’s browser). On VYRE Mainnet the USDC is real money. By using MINTA you agree to these terms.</p>
+    <p class="lede">Effective October 29, 2026. These terms cover MINTA, the website at this address and the MINTA Android app that opens it, which show, launch and trade tokens on VYRE Mainnet (in the Android app a wallet connects with WalletConnect: your wallet app signs every transaction). On VYRE Mainnet the USDC is real money. By using MINTA you agree to these terms.</p>
 
     <section>
       <h2>1. What MINTA is</h2>
-      <p>MINTA is a website, and an Android app that opens it. It shows tokens launched on VYRE. In a browser that has your wallet (on a phone, your wallet app’s own browser) it lets you launch, buy and sell them by signing transactions from your own wallet; the Android app itself cannot connect a wallet. It holds no funds and has no accounts. The contracts that do the work are ordinary contracts on VYRE, deployed by the network’s operator, which also holds the owner role in those that have one: anyone can read them, and see who owns them, on the <a href="https://explorer.vyrechain.com" target="_blank" rel="noopener noreferrer">explorer</a>. MINTA is one app that uses them; other apps and launchpads can use the same contracts.</p>
+      <p>MINTA is a website, and an Android app that opens it. It shows tokens launched on VYRE. In a browser that has your wallet (on a phone, your wallet app’s own browser) it lets you launch, buy and sell them by signing transactions from your own wallet; in the Android app, and in any browser without a wallet, you connect with WalletConnect and sign in your wallet app. It holds no funds and has no accounts. The contracts that do the work are ordinary contracts on VYRE, deployed by the network’s operator, which also holds the owner role in those that have one: anyone can read them, and see who owns them, on the <a href="https://explorer.vyrechain.com" target="_blank" rel="noopener noreferrer">explorer</a>. MINTA is one app that uses them; other apps and launchpads can use the same contracts.</p>
       <p>The network MINTA runs on (VYRE Mainnet), its contracts, the public RPC, the explorer, and the services MINTA calls for pictures and a few other features are run by the network’s operator, under its own terms (for the services at vyrechain.com, <a href="https://vyrechain.com/terms/" target="_blank" rel="noopener noreferrer">these</a>).</p>
       <p><b>Contact:</b> questions, reports and takedown requests go to MINTA on Telegram (<a href="https://t.me/+HDa2YpR0piA3ZWE0" target="_blank" rel="noopener noreferrer">the MINTA group</a>) or on X (<a href="https://x.com/MintaLaunchpad" target="_blank" rel="noopener noreferrer">@MintaLaunchpad</a>).</p>
     </section>
@@ -56,6 +56,7 @@
       <p>MINTA is self-custodial: it never holds your funds or your keys, and can’t move, freeze or recover them.</p>
       <ul>
         <li><b>A browser wallet</b> (such as MetaMask, Rabby or Coinbase Wallet) is controlled by its recovery phrase, which only you have.</li>
+        <li><b>A wallet app connected with WalletConnect</b> is the same: the app holds your keys and you approve each transaction in it. The WalletConnect service only passes messages; it does not hold your funds. You can end the connection from the wallet app or by choosing Disconnect in MINTA.</li>
         <li><b>Email sign-in</b>, where offered, is provided by Circle, under Circle’s own terms. An email wallet can’t yet trade on VYRE Mainnet; use a browser wallet to trade.</li>
       </ul>
       <p>Blockchain transactions can’t be reversed. Check every transaction before you confirm it.</p>

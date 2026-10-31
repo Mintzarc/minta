@@ -10,7 +10,7 @@ export const SETS = {
   desktop:    { dir: 'desktop',    viewport: { width: 1920, height: 1080 }, scale: 2, mobile: false, touch: false }, // 3840 x 2160 whole screen, docs clipped to their column (2696 x 1516)
 };
 /** The same real screens in every set, in the order they are shown. Only unmodified screens, or clips of them, that work in the
- *  Android app (it cannot connect a wallet): no page with the app's navigation, the Connect Wallet button, the network switcher, the
+ *  Android app (a wallet connects there only through WalletConnect, which a store picture cannot show): no page with the app's navigation, the Connect Wallet button, the network switcher, the
  *  hero ("Build. Launch. Grow."), the launch wizard, the wallet page or a trade panel, and no token picture (the one token on the
  *  chain has cartoon art). The app's pages are clipped below its top bar (`clip: 'below-bar'`); on wide screens a docs page is clipped
  *  to its article column (no side menu, no promo card), at 16:9; the static pages (AI assistants,

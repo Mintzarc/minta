@@ -109,7 +109,7 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     const accept = page.getByRole('checkbox', { name: /accept the Terms/ });
     if (await accept.count()) ok(size, !(await accept.isChecked()), 'the final step has an "I accept the Terms" box, unchecked');
     else say('WARN', size, 'the "I accept the Terms" box is not on this site yet (it comes with this branch once deployed)');
-    ok(size, !/can’t connect wallets/.test(await page.locator('body').innerText()), 'outside the Android app there is no "app can’t connect wallets" note');
+    ok(size, !/Connect with WalletConnect: your wallet app opens/.test(await page.locator('body').innerText()), 'outside the Android app there is no in-app WalletConnect note');
     ok(size, sent.length === 0, 'no transaction was sent');
   }
 
@@ -135,7 +135,7 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     ok(size, (await page.locator('a.tcard').count()) === before, 'Show all brings them back');
   } else say('WARN', size, 'Hide this token is not on this site yet (it comes with this branch once deployed)');
 
-  // 4c. Inside the Android app (its start address carries ?app=1) the connect places say the app cannot connect wallets
+  // 4c. Inside the Android app (its start address carries ?app=1) the connect places point to WalletConnect and the wallet app’s browser
   {
     const tctx = await browser.newContext({ viewport: cfg.viewport, deviceScaleFactor: 1, isMobile: cfg.mobile, hasTouch: cfg.touch, locale: 'en-US' });
     const tp = await tctx.newPage();
@@ -143,7 +143,7 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     await tp.goto(`${SITE}/?app=1#/wallet`, { waitUntil: 'domcontentloaded' });
     await tp.waitForTimeout(3500);
     const tt = await tp.locator('body').innerText();
-    if (/can’t connect wallets/.test(tt)) {
+    if (/Connect with WalletConnect: your wallet app opens/.test(tt)) {
       ok(size, /Open minta\.vyrechain\.com in your wallet app’s browser/.test(tt), 'in the app the wallet page says to open minta.vyrechain.com in the wallet app’s browser');
       const trust = await tp.locator('a:has-text("Open in Trust Wallet")').first().getAttribute('href');
       ok(size, trust === 'https://link.trustwallet.com/open_url?coin_id=60&url=https://minta.vyrechain.com', 'the Trust Wallet button uses the documented link');

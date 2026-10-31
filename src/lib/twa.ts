@@ -1,6 +1,7 @@
 // Whether the page is open inside MINTA's Android app (a Trusted Web Activity). That app is Chrome showing this site full
-// screen: it has no wallet extension and no wallet app can reach into it, so it cannot connect a wallet. Where it is
-// detected, the connect places say so and point to the way that works: the wallet app's own browser.
+// screen: it has no wallet extension and no wallet app can reach into it, so a wallet cannot connect the way it does in a
+// wallet app's own browser. Where it is detected, the connect places point to the ways that work: WalletConnect (the wallet
+// app opens, the person approves there, and every transaction is signed there) or the wallet app's own browser.
 // Pure: no app imports, so node unit tests can call it.
 
 export const TWA_PACKAGE = 'com.vyrechain.minta';
@@ -10,7 +11,7 @@ export const SITE_ADDRESS = 'minta.vyrechain.com';
 export const SITE_URL = `https://${SITE_ADDRESS}`;
 /** Trust Wallet's open-in-browser link, in the form Trust Wallet documents (coin_id 60 is its code for the Ethereum family of chains) */
 export const TRUST_WALLET_LINK = `https://link.trustwallet.com/open_url?coin_id=60&url=${SITE_URL}`;
-export const TWA_NOTE = `This app can’t connect wallets. Open ${SITE_ADDRESS} in your wallet app’s browser.`;
+export const TWA_NOTE = `Connect with WalletConnect: your wallet app opens, you approve there, and every transaction is signed in it. Or open ${SITE_ADDRESS} in your wallet app’s browser.`;
 
 interface Store { getItem(k: string): string | null; setItem(k: string, v: string): void }
 

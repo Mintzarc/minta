@@ -143,14 +143,16 @@ test('RELEASE_CHECK: assetlinks.json names com.vyrechain.minta with at least one
 
 test('the listing says first, plainly, what the app does and does not do, and lists only what works in it', () => {
   const full = read('store/android/full-description.txt');
-  assert.ok(full.startsWith("In this app you can browse, read and report. To launch or trade, open minta.vyrechain.com in your wallet app's browser."));
-  assert.match(read('store/android/short-description.txt'), /wallet/);
+  assert.ok(full.startsWith('Browse, read and report tokens on VYRE. To launch or trade, connect your wallet app with WalletConnect.'));
+  assert.match(read('store/android/short-description.txt'), /WalletConnect/);
   assert.match(full, /nothing can remove[^.]*\./i);
   assert.match(full, /may buy part of the supply/);
   assert.match(full, /not a safety guarantee/);
-  const bullets = full.slice(full.indexOf('WHAT YOU CAN DO IN THIS APP'), full.indexOf("WHAT YOU DO IN YOUR WALLET APP'S BROWSER"));
+  const bullets = full.slice(full.indexOf('WHAT YOU CAN DO IN THIS APP'), full.indexOf('CONNECT YOUR WALLET APP'));
   assert.equal(/\b(launch a token|trade|buy|sell|connect)\b/i.test(bullets), false, 'the in-app list names nothing that needs a wallet');
-  assert.match(full, /This app cannot connect a wallet/);
+  assert.match(full, /tap Connect Wallet, choose WalletConnect, and approve in your wallet app/);
+  assert.equal(/cannot connect a wallet|can.t connect wallets/i.test(full), false, 'the listing no longer says the app cannot connect a wallet');
+  assert.match(full, /so does the WalletConnect service if you connect a wallet with it/, 'the IP-address wording names the WalletConnect service');
   // screenshots: only unmodified screens or clips of them that work in the app; no style injected to hide anything
   const vp = read('store/android/viewports.mjs');
   const names = [...vp.matchAll(/name: '([a-z-]+)'/g)].map((m) => m[1]);
