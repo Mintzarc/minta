@@ -119,7 +119,7 @@ export async function recentTrades(launch: Launch, quoteIsToken0: boolean, block
 // ---------------------------------------------------------------------------------------------------------------
 // A launch's picture, description and links: a small JSON file its creator points to. Only what's safe to show is
 // kept: a picture the picture service keeps (any other picture link could decode to gigabytes in every visitor's browser:
-// lib/picture.ts shownPicture), the known links (http or https) under fixed labels with their sites' names, and plain text
+// lib/picture.ts shownPicture), the known links (https only, matching what the launch form accepts) under fixed labels with their sites' names, and plain text
 // (React escapes it). The file is read for 8 seconds at most, and 64 KB at most.
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -202,8 +202,9 @@ export function readLaunchFile(uri: string, again = false): Promise<Meta | null>
     const raw: Record<string, unknown> = j.links && typeof j.links === 'object' ? j.links : {};
     const links: Meta['links'] = [];
     for (const l of LINKS) {
-      const from = l.from.find((k) => Object.prototype.hasOwnProperty.call(raw, k) && urlOf(raw[k], ['https:', 'http:']));
-      const u = from ? urlOf(raw[from], ['https:', 'http:']) : undefined;
+      // https only: the launch form refuses http, and a cleartext link on a token page would be clickable phishing/MITM bait
+      const from = l.from.find((k) => Object.prototype.hasOwnProperty.call(raw, k) && urlOf(raw[k], ['https:']));
+      const u = from ? urlOf(raw[from], ['https:']) : undefined;
       if (u) links.push({ key: l.key, label: l.label, url: u.toString(), host: u.hostname });
     }
     return {

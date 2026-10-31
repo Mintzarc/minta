@@ -107,6 +107,17 @@ test('the picture link as written is kept apart (never drawn), so an edit of the
   assert.equal((await metaWith('ftp://x/y.png')).imageLink, undefined, 'only an https or ipfs link');
 });
 
+test('a token’s website and social links are https only: an http link in the file is never drawn', async () => {
+  // creators can only enter https:// in the form; a hostile file on the chain must not put a cleartext http link on the page
+  const m = market();
+  const uri = `${API}/m/${(++n).toString(16).padStart(64, '0')}.json`;
+  serve({ [uri]: { description: 'd', links: { website: 'http://evil.example/phish', x: 'https://x.com/ok', telegram: 'http://t.me/bad' } } });
+  const meta = await m.metaOf(uri);
+  assert.ok(meta);
+  assert.deepEqual(meta.links.map((l) => [l.key, l.url]), [['x', 'https://x.com/ok']]);
+  assert.equal(meta.links.some((l) => l.url.startsWith('http:')), false);
+});
+
 test('the check on its own: only the exact address of a kept picture passes', () => {
   assert.equal(picture.shownPicture(`${API}/i/${HASH}.webp`, API), `${API}/i/${HASH}.webp`);
   assert.equal(picture.shownPicture(`${API}/i/${HASH}.webp`, `${API}/`), `${API}/i/${HASH}.webp`, 'a trailing slash on the service’s address');
