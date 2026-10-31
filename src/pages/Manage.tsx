@@ -103,7 +103,7 @@ export default function Manage({ token }: { token: Address }) {
       {account && isOffered && (
         <div className="card">
           <h2 className="h3">You’ve been offered this launch</h2>
-          <p className="small">Accept to become its creator: its taxes (now {pct(launch.buyTaxBps)} buy, {pct(launch.sellTaxBps)} sell) go to you from then on. Tax earned until now goes where the current creator set it.</p>
+          <p className="small">Accept to become its creator: its taxes (now {pct(launch.buyTaxBps)} buy, {pct(launch.sellTaxBps)} sell) go to you from then on. Tax collected until now goes where the current creator set it.</p>
           <TxButton label="Accept" run={run({ functionName: 'acceptCreator', args: [token, launch.buyTaxBps, launch.sellTaxBps] }, 'You’re the creator now.')} />
         </div>
       )}
@@ -158,7 +158,7 @@ function TaxWallets({ launch, current, failed, retry, run }: { launch: Launch; c
   return (
     <div className="card">
       <h2 className="h3">Split the tax</h2>
-      <p className="small">Up to four wallets, each with a share of the creator’s side of the tax{NETWORK.testnet ? '' : ' (what is left after the platform wallet’s tenth)'}. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
+      <p className="small">Up to four wallets, each with a share of the creator’s side of the tax{NETWORK.testnet ? '' : ' (what is left after the platform wallet’s tenth)'}. Tax already collected is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
       {current ? <SplitEditor launch={launch} current={current} run={run} />
         : failed ? (
           <div className="split-failed" role="alert">

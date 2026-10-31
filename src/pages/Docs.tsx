@@ -91,7 +91,7 @@ const ARTICLES: Article[] = [
         id: 'what-is-minta', title: 'What is MINTA?', label: 'Introduction', nav: 'What is MINTA?', art: 'whatis',
         body: (
           <>
-            <p>MINTA is a launchpad on the VYRE chain. Anyone can create a token in one transaction, trade it with USDC, and {NETWORK.testnet ? 'earn a tax on every trade of a token they created' : 'receive the creator’s tax on every trade of a token they created (a tenth of each payout goes to the platform wallet)'}.</p>
+            <p>MINTA is a launchpad on the VYRE chain. Anyone can create a token in one transaction and trade it with USDC. {NETWORK.testnet ? 'The token’s creator sets a tax that applies to every trade of it' : 'The token’s creator sets a tax that applies to every trade of it (a tenth of each payout goes to the platform wallet)'}.</p>
             <p>Each token’s whole supply goes into its own pool from the first block, and that pool’s liquidity can’t be removed (see Liquidity in the pool, below). There is no approval step, no schedule and no waiting list: you launch when you like, and the token is trading in the same moment.</p>
           </>
         ),
@@ -102,7 +102,7 @@ const ARTICLES: Article[] = [
           <div className="feat-grid">
             <div><Icon name="bolt" /><b>Easy token creation</b><p>Name it, set the supply and the tax, press Create. One transaction.</p></div>
             <div><Icon name="lock" /><b>Liquidity in the pool</b><p>The pool’s liquidity can’t be removed, by anyone. Only the launchpad adds to it. {LIQUIDITY_FACT}</p></div>
-            <div><Icon name="coin" /><b>Paid in USDC</b><p>{NETWORK.testnet ? 'Creators keep a tax of up to 10% on every trade, paid in USDC.' : 'Creators set a tax of 1% to 10% a side on every trade, paid in USDC; a tenth of each payout goes to the platform wallet.'} They can lower it later, never raise it.</p></div>
+            <div><Icon name="coin" /><b>Tax in USDC</b><p>{NETWORK.testnet ? 'Creators set a tax of up to 10% on every trade, paid in USDC.' : 'Creators set a tax of 1% to 10% a side on every trade, paid in USDC; a tenth of each payout goes to the platform wallet.'} They can lower it later, never raise it.</p></div>
             <div><Icon name="users" /><b>Your own wallet</b><p>Connect MetaMask, Rabby, Coinbase Wallet or any browser wallet. You keep your keys; MINTA never holds them.</p></div>
           </div>
         ),
@@ -127,7 +127,7 @@ const ARTICLES: Article[] = [
               : <li><b>Get USDC on VYRE.</b> The Wallet page moves USDC to VYRE from Arc. A withdrawal back to Arc takes about a day.</li>}
             <li><b>Create a token.</b> Pick its name, ticker, supply and tax. The launch happens in one transaction, with an optional first buy of your own in the same transaction.</li>
             <li><b>Trade.</b> Anyone can buy and sell with USDC, straight away. {NETWORK.testnet ? 'Every trade pays the platform fee and the creator’s tax in USDC.' : 'Every trade pays the creator’s tax in USDC, and nothing else is added.'}</li>
-            <li><b>Collect.</b> The creator collects the tax whenever they like, and can split it between up to four wallets.</li>
+            <li><b>Pay out.</b> The collected tax can be paid out whenever the creator likes, and can be split between up to four wallets.</li>
           </ol>
         ),
       },
@@ -201,24 +201,24 @@ const ARTICLES: Article[] = [
       { id: 'tax', title: 'Tax', body: NETWORK.testnet
         ? <p>0–10% on buys and 0–10% on sells, set separately. Presets in the form: no tax, 1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down.</p>
         : <p>1–10% on buys and 1–10% on sells, set separately. Presets in the form: 1%/1%, 3%/3%, 5%/5%, or custom. A tax only ever goes down, and never below 1%. It is the only fee a trader pays.</p> },
-      { id: 'split', title: 'Splitting the tax', body: <p>After launch, the tax can be split between up to four wallets in any proportions that add up to 100%. Tax earned so far is paid out before the split changes.{NETWORK.testnet ? '' : ' What is split is the creator’s side, after the platform wallet’s tenth.'} Only name wallets whose owners hold the keys: tax sent to a contract or an address nobody controls is lost. MINTA refuses the launchpad’s own contracts, the router and every launch’s pool and token.</p> },
+      { id: 'split', title: 'Splitting the tax', body: <p>After launch, the tax can be split between up to four wallets in any proportions that add up to 100%. Tax already collected is paid out before the split changes.{NETWORK.testnet ? '' : ' What is split is the creator’s side, after the platform wallet’s tenth.'} Only name wallets whose owners hold the keys: tax sent to a contract or an address nobody controls is lost. MINTA refuses the launchpad’s own contracts, the router and every launch’s pool and token.</p> },
       { id: 'first-buy', title: 'First buy', body: <p>Optional USDC you spend in the launch transaction, before anyone else can trade, at your own tax{NETWORK.testnet ? ' plus the platform fee' : ' (the only fee)'}.</p> },
     ],
   },
   {
     slug: 'fees',
-    title: 'Fees & revenue',
+    title: 'Fees',
     sections: [
       {
-        id: 'table', title: 'Who gets what',
+        id: 'table', title: 'Where the tax goes',
         body: (
           <>
-            <p>Every fee is taken in USDC, from the USDC side of the trade: out of what a buyer pays, or what a seller receives.{!NETWORK.testnet && ' The creator’s tax is the only fee a trade pays. When the tax is paid out, a tenth of it goes to the platform wallet and the rest to the creator’s tax wallets. For example, on a 1,000 USDC trade with a 5% tax the trader pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator’s tax wallets. (Every transaction also pays the network fee, in USDC.)'}</p>
+            <p>Every fee is taken in USDC, from the USDC side of the trade: out of what a buyer pays, or what a seller receives.{!NETWORK.testnet && ' The creator’s tax is the only fee a trade pays. When the tax is paid out, a tenth of it goes to the platform wallet and the rest to the creator’s tax wallets. For example, on a 1,000 USDC trade with a 5% tax the tax is 50 USDC; of each payout, one tenth goes to the platform wallet and nine tenths to the creator’s tax wallets. (Every transaction also pays the network fee, in USDC.)'}</p>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Fee</th><th>Size</th><th>Goes to</th></tr></thead>
                 <tbody>
-                  <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">{NETWORK.testnet ? 'The creator, or up to 4 wallets they name' : 'Nine tenths of each payout to the creator, or up to 4 wallets they name'}</td></tr>
+                  <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">{NETWORK.testnet ? 'The creator, or up to 4 wallets they name' : 'Nine tenths of each payout to the creator’s tax wallets (up to 4 wallets the creator names)'}</td></tr>
                   {!NETWORK.testnet && <tr><td><b>Platform wallet’s tenth</b></td><td>One tenth of each payout of the tax</td><td className="wrap"><AddressLink address={PAD_V2.platformWallet} /></td></tr>}
                   {NETWORK.testnet && <tr><td><b>Platform fee</b></td><td>1% of every buy and sell</td><td className="wrap">The platform treasury set in the launchpad contracts {NETWORK.promoters ? '(less a promoter’s share, below)' : ''}</td></tr>}
                   {NETWORK.testnet && <tr><td><b>Partner fee</b></td><td>0–1%, only on launches through a partner launchpad</td><td className="wrap">The partner launchpad</td></tr>}
@@ -352,7 +352,7 @@ const GROUPS: Group[] = [
       { label: 'Launch model', icon: 'shield', article: 'launch-model' },
       { label: 'Launch lifecycle', icon: 'clock', article: 'lifecycle' },
       { label: 'Tokenomics options', icon: 'coin', article: 'tokenomics' },
-      { label: 'Fees & revenue', icon: 'fee', article: 'fees' },
+      { label: 'Fees', icon: 'fee', article: 'fees' },
     ],
   },
   {

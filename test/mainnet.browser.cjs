@@ -223,7 +223,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.click('.wz-next');
     await pg.click('.wz-next');
     const review = await pg.locator('.wz-step').innerText();
-    ok(/1% \/ 10%/.test(review) && /a tenth goes to the platform wallet, the rest to you/.test(review) && !/platform fee|per trade|MINTA fee|Trading fees|10% of every/i.test(review), 'the final review shows the tax, where it goes in words, and no fee sum');
+    ok(/1% \/ 10%/.test(review) && /a tenth goes to the platform wallet, the rest to the creator’s tax wallets/.test(review) && !/platform fee|per trade|MINTA fee|Trading fees|10% of every/i.test(review), 'the final review shows the tax, where it goes in words, and no fee sum');
     ok(!BANNED.test(await body(pg)), 'the wizard has no testnet-only wording' + (BANNED.test(await body(pg)) ? ': ' + (await body(pg)).match(BANNED)[0] : ''));
     ok(errs.length === 0, 'nothing throws in the wizard' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();

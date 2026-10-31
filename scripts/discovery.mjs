@@ -103,7 +103,7 @@ For people: ${SITE}/agents/
 - A creator can lower the tax later, never raise it, and never below ${f.minTaxPct}%.
 - When the tax is paid out, the platform takes a tenth of it (${tenth(f)}, to ${f.platformWallet}) and the creator's tax wallets get the rest.
 - No other fee is added to a trade. Every transaction also pays the network fee, in USDC.
-- Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator's tax wallets.
+- Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; of each payout, one tenth goes to the platform wallet and nine tenths to the creator's tax wallets.
 
 ## Using MINTA from an AI assistant or a script
 
@@ -385,7 +385,7 @@ Task: `;
     <section>
       <h2>The fee rule</h2>
       <p>The creator’s tax is the only fee a trader pays. The creator sets it at launch, ${f.minTaxPct}% to ${f.maxTaxPct}% per side, and can lower it later, never raise it. When the tax is paid out, the platform takes a tenth of it and the creator’s tax wallets get the rest. No other fee is added; every transaction also pays the network fee, in USDC.</p>
-      <p>Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator’s tax wallets.</p>
+      <p>Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; of each payout, one tenth goes to the platform wallet and nine tenths to the creator’s tax wallets.</p>
     </section>
 
     <section>

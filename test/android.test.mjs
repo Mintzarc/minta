@@ -252,3 +252,30 @@ test('key files of any spelling stay out of git (.gitignore), and the descriptio
   assert.match(read('store/android/full-description.txt'), /see your IP address when it loads data/);
   assert.equal(/no tracking\b(?! cookies)/i.test(read('store/android/full-description.txt')), false, 'no bare "no tracking"');
 });
+
+// Google Play's Blockchain-based content policy: "You may not promote or glamorize any potential earning from playing or trading activities."
+// What a Play reviewer reads (the store texts and every picture's alt text) and the pages the app opens first describe where a tax goes as a
+// fact of the contract, never as something to gain: none of these words or phrases may appear.
+const EARNING_WORDS = /\b(earn(s|ed|ing|ings)?|profit(s|able|ably)?|income|rewards?|passive|revenue|winnings?|gains?|get rich|make money|moon(s|ing)?|lambo|keep ninety|keeps? 90|creators? keeps?|keeps? (the |a )?(whole|all|90|nine|ninety)|nine tenths? (to|for) you)/i;
+test('the store texts and alt text carry no earning, profit or income wording', () => {
+  const dir = path.join(ROOT, 'store/android');
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));
+  assert.ok(files.includes('alt-text.txt') && files.includes('full-description.txt') && files.includes('short-description.txt'));
+  for (const f of files) {
+    read(`store/android/${f}`).split('\n').forEach((line, i) => {
+      const m = EARNING_WORDS.exec(line);
+      assert.equal(m, null, `store/android/${f}:${i + 1} promotes or implies earning ("${m && m[0]}")`);
+    });
+  }
+});
+
+test('the pages the Android app opens first state where the tax goes as a fact, without earning wording', () => {
+  for (const f of ['src/pages/Docs.tsx', 'src/pages/Manage.tsx', 'src/lib/fees.ts', 'public/agents/index.html', 'public/terms/index.html']) {
+    // "profits" appears once in the Terms' limit of liability and once in the ban on promises of profits: both are warnings
+    const scrubbed = read(f).replace(/loss of funds, tokens, profits or data/g, '').replace(/promises of profits/g, '');
+    const m = EARNING_WORDS.exec(scrubbed);
+    assert.equal(m, null, `${f} promotes or implies earning ("${m && m[0]}")`);
+  }
+  assert.doesNotMatch(read('src/pages/Docs.tsx'), /Fees & revenue|Creators keep|earn a tax/);
+  assert.doesNotMatch(read('public/agents/index.html'), /45 USDC/);
+});

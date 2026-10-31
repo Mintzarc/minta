@@ -19,7 +19,7 @@ import { matches } from '../components/Search';
 
 const PAGE = 36;
 const TABS = [
-  { key: 'trending', label: 'Trending', icon: <path d="M13 3 5 14h6l-1 7 8-11h-6z" /> },
+  { key: 'trending', label: 'Most traded', icon: <path d="M13 3 5 14h6l-1 7 8-11h-6z" /> },
   { key: 'new', label: 'New', icon: <path d="M12 20v-8m0 0c0-4 3-6 8-6 0 4-3 6-8 6Zm0 0C12 8 9.5 6.5 4 6.5c0 3.5 2.5 5.5 8 5.5Z" /> },
   { key: 'graduated', label: 'Graduated', icon: <><circle cx="12" cy="9" r="5" /><path d="m9 13.5-1.5 7L12 18l4.5 2.5-1.5-7" /></> },
 ] as const;

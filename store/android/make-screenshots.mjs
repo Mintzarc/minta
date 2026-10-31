@@ -37,7 +37,7 @@ async function shots(key) {
   const ctx = await browser.newContext({ viewport: set.viewport, deviceScaleFactor: set.scale, isMobile: set.mobile, hasTouch: set.touch, locale: 'en-US' });
   const page = await ctx.newPage();
   await skipSplash(page);
-  const tokenHash = await firstTokenHash(page);
+  const tokenHash = await firstTokenHash(page).catch(() => null); // only the phone report picture needs a token: the other sets are made while the chain has none
   let n = 0;
   for (const s of SCREENS) {
     if (s.sets && !s.sets.includes(key)) continue;
@@ -50,6 +50,7 @@ async function shots(key) {
     const pg = tmp ? await tmp.newPage() : page;
     if (tmp) await skipSplash(pg);
     await pg.setViewportSize(view.viewport);
+    if (!s.path && !tokenHash) throw new Error(`${s.name} needs a token page and the chain has no launch yet`);
     await pg.goto(`${base}${s.path ?? `/${tokenHash}`}`, { waitUntil: 'networkidle' });
     if (s.path === null) await pg.reload({ waitUntil: 'networkidle' }); // a hash change alone does not reload the page
     await pg.waitForTimeout(3500); // figures, the chart and pictures arrive after the page itself
