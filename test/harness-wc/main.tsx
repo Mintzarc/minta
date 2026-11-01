@@ -16,7 +16,7 @@ const PAD: Address = '0x3333333333333333333333333333333333333333';
 const OTHER: Address = '0x4444444444444444444444444444444444444444';
 const URI = `wc:${'ab'.repeat(32)}@2?expiryTimestamp=1793462181&relay-protocol=irn&symKey=${'cd'.repeat(32)}`;
 
-interface Fake { account: string; chain: number; reject: boolean; lost: boolean; expiry?: number }
+interface Fake { account: string; chain: number; reject: boolean; lost: boolean; expiry?: number; sessionAccount?: string }
 type W = {
   __fake: Fake; __sent: { method: string; params: unknown; chain?: string }[]; __asked: string[]; __starts: number; __disconnects: number;
   __pair: { resolve: () => void; reject: (e: unknown) => void } | null; __restoreable: boolean; __emit: (e: string, v: unknown) => void;
@@ -51,7 +51,7 @@ const provider: WcProvider = {
     // always list the stand-in’s account on its chain (the app requires the session and eth_accounts to agree on VYRE)
     return {
       expiry: w.__fake.expiry ?? Math.floor(Date.now() / 1000) + 86_400,
-      namespaces: { eip155: { accounts: [`eip155:${w.__fake.chain}:${w.__fake.account}`] } },
+      namespaces: { eip155: { accounts: [`eip155:${w.__fake.chain}:${w.__fake.sessionAccount ?? w.__fake.account}`] } },
     };
   },
   async disconnect() { w.__disconnects++; },

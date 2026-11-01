@@ -113,6 +113,20 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     await ctx.close();
   }
 
+  // ---- eth_accounts and the session name different accounts on VYRE: refused at connect, nothing connected
+  {
+    const { pg, ctx } = await open(() => {});
+    await pg.evaluate(() => { window.__fake.sessionAccount = '0x90F79bf6EB2c4f870365E785982E1f101E93b906'; });
+    await chooseWc(pg);
+    await pg.waitForSelector('.wc-qr');
+    await pg.evaluate(() => window.__pair.resolve());
+    await pg.waitForSelector('.modal-card [role=alert]');
+    ok(await who(pg) === 'none', 'a provider whose eth_accounts differs from its session account is not connected');
+    ok(await pg.evaluate(() => window.__disconnects) === 1, 'and the connection it made is ended');
+    ok(await pg.evaluate(() => localStorage.getItem('minta.wc:3045')) === null, 'and nothing is kept');
+    await ctx.close();
+  }
+
   // ---- the wallet moves to another network, then another account, mid-flow
   {
     const { pg, ctx } = await open();
