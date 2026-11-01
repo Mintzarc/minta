@@ -144,7 +144,7 @@ for (const [size, cfg] of Object.entries(SIZES)) {
     await tp.waitForTimeout(3500);
     const tt = await tp.locator('body').innerText();
     if (/Connect with WalletConnect: your wallet app opens/.test(tt)) {
-      ok(size, /Open minta\.vyrechain\.com in your wallet app’s browser/.test(tt), 'in the app the wallet page says to open minta.vyrechain.com in the wallet app’s browser');
+      ok(size, /Or open minta\.vyrechain\.com in your wallet app’s browser/.test(tt), 'in the app the wallet page says to open minta.vyrechain.com in the wallet app’s browser');
       const trust = await tp.locator('a:has-text("Open in Trust Wallet")').first().getAttribute('href');
       ok(size, trust === 'https://link.trustwallet.com/open_url?coin_id=60&url=https://minta.vyrechain.com', 'the Trust Wallet button uses the documented link');
       ok(size, (await tp.getByRole('button', { name: 'Copy link' }).count()) >= 1, 'the note has a Copy link button');

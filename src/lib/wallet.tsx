@@ -10,7 +10,7 @@ import { NETWORK } from './network';
 import { VYRE_CHAIN, onWalletsChanged, switchTo, walletOn, wallets, type WalletInfo } from './chain';
 import { storeKey } from './storeKey';
 import { WcError, assertWcLive, guardWc, isWcProvider, savedMark, setSavedMark, wcDriver, type WcProvider } from './wc';
-import { WC_RESTORE_NOTE, classifyWcError, wcLiveCheck, wcMessage, wcNext, type WcFailure, type WcState } from './wcstate';
+import { WC_RESTORE_NOTE, classifyWcError, sessionHasAccount, wcLiveCheck, wcMessage, wcNext, type WcFailure, type WcState } from './wcstate';
 import { FACEID_KEY, checkEarlier, createFaceId, faceIdSigner, forgetFaceId, loadFaceId, signInFaceId, type FaceIdSession } from './faceid';
 import {
   EMAIL_TRADE_NOTE, WalletApiError, clearSession, loadSession, saveSession, signInWithEmail, walletConfig, walletsOf, withSession,
@@ -180,9 +180,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const [chainId, accounts] = await Promise.all([raw.request({ method: 'eth_chainId' }), raw.request({ method: 'eth_accounts' })]);
     const first = Array.isArray(accounts) && typeof accounts[0] === 'string' ? (accounts[0] as string) : '';
     const live = first ? wcLiveCheck({ wantChain: VYRE_CHAIN.id, chainId, account: first, accounts, expiry: raw.session?.expiry, now: Date.now() }) : null;
-    if (!first || !live || !live.ok) {
+    // the address eth_accounts shows must be the one the WalletConnect session lists on VYRE (not merely “some” account on VYRE)
+    const onSession = first ? sessionHasAccount(raw.session?.namespaces?.eip155?.accounts, VYRE_CHAIN.id, raw.session?.expiry, Date.now()) : null;
+    if (!first || !live || !live.ok || !onSession || onSession.toLowerCase() !== first.toLowerCase()) {
       await raw.disconnect?.().catch(() => {});
-      throw new WcError(live && !live.ok ? live.why : 'chain', live && !live.ok ? live.message : undefined);
+      const why = live && !live.ok ? live.why : (!onSession ? 'chain' : 'other');
+      throw new WcError(why, live && !live.ok ? live.message : undefined);
     }
     const addr = getAddress(first);
     wcRaw.current = raw;

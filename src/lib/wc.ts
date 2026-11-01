@@ -10,7 +10,8 @@ import type { EIP1193Provider } from 'viem';
 import { VYRE_CHAIN } from './chain';
 import { SITE_URL } from './twa';
 import {
-  WC_EVENTS, WC_OPTIONAL_METHODS, WC_RELAY_TIMEOUT_MS, WC_RELAY_URL, WC_REQUIRED_METHODS, classifyWcError, sessionHasAccount, wcLiveCheck, wcMessage, wcProjectId,
+  WC_EVENTS, WC_OPTIONAL_METHODS, WC_RELAY_TIMEOUT_MS, WC_RELAY_URL, WC_REQUIRED_METHODS,
+  classifyWcError, sessionHasAccount, wcLiveCheck, wcMessage, wcProjectId,
   type WcFailure,
 } from './wcstate';
 
@@ -133,16 +134,38 @@ const SIGNS: ReadonlySet<string> = new Set(['eth_sendTransaction', 'wallet_sendT
 const SWITCHES: ReadonlySet<string> = new Set(['wallet_switchEthereumChain', 'wallet_addEthereumChain']);
 const LOST = /no matching key|session topic doesn.?t exist|missing or invalid\. (?:request|session)|session (?:not found|deleted)|pairing .*(?:not found|expired)/i;
 
+/** The address a signing request names, or null when it names none / can’t be read (a raw transaction has none: it is refused). */
+function signingAccount(method: string, params: unknown): string | null {
+  if (!Array.isArray(params)) return null;
+  if (method === 'eth_sendTransaction' || method === 'wallet_sendTransaction' || method === 'eth_signTransaction') {
+    const from = (params[0] as { from?: unknown } | undefined)?.from;
+    return typeof from === 'string' ? from : null;
+  }
+  if (method === 'eth_sendRawTransaction') return null;
+  if (method === 'personal_sign') return typeof params[1] === 'string' ? params[1] : null;
+  if (method === 'eth_sign' || method === 'eth_signTypedData' || method === 'eth_signTypedData_v3' || method === 'eth_signTypedData_v4') {
+    return typeof params[0] === 'string' ? params[0] : null;
+  }
+  return null;
+}
+
 /**
  * The provider the rest of the app uses for a WalletConnect connection. Every request that asks the wallet to sign is first checked:
- * the connection is on VYRE's chain, still lists the account the app shows, hasn't expired, and a transaction is from that account.
- * A request to move the wallet to another chain is refused (this connection is VYRE's only). `onLost` hears when the connection is found gone.
+ * the connection is on VYRE's chain, still lists the account the app shows, hasn't expired, and the request is for that account
+ * (a send, a signature, or typed data — not only eth_sendTransaction). A raw transaction is refused (it can’t be bound to the
+ * account). A request to move the wallet to another chain is refused (this connection is VYRE's only). `onLost` hears when the
+ * connection is found gone.
  */
 export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailure) => void): WcProvider {
   const live = async () => {
     const [chainId, accounts] = await Promise.all([raw.request({ method: 'eth_chainId' }).catch(() => null), raw.request({ method: 'eth_accounts' }).catch(() => null)]);
     const r = wcLiveCheck({ wantChain: CHAIN_ID, chainId, account, accounts, expiry: raw.session?.expiry, now: Date.now() });
     if (!r.ok) { if (r.why === 'expired') onLost('expired'); throw new WcError(r.why, r.message); }
+    // eth_accounts and the session must name the same VYRE account (a lying provider must not show one address and sign as another)
+    const onSession = sessionHasAccount(raw.session?.namespaces?.eip155?.accounts, CHAIN_ID, raw.session?.expiry, Date.now());
+    if (!onSession || onSession.toLowerCase() !== account.toLowerCase()) {
+      throw new WcError('other', 'The account in your wallet changed, so nothing was sent. Disconnect and connect again.');
+    }
   };
   const request = async (args: { method: string; params?: unknown }) => {
     if (args && SWITCHES.has(args.method)) {
@@ -152,9 +175,14 @@ export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailur
     }
     if (!args || !SIGNS.has(args.method)) return raw.request(args as Parameters<EIP1193Provider['request']>[0]);
     await live();
-    if (args.method === 'eth_sendTransaction' || args.method === 'wallet_sendTransaction') {
-      const from = (args.params as { from?: unknown }[] | undefined)?.[0]?.from;
-      if (typeof from !== 'string' || from.toLowerCase() !== account.toLowerCase()) throw new WcError('other', 'That transaction isn’t from the account you connected, so nothing was sent.');
+    if (args.method === 'eth_sendRawTransaction') {
+      throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
+    }
+    const who = signingAccount(args.method, args.params);
+    if (typeof who !== 'string' || who.toLowerCase() !== account.toLowerCase()) {
+      const kind = args.method === 'eth_sendTransaction' || args.method === 'wallet_sendTransaction' || args.method === 'eth_signTransaction'
+        ? 'transaction' : 'signature';
+      throw new WcError('other', `That ${kind} isn’t from the account you connected, so nothing was sent.`);
     }
     try {
       return await (raw.request as (a: unknown, chain?: string) => Promise<unknown>)(args, CAIP);
