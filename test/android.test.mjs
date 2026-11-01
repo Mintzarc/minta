@@ -256,6 +256,8 @@ test('key files of any spelling stay out of git (.gitignore), and the descriptio
 // Google Play's Blockchain-based content policy: "You may not promote or glamorize any potential earning from playing or trading activities."
 // What a Play reviewer reads (the store texts and every picture's alt text) and the pages the app opens first describe where a tax goes as a
 // fact of the contract, never as something to gain: none of these words or phrases may appear.
+// Achievement and hype words: banned in the store texts and the pages' words (a code identifier such as a stats field is not a word on a page)
+const HYPE_WORDS = /\b(graduat\w*|trending|grow|moon\w*|rocket\w*|gems?|pump\w*|milestone reached)\b/i;
 const EARNING_WORDS = /\b(earn(s|ed|ing|ings)?|profit(s|able|ably)?|income|rewards?|passive|revenue|winnings?|gains?|get rich|make money|moon(s|ing)?|lambo|keep ninety|keeps? 90|creators? keeps?|keeps? (the |a )?(whole|all|90|nine|ninety)|nine tenths? (to|for) you)/i;
 test('the store texts and alt text carry no earning, profit or income wording', () => {
   const dir = path.join(ROOT, 'store/android');
@@ -265,6 +267,8 @@ test('the store texts and alt text carry no earning, profit or income wording', 
     read(`store/android/${f}`).split('\n').forEach((line, i) => {
       const m = EARNING_WORDS.exec(line);
       assert.equal(m, null, `store/android/${f}:${i + 1} promotes or implies earning ("${m && m[0]}")`);
+      const h = HYPE_WORDS.exec(line);
+      assert.equal(h, null, `store/android/${f}:${i + 1} uses an achievement or hype word ("${h && h[0]}")`);
     });
   }
 });
@@ -276,6 +280,12 @@ test('the pages the Android app opens first state where the tax goes as a fact, 
     const m = EARNING_WORDS.exec(scrubbed);
     assert.equal(m, null, `${f} promotes or implies earning ("${m && m[0]}")`);
   }
-  assert.doesNotMatch(read('src/pages/Docs.tsx'), /Fees & revenue|Creators keep|earn a tax/);
+  // the words people read on the cards, the token page, Explore and the docs (identifiers like `graduated` in code are not words on a page)
+  for (const f of ['src/pages/Docs.tsx', 'src/pages/Explore.tsx', 'src/pages/Token.tsx', 'src/components/TokenCard.tsx', 'public/agents/index.html']) {
+    const code = read(f).split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n').replace(/\.graduated|graduated:|'graduated'|=== 'graduated'|graduated \?/g, '');
+    const h = HYPE_WORDS.exec(code);
+    assert.equal(h, null, `${f} uses an achievement or hype word ("${h && h[0]}")`);
+  }
+  assert.doesNotMatch(read('src/pages/Docs.tsx'), /Fees & revenue|Creators keep|earn a tax|Build\.<br \/><em>Launch\.<\/em> Grow/);
   assert.doesNotMatch(read('public/agents/index.html'), /45 USDC/);
 });

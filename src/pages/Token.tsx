@@ -169,9 +169,9 @@ export default function Token({ token }: { token: Address }) {
       {stats && (
         <div className="milestone">
           {stats.graduated
-            ? <p className="small"><b className="up">Graduated</b> <span className="muted">· {usd(stats.raised)} of USDC bought in, net of sales: at or above the {MILESTONE_TEXT} milestone.</span></p>
-            : <p className="small"><b>{Math.min(99.9, stats.progress * 100).toFixed(1)}% of milestone</b> <span className="muted">· {usd(stats.raised)} of {MILESTONE_TEXT} of USDC bought in, net of sales</span></p>}
-          <div className="bar" role="img" aria-label={`${Math.min(100, stats.progress * 100).toFixed(1)}% of the milestone`}><span style={{ width: `${Math.min(100, stats.progress * 100)}%` }} /></div>
+            ? <p className="small"><b>{usd(stats.raised)} bought in</b> <span className="muted">· net of sales: at least {MILESTONE_TEXT}</span></p>
+            : <p className="small"><b>{usd(stats.raised)} of {MILESTONE_TEXT} bought in</b> <span className="muted">· net of sales</span></p>}
+          <div className="bar" role="img" aria-label={`${usd(stats.raised)} of ${MILESTONE_TEXT} bought in`}><span style={{ width: `${Math.min(100, stats.progress * 100)}%` }} /></div>
         </div>
       )}
 

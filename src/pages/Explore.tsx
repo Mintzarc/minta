@@ -1,4 +1,4 @@
-// The home page: the top launches by liquidity, then every launch under Trending, New (not yet at the milestone) or Graduated, sorted by last trade,
+// The home page: the top launches by liquidity, then every launch under Most traded, New (not yet at the line) or At least the line bought in, sorted by last trade,
 // market cap, creation or the day's volume, as cards or a table. A search from the header can narrow it (?q=).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
@@ -19,9 +19,9 @@ import { matches } from '../components/Search';
 
 const PAGE = 36;
 const TABS = [
-  { key: 'trending', label: 'Most traded', icon: <path d="M13 3 5 14h6l-1 7 8-11h-6z" /> },
+  { key: 'traded', label: 'Most traded', icon: <path d="M13 3 5 14h6l-1 7 8-11h-6z" /> },
   { key: 'new', label: 'New', icon: <path d="M12 20v-8m0 0c0-4 3-6 8-6 0 4-3 6-8 6Zm0 0C12 8 9.5 6.5 4 6.5c0 3.5 2.5 5.5 8 5.5Z" /> },
-  { key: 'graduated', label: 'Graduated', icon: <><circle cx="12" cy="9" r="5" /><path d="m9 13.5-1.5 7L12 18l4.5 2.5-1.5-7" /></> },
+  { key: 'graduated', label: `At least ${MILESTONE_TEXT} bought in`, icon: <><path d="M4 19h16" /><path d="M7 19v-6M12 19V8M17 19v-9" /></> },
 ] as const;
 const SORTS = [
   { key: 'last', label: 'Last trade' },
@@ -142,7 +142,7 @@ export default function Explore({ q = '' }: { q?: string }) {
     // (until the figures load, nothing is known to be graduated)
     if (tab === 'new') r = r.filter((l) => !st(l)?.graduated);
     if (tab === 'graduated') r = r.filter((l) => st(l)?.graduated);
-    const by = tab === 'trending' ? 'volume' : sort;
+    const by = tab === 'traded' ? 'volume' : sort;
     const last = (l: Listed) => st(l)?.lastTradeBlock ?? 0n;
     const vol = (l: Listed) => st(l)?.volume24 ?? 0n;
     const cmp = (x: bigint, y: bigint) => (x > y ? 1 : x < y ? -1 : 0);
@@ -176,7 +176,7 @@ export default function Explore({ q = '' }: { q?: string }) {
           <div className="feed-tools">
             <label className="sel">
               <span className="sr">Sort by</span>
-              <select value={tab === 'trending' ? 'volume' : sort} disabled={tab === 'trending'} onChange={(e) => setSort(e.target.value as Sort)}>
+              <select value={tab === 'traded' ? 'volume' : sort} disabled={tab === 'traded'} onChange={(e) => setSort(e.target.value as Sort)}>
                 {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
             </label>
@@ -190,14 +190,14 @@ export default function Explore({ q = '' }: { q?: string }) {
             </div>
           </div>
           {q && <p className="small filter-note">Showing tokens matching {term ? <>“<bdi>{term}</bdi>”</> : 'your search'}. <a href={href({ page: 'explore' })}>Clear</a></p>}
-          {tab !== 'trending' && <p className="muted small milestone-note">Milestone: {MILESTONE_TEXT} of USDC bought into a token’s pool, net of sales{NETWORK.testnet ? ' (a testnet figure)' : ''}. Graduated shows the tokens at or above it now.</p>}
+          {tab !== 'traded' && <p className="muted small milestone-note">Bought in is the USDC bought into a token’s pool, net of sales. The last tab lists the tokens at or above {MILESTONE_TEXT}{NETWORK.testnet ? ' (a testnet figure)' : ''} now.</p>}
           <HiddenNote />
           {statsState === 'error' && <p className="err small">The 24-hour figures couldn’t load just now: retrying. Figures shown may be out of date.</p>}
         </>
       )}
 
       {rows && rows.length === 0 && (
-        <div className="empty"><p>{q ? 'No token matches that.' : tab === 'graduated' ? (statsState === 'ok' ? 'No token is at the milestone right now.' : statsState === 'error' ? 'The figures couldn’t load: retrying.' : 'Loading the figures…') : 'No tokens here yet.'}</p><a className="btn btn-line btn-sm" href={href({ page: 'launch' })}>Create a token</a></div>
+        <div className="empty"><p>{q ? 'No token matches that.' : tab === 'graduated' ? (statsState === 'ok' ? `No token has ${MILESTONE_TEXT} bought in right now.` : statsState === 'error' ? 'The figures couldn’t load: retrying.' : 'Loading the figures…') : 'No tokens here yet.'}</p><a className="btn btn-line btn-sm" href={href({ page: 'launch' })}>Create a token</a></div>
       )}
       {rows && rows.length > 0 && view === 'grid' && (
         <ul className="cards">{rows.map((l) => <li key={l.token}><TokenCard l={l} s={st(l)} /><HideToken token={l.token} creator={l.creator} card /></li>)}</ul>

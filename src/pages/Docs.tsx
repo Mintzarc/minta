@@ -24,13 +24,13 @@ type Article = { slug: string; title: string; intro?: ReactNode; sections: Secti
 type Item = { label: string; icon: IconName; article: string; section?: string };
 type Group = { title: string; items: Item[] };
 
-type IconName = 'doc' | 'bolt' | 'shield' | 'chain' | 'rocket' | 'lock' | 'clock' | 'coin' | 'fee' | 'code' | 'users' | 'plug' | 'book' | 'help' | 'mail';
+type IconName = 'doc' | 'bolt' | 'shield' | 'chain' | 'launch' | 'lock' | 'clock' | 'coin' | 'fee' | 'code' | 'users' | 'plug' | 'book' | 'help' | 'mail';
 const ICONS: Record<IconName, string> = {
   doc: 'M7 3h7l4 4v14H7zM14 3v4h4M9.5 12h6M9.5 16h6',
   bolt: 'M13 3 5 14h6l-1 7 8-11h-6z',
   shield: 'M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z',
   chain: 'M12 12m-8 0a8 8 0 1 0 16 0 8 8 0 1 0-16 0M8 9l4 7 4-7',
-  rocket: 'M14 4c3 0 6 1 6 1s1 3 1 6l-5 5-6-6zM9 9l-5 1 3 3M15 15l-1 5-3-3M15 8.5h.01',
+  launch: 'M14 4c3 0 6 1 6 1s1 3 1 6l-5 5-6-6zM9 9l-5 1 3 3M15 15l-1 5-3-3M15 8.5h.01',
   lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3',
   clock: 'M12 12m-8 0a8 8 0 1 0 16 0 8 8 0 1 0-16 0M12 7.5V12l3 2',
   coin: 'M12 12m-8 0a8 8 0 1 0 16 0 8 8 0 1 0-16 0M12 8v8M9.5 10c0-1 1-1.5 2.5-1.5s2.5.5 2.5 1.5-1 1.2-2.5 1.5-2.5.5-2.5 1.5 1 1.5 2.5 1.5 2.5-.5 2.5-1.5',
@@ -189,7 +189,7 @@ const ARTICLES: Article[] = [
     sections: [
       { id: 'create', title: '1. Create', body: <p>The launch transaction creates the token, its pool and the locked liquidity, and makes your optional first buy.</p> },
       { id: 'trade', title: '2. Trade', body: <p>The token trades at once. Its page shows the price, market cap, volume, holders and the trades as they happen.</p> },
-      { id: 'milestone', title: '3. Milestone', body: <p>A token that has had enough USDC bought into its pool (net of sales) is marked <b>Graduated</b> on the Launchpad. It’s a label for browsing: nothing changes on chain when a token graduates. The line is {MILESTONE_TEXT} of USDC bought in.</p> },
+      { id: 'bought-in', title: '3. Bought in', body: <p>A token’s page and card show how much USDC has been bought into its pool, net of sales. Tokens at or above {MILESTONE_TEXT} are listed under “At least {MILESTONE_TEXT} bought in” on the Launchpad. It’s a label for browsing: nothing changes on chain when a token reaches it.</p> },
       { id: 'manage', title: '4. Manage', body: <p>On the token’s Manage page the creator can collect the tax, lower either tax, split the tax between up to four wallets, update the picture and links, and hand the creator role to another wallet (a two-step handover, so it can’t be sent to the wrong place by mistake).</p> },
     ],
   },
@@ -348,7 +348,7 @@ const GROUPS: Group[] = [
   {
     title: 'Launchpad',
     items: [
-      { label: 'Create a launch', icon: 'rocket', article: 'create-a-launch' },
+      { label: 'Create a launch', icon: 'launch', article: 'create-a-launch' },
       { label: 'Launch model', icon: 'shield', article: 'launch-model' },
       { label: 'Launch lifecycle', icon: 'clock', article: 'lifecycle' },
       { label: 'Tokenomics options', icon: 'coin', article: 'tokenomics' },
@@ -464,8 +464,8 @@ export default function Docs({ article, section }: { article?: string; section?:
           <header className="docs-hero" style={{ backgroundImage: `url(${ART}hero.webp)` }}>
             <div className="hero-copy">
               <p className="eyebrow">Welcome to MINTA</p>
-              <h1 className="display">Build.<br /><em>Launch.</em> Grow.</h1>
-              <p className="lede">The launchpad on the VYRE chain.<br />Instant launches. Paid in USDC.</p>
+              <h1 className="display">Launch a token<br /><em>on VYRE.</em></h1>
+              <p className="lede">The launchpad on the VYRE chain.<br />Instant launches. Fees in USDC.</p>
               <p className="small muted">{LIQUIDITY_FACT}</p>
               <div className="row">
                 <a className="btn btn-accent" href={href({ page: 'launch' })}>Get Started <Arrow /></a>
@@ -476,7 +476,7 @@ export default function Docs({ article, section }: { article?: string; section?:
         )}
         {intro && (
           <ul className="hero-cards">
-            <li><Icon name="rocket" /><div><b>Instant launches</b><span>One transaction, live at once.</span></div></li>
+            <li><Icon name="launch" /><div><b>Instant launches</b><span>One transaction, live at once.</span></div></li>
             <li><Icon name="shield" /><div><b>Built on VYRE</b><span>Gas is USDC; a trade costs a fraction of a cent.</span></div></li>
             <li><Icon name="users" /><div><b>Tools for creators</b><span>Supply, tax, tax split, first buy and links.</span></div></li>
             <li><Icon name="plug" /><div><b>Open to builders</b><span>{NETWORK.testnet ? 'An SDK, an app router and partner launchpads.' : 'Open contracts, a standard Uniswap v3 router and a public RPC.'}</span></div></li>
