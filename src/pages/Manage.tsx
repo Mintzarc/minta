@@ -103,7 +103,7 @@ export default function Manage({ token }: { token: Address }) {
       {account && isOffered && (
         <div className="card">
           <h2 className="h3">You’ve been offered this launch</h2>
-          <p className="small">Accept to become its creator: its taxes (now {pct(launch.buyTaxBps)} buy, {pct(launch.sellTaxBps)} sell) go to you from then on. Tax collected until now goes where the current creator set it.</p>
+          <p className="small">Accept to become its creator: its taxes (now {pct(launch.buyTaxBps)} buy, {pct(launch.sellTaxBps)} sell) {NETWORK.testnet ? 'go to you from then on' : 'are paid out to the creator’s tax wallets from then on (nine tenths of each payout; a tenth goes to the platform wallet)'}. Tax collected until now goes where the current creator set it.</p>
           <TxButton label="Accept" run={run({ functionName: 'acceptCreator', args: [token, launch.buyTaxBps, launch.sellTaxBps] }, 'You’re the creator now.')} />
         </div>
       )}

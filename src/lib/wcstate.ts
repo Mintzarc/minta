@@ -12,7 +12,7 @@ export const WC_RELAY_URL = `wss://${WC_RELAY_HOST}`;
 export const ADD_TO_WALLET_URL = 'https://vyrechain.com/add/';
 /** What the app asks the wallet to sign: sending a transaction is required; typed-data signing (the launch wizard's signature) is optional */
 export const WC_REQUIRED_METHODS = ['eth_sendTransaction'] as const;
-export const WC_OPTIONAL_METHODS = ['eth_signTypedData_v4', 'personal_sign'] as const;
+export const WC_OPTIONAL_METHODS = ['eth_signTypedData_v4'] as const;
 export const WC_EVENTS = ['chainChanged', 'accountsChanged'] as const;
 /** How long the app waits for the relay to answer before it says the relay can't be reached */
 export const WC_RELAY_TIMEOUT_MS = 20_000;

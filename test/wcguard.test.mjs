@@ -52,33 +52,50 @@ function fakeRaw(sent) {
   };
 }
 
-test('a signature or typed-data request for another account is refused and never reaches the wallet', async () => {
+test('typed data and a transaction for another account are refused and never reach the wallet', async () => {
   const { guardWc } = loadGuard();
   const sent = [];
   const g = guardWc(fakeRaw(sent), ME, () => {});
   for (const [method, params] of [
-    ['personal_sign', ['0x6869', OTHER]],
-    ['eth_sign', [OTHER, '0x6869']],
-    ['eth_signTypedData', [OTHER, {}]],
-    ['eth_signTypedData_v3', [OTHER, {}]],
     ['eth_signTypedData_v4', [OTHER, '{}']],
+    ['eth_signTypedData_v4', [ME.toLowerCase().replace('0x7', '0x8'), '{}']],
+    ['eth_signTypedData_v4', []],
+    ['eth_signTypedData_v4', { 0: ME }],
+    ['eth_sendTransaction', [{ from: OTHER, to: OTHER }]],
+    ['eth_sendTransaction', [{ to: OTHER }]],
   ]) {
     sent.length = 0;
     await assert.rejects(() => g.request({ method, params }), /account you connected|isn’t from the account/i, method);
     assert.equal(sent.length, 0, `${method} must not reach the wallet`);
   }
-  // the connected account may still sign
-  sent.length = 0;
-  assert.equal(await g.request({ method: 'personal_sign', params: ['0x6869', ME] }), '0xok');
-  assert.equal(sent.length, 1);
+  // the connected account (any letter case) may sign and send
+  for (const who of [ME, ME.toLowerCase()]) {
+    sent.length = 0;
+    assert.equal(await g.request({ method: 'eth_signTypedData_v4', params: [who, '{}'] }), '0xok');
+    assert.equal(await g.request({ method: 'eth_sendTransaction', params: [{ from: who, to: OTHER }] }), '0xok');
+    assert.equal(sent.length, 2);
+  }
 });
 
-test('a raw transaction cannot be bound to the connected account, so it is refused', async () => {
+test('only an allow-list reaches the wallet: every other method, wallet_* included, is refused before it', async () => {
   const { guardWc } = loadGuard();
   const sent = [];
   const g = guardWc(fakeRaw(sent), ME, () => {});
-  await assert.rejects(() => g.request({ method: 'eth_sendRawTransaction', params: ['0xdead'] }), /nothing was sent|cannot|refused|raw/i);
-  assert.equal(sent.length, 0);
+  for (const method of [
+    'eth_sendRawTransaction', 'eth_signTransaction', 'eth_sign', 'personal_sign', 'eth_signTypedData', 'eth_signTypedData_v3',
+    'wallet_sendCalls', 'wallet_sendTransaction', 'wallet_requestPermissions', 'wallet_grantPermissions', 'wallet_getCapabilities',
+    'wallet_watchAsset', 'wallet_anything', 'eth_getBalance', 'eth_call', 'eth_sendTransaction ', 'ETH_SENDTRANSACTION', '',
+  ]) {
+    sent.length = 0;
+    await assert.rejects(() => g.request({ method, params: [ME, '{}'] }), /isn’t used here, so nothing was sent/, method);
+    assert.equal(sent.length, 0, `${JSON.stringify(method)} must not reach the wallet`);
+  }
+  await assert.rejects(() => g.request(undefined), /nothing was sent/);
+  await assert.rejects(() => g.request({ method: 7 }), /nothing was sent/);
+  // the plain reads the app makes still go through
+  sent.length = 0;
+  assert.equal(await g.request({ method: 'eth_chainId' }), '0xbe5');
+  assert.deepEqual(await g.request({ method: 'eth_accounts' }), [ME]);
 });
 
 test('a session that lists a different VYRE account than eth_accounts is refused before anything is signed', async () => {
@@ -92,7 +109,7 @@ test('a session that lists a different VYRE account than eth_accounts is refused
     namespaces: { eip155: { accounts: [`eip155:3045:${OTHER}`] } },
   };
   const g = guardWc(raw, ME, () => {});
-  await assert.rejects(() => g.request({ method: 'personal_sign', params: ['0x6869', ME] }), /account/i);
+  await assert.rejects(() => g.request({ method: 'eth_signTypedData_v4', params: [ME, '{}'] }), /account/i);
   assert.equal(sent.length, 0);
 });
 

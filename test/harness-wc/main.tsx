@@ -37,7 +37,7 @@ const provider: WcProvider = {
     const f = w.__fake;
     if (method === 'eth_chainId') return `0x${f.chain.toString(16)}`;
     if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [f.account];
-    if (method === 'eth_sendTransaction' || method === 'eth_signTypedData_v4' || method === 'personal_sign') {
+    if (method === 'eth_sendTransaction' || method === 'eth_signTypedData_v4') {
       w.__sent.push({ method, params, chain });
       if (f.lost) throw new Error('No matching key. session topic doesn\'t exist: abc');
       if (f.reject) throw Object.assign(new Error('User rejected.'), { code: 5000 });

@@ -130,22 +130,21 @@ const MARK = `minta.wc:${CHAIN_ID}`;
 export function savedMark(): boolean { try { return localStorage.getItem(MARK) === '1'; } catch { return false; } }
 export function setSavedMark(on: boolean): void { try { if (on) localStorage.setItem(MARK, '1'); else localStorage.removeItem(MARK); } catch { /* private mode */ } }
 
-const SIGNS: ReadonlySet<string> = new Set(['eth_sendTransaction', 'wallet_sendTransaction', 'eth_signTransaction', 'eth_sendRawTransaction', 'eth_sign', 'personal_sign', 'eth_signTypedData', 'eth_signTypedData_v3', 'eth_signTypedData_v4']);
+/** The only requests that ask the wallet to sign: both are bound to the connected account. Every other method is refused. */
+const SIGNS: ReadonlySet<string> = new Set(['eth_sendTransaction', 'eth_signTypedData_v4']);
+/** The few plain reads the app makes through this connection (answered by the library from the session) */
+const READS: ReadonlySet<string> = new Set(['eth_chainId', 'eth_accounts', 'eth_requestAccounts']);
 const SWITCHES: ReadonlySet<string> = new Set(['wallet_switchEthereumChain', 'wallet_addEthereumChain']);
 const LOST = /no matching key|session topic doesn.?t exist|missing or invalid\. (?:request|session)|session (?:not found|deleted)|pairing .*(?:not found|expired)/i;
 
-/** The address a signing request names, or null when it names none / can’t be read (a raw transaction has none: it is refused). */
+/** The address a signing request names, or null when it names none / can’t be read */
 function signingAccount(method: string, params: unknown): string | null {
   if (!Array.isArray(params)) return null;
-  if (method === 'eth_sendTransaction' || method === 'wallet_sendTransaction' || method === 'eth_signTransaction') {
+  if (method === 'eth_sendTransaction') {
     const from = (params[0] as { from?: unknown } | undefined)?.from;
     return typeof from === 'string' ? from : null;
   }
-  if (method === 'eth_sendRawTransaction') return null;
-  if (method === 'personal_sign') return typeof params[1] === 'string' ? params[1] : null;
-  if (method === 'eth_sign' || method === 'eth_signTypedData' || method === 'eth_signTypedData_v3' || method === 'eth_signTypedData_v4') {
-    return typeof params[0] === 'string' ? params[0] : null;
-  }
+  if (method === 'eth_signTypedData_v4') return typeof params[0] === 'string' ? params[0] : null;
   return null;
 }
 
@@ -173,15 +172,14 @@ export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailur
       if (typeof want === 'string' && Number(want) === CHAIN_ID) return null; // already on it, by construction
       throw new WcError('chain', `This connection works on ${VYRE_CHAIN.name} only. To use another network, use your wallet app directly.`);
     }
-    if (!args || !SIGNS.has(args.method)) return raw.request(args as Parameters<EIP1193Provider['request']>[0]);
+    if (!args || typeof args.method !== 'string') throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
+    if (READS.has(args.method)) return raw.request(args as Parameters<EIP1193Provider['request']>[0]);
+    // an allow-list: anything that is not a read above or a bound signing request below never reaches the wallet
+    if (!SIGNS.has(args.method)) throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
     await live();
-    if (args.method === 'eth_sendRawTransaction') {
-      throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
-    }
     const who = signingAccount(args.method, args.params);
     if (typeof who !== 'string' || who.toLowerCase() !== account.toLowerCase()) {
-      const kind = args.method === 'eth_sendTransaction' || args.method === 'wallet_sendTransaction' || args.method === 'eth_signTransaction'
-        ? 'transaction' : 'signature';
+      const kind = args.method === 'eth_sendTransaction' ? 'transaction' : 'signature';
       throw new WcError('other', `That ${kind} isn’t from the account you connected, so nothing was sent.`);
     }
     try {

@@ -198,7 +198,7 @@ test('wording: the privacy page, terms and listing say what WalletConnect sees, 
   assert.match(priv, /href="\/licenses\/walletconnect\.txt"/);
   assert.match(priv, /verify\.walletconnect\.org/);
   assert.match(priv, /MINTA turns off the library’s usage reporting/);
-  assert.match(priv, /Nothing is sent to WalletConnect if you don’t pick it/);
+  assert.match(priv, /Nothing is sent to WalletConnect until you pick it, and nothing after you disconnect/);
   assert.match(priv, /and so does the WalletConnect service if you connect a wallet with it/);
   assert.equal(/no tracking\b(?! cookies)/i.test(priv), false, 'no bare "no tracking"');
   assert.match(priv, /There are no accounts, no ads, no analytics and no tracking cookies/);
@@ -240,4 +240,23 @@ test('the connect sheet and the buttons: the sheet names no remote picture, the 
   const ui = read('src/components/ui.tsx');
   assert.match(ui, /onClick=\{\(\) => \{ setOpen\(false\); connectWalletConnect\(\); \}\}>WalletConnect/);
   assert.match(read('src/App.tsx'), /<WalletConnectSheet \/>/);
+});
+
+test('privacy says the relay is also contacted on later visits while a saved connection exists, and that the connection is kept in local storage', () => {
+  // src/lib/wallet.tsx restores a saved connection on load (wcDriver().restore()), which opens the relay without a new tap
+  assert.match(read('src/lib/wallet.tsx'), /savedMark\(\)[\s\S]{0,200}wcDriver\(\)\.restore\(\)/);
+  for (const f of ['public/privacy/index.html', 'public/privacy-testnet/index.html']) {
+    const t = read(f);
+    assert.equal(/only when you pick it|only if you choose WalletConnect|if you don.t pick it/i.test(t), false, `${f}: a claim that holds only for a first connection`);
+    assert.match(t, /again on later visits while a saved connection exists/);
+    assert.match(t, /sets no cookies; a WalletConnect connection is kept in this browser’s local storage/);
+  }
+  const a = read('docs/ANDROID.md');
+  assert.equal(/only if the user chooses WalletConnect/i.test(a), false);
+  assert.match(a, /again on later visits while a saved connection exists/);
+});
+
+test('only the methods the app uses are asked of the wallet at connect (no personal_sign)', () => {
+  assert.match(read('src/lib/wcstate.ts'), /WC_REQUIRED_METHODS = \['eth_sendTransaction'\]/);
+  assert.match(read('src/lib/wcstate.ts'), /WC_OPTIONAL_METHODS = \['eth_signTypedData_v4'\] as const/);
 });

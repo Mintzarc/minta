@@ -273,6 +273,25 @@ test('the store texts and alt text carry no earning, profit or income wording', 
   }
 });
 
+test('no Play-visible source (every page, component, fee text, public page, llms file and store text) has earning wording', () => {
+  const walk = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : [`${d}/${e.name}`]));
+  const files = [
+    ...walk('src/pages').filter((f) => f.endsWith('.tsx')), ...walk('src/components').filter((f) => f.endsWith('.tsx')), 'src/lib/fees.ts',
+    ...walk('public').filter((f) => f.endsWith('.html') || /\/llms[^/]*\.txt$/.test(f)),
+    ...walk('store/android').filter((f) => f.endsWith('.txt')),
+  ];
+  assert.ok(files.length >= 30 && files.includes('src/components/TokenCard.tsx') && files.includes('public/privacy/index.html') && files.includes('store/android/full-description.txt'));
+  const seen = [];
+  for (const f of files) {
+    // comments are not words on a page; the Terms' two "profits" lines are warnings (a limit of liability, a ban on promises of profits)
+    const text = read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').split('\n').filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n')
+      .replace(/loss of funds, tokens, profits or data/g, '').replace(/promises of profits/g, '').replace(/consequential or punitive[^.]*?profits[^.]*?\./g, '');
+    const m = EARNING_WORDS.exec(text);
+    if (m) seen.push(`${f} ("${m[0]}")`);
+  }
+  assert.deepEqual(seen, [], 'earning wording in a Play-visible source');
+});
+
 test('the pages the Android app opens first state where the tax goes as a fact, without earning wording', () => {
   for (const f of ['src/pages/Docs.tsx', 'src/pages/Manage.tsx', 'src/lib/fees.ts', 'public/agents/index.html', 'public/terms/index.html']) {
     // "profits" appears once in the Terms' limit of liability and once in the ban on promises of profits: both are warnings
@@ -288,4 +307,16 @@ test('the pages the Android app opens first state where the tax goes as a fact, 
   }
   assert.doesNotMatch(read('src/pages/Docs.tsx'), /Fees & revenue|Creators keep|earn a tax|Build\.<br \/><em>Launch\.<\/em> Grow/);
   assert.doesNotMatch(read('public/agents/index.html'), /45 USDC/);
+});
+
+test('the creator pages do not say the tax "goes to you" on mainnet, where a tenth of each payout goes to the platform wallet', () => {
+  const m = read('src/pages/Manage.tsx');
+  assert.equal(/go to you from then on/.test(m.replace(/NETWORK\.testnet \? 'go to you from then on'/, '')), false, 'only the testnet branch may say "go to you"');
+  assert.match(m, /nine tenths of each payout; a tenth goes to the platform wallet/);
+  for (const f of ['src/pages/Manage.tsx', 'src/pages/Launch.tsx', 'src/pages/Token.tsx', 'src/pages/Docs.tsx', 'src/lib/fees.ts']) {
+    // every "paid to you" / "to you" about the tax sits in a testnet-only branch or beside the platform wallet's tenth
+    for (const line of read(f).split('\n').filter((l) => /(paid|goes?|go) to you/i.test(l))) {
+      assert.ok(/testnet|TESTNET|IS_TESTNET|: 'paid to you'|`Paid to you/.test(line), `${f}: "${line.trim().slice(0, 90)}" is not limited to the testnet`);
+    }
+  }
 });
