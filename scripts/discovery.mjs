@@ -103,7 +103,7 @@ For people: ${SITE}/agents/
 - A creator can lower the tax later, never raise it, and never below ${f.minTaxPct}%.
 - When the tax is paid out, the platform takes a tenth of it (${tenth(f)}, to ${f.platformWallet}) and the creator's tax wallets get the rest.
 - No other fee is added to a trade. Every transaction also pays the network fee, in USDC.
-- Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator's tax wallets.
+- Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; of each payout, one tenth goes to the platform wallet and nine tenths to the creator's tax wallets.
 
 ## Using MINTA from an AI assistant or a script
 
@@ -322,9 +322,7 @@ Task: `;
   <link rel="alternate" type="text/plain" href="${SITE}/llms.txt" title="llms.txt">
   <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/fonts/fonts.css">
   <link rel="stylesheet" href="/legal.css">
   <style>
     pre { margin: 12px 0 0; padding: 14px; background: #07131a; border: 1px solid var(--line-2); border-radius: 8px; color: var(--soft); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -379,7 +377,7 @@ Task: `;
       <ul>
         <li><b>Launch a token:</b> name, ticker, supply, and a creator tax of ${f.minTaxPct}% to ${f.maxTaxPct}% for buys and for sells. One transaction. An optional first buy of your own in the same transaction.</li>
         <li><b>Buy and sell:</b> with USDC, with a minimum amount out so a price move can’t take more than you accepted.</li>
-        <li><b>Collect a creator’s tax,</b> or lower it later (never raise it, never below ${f.minTaxPct}%).</li>
+        <li><b>Set or lower a creator’s tax</b> (never raise it, never below ${f.minTaxPct}%).</li>
         <li><b>Read launches:</b> the launchpad lists every token; the explorer shows the rest.</li>
       </ul>
     </section>
@@ -387,7 +385,7 @@ Task: `;
     <section>
       <h2>The fee rule</h2>
       <p>The creator’s tax is the only fee a trader pays. The creator sets it at launch, ${f.minTaxPct}% to ${f.maxTaxPct}% per side, and can lower it later, never raise it. When the tax is paid out, the platform takes a tenth of it and the creator’s tax wallets get the rest. No other fee is added; every transaction also pays the network fee, in USDC.</p>
-      <p>Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; paid out, 5 USDC goes to the platform wallet and 45 USDC to the creator’s tax wallets.</p>
+      <p>Example: a 1,000 USDC trade with a 5% tax pays 50 USDC of tax; of each payout, one tenth goes to the platform wallet and nine tenths to the creator’s tax wallets.</p>
     </section>
 
     <section>

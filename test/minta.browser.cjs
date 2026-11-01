@@ -144,6 +144,9 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
     await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
     await pg.fill('.wz-step input[placeholder="MYT"]', 'MYT');
     for (let i = 0; i < 4; i++) await pg.click('.wz-next');
+    // the Terms box must be ticked before Review does anything (the button is off until then)
+    ok(await pg.locator('.wz-step button[type=submit]:has-text("Review")').isDisabled(), 'Review is off until the Terms are accepted');
+    await pg.check('.accept-terms input');
     await pg.click('.wz-step button[type=submit]:has-text("Review")', { timeout: 5000 }).catch(() => {});
     await pg.waitForSelector('[role=dialog][aria-labelledby=review-title]', { timeout: 5000 }).catch(() => {});
     const dlg = pg.locator('[role=dialog][aria-labelledby=review-title]');
@@ -469,6 +472,8 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(/kept on another site/.test(await card.innerText()) && await card.locator(`a[href="${L[1].uri}"]`).count() === 1, 'and says saving the fields puts a new file in its place, with the current file’s link');
       await card.locator('button:has-text("Your own file (advanced)")').click();
       ok(await own.inputValue().catch(() => '') === L[1].uri, `“Your own file” starts from the launch’s current link (${JSON.stringify(await own.inputValue().catch(() => ''))})`);
+      ok(await save.isDisabled(), 'Save is off until the Terms are accepted');
+      await card.locator('.accept-terms input').check();
       ok(!(await save.isDisabled()), 'which can be saved as it is (nothing changes)');
       await own.fill('');
       ok(await save.isDisabled() && /Paste the link to your own file/.test(await card.innerText()), 'an emptied link is refused in words, not saved as no file');

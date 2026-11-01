@@ -7,7 +7,7 @@ import { NETWORK } from './network';
 const main = !NETWORK.testnet;
 
 /** Where the creator's tax goes, for a line next to a tax figure ("paid to you" on the testnet) */
-export const TAX_GOES = main ? 'in USDC; a tenth goes to the platform wallet, the rest to you' : 'paid to you';
+export const TAX_GOES = main ? 'in USDC; a tenth goes to the platform wallet, the rest to the creator’s tax wallets' : 'paid to you';
 
 /** The creator-facing sentence under the tax choice on the Create page; `range` is "1 to 10%" */
 export const creatorTaxLine = (range: string) => main

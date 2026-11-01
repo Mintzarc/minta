@@ -93,8 +93,10 @@ test('the privacy page names every call the pages make, and which stored things 
   const src = (f) => read(`src/${f}`);
   // the email sign-in settings, asked on every page by the wallet provider
   assert.match(src('lib/circle.ts'), /api<WalletConfig>\('\/wallet\/config'\)/);
-  assert.match(src('lib/wallet.tsx'), /useEffect\(\(\) => \{ walletConfig\(\)/);
-  assert.match(privacy, /Open any page[^.]*\.[^.]*\.[^|]*sign-in service \(api\.vyrechain\.com\) is asked whether email sign-in is offered/, 'every page asks the sign-in service');
+  // (only where email sign-in is offered, the test network: the testnet page says so, the mainnet page says nothing of it because it never asks)
+  assert.match(src('lib/wallet.tsx'), /useEffect\(\(\) => \{ if \(NETWORK\.emailSignIn\) walletConfig\(\)/);
+  assert.match(privacyT, /Open any page[^.]*\.[^.]*\.[^|]*sign-in service \(api\.vyrechain\.com\) is asked whether email sign-in is offered/, 'every testnet page asks the sign-in service');
+  assert.doesNotMatch(privacy, /email|sign-in|sign in/i, 'the mainnet page: no email sign-in, the app never offers it there');
   // the faucet, from the Wallet page
   assert.match(src('pages/Wallet.tsx'), /getFaucetStatus\(\)/);
   assert.match(privacyT, /faucet \(testnet-rpc\.vyrechain\.com\/faucet\)[^|]*your wallet address/, 'the faucet, and the wallet address a request sends it');

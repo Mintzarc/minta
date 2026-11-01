@@ -1,10 +1,10 @@
-// A launch as a card: its picture square on top with its 24-hour change and its milestone progress (or a Graduated
-// badge) over it, then its ticker, name and market cap, and its creator and age.
+// A launch as a card: its picture square on top with its 24-hour change (a plain number) and how much USDC has been
+// bought in over it, then its ticker, name and market cap, and its creator and age.
 import { useState } from 'react';
 import { ago, change, tokenText, usd } from '../lib/format';
 import type { Listed } from '../lib/market';
 import { href } from '../lib/router';
-import type { Stats } from '../lib/stats';
+import { MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { useMeta } from './ui';
 import Avatar from './Avatar';
 import TokenArt from './TokenArt';
@@ -17,19 +17,14 @@ export function TokenImage({ uri, symbol, token, className = '' }: { uri?: strin
   return <TokenArt className={`tok-img ${className}`} seed={token || symbol} />;
 }
 
-const Medal = () => (
-  <svg className="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="5" /><path d="m9 13.5-1.5 7L12 18l4.5 2.5-1.5-7" /></svg>
-);
-
 export default function TokenCard({ l, s }: { l: Listed; s?: Stats }) {
   const ch = s?.change24 != null ? change(s.change24) : null;
   return (
     <a className="tcard" href={href({ page: 'token', token: l.token })}>
       <div className="tcard-pic">
         <TokenImage uri={l.metadataURI} symbol={l.symbol} token={l.token} />
-        {s?.graduated && <span className="pill pill-tl" title="Graduated: at or above the milestone now"><Medal /><span className="sr">Graduated</span></span>}
-        {ch && <span className={`pill pill-tr ${ch.cls}`}>{ch.text}{!s?.graduated && <span className="muted"> 24h</span>}</span>}
-        {s && <span className="pill pill-bl">{s.graduated ? 'Milestone reached' : `${Math.min(99.9, s.progress * 100).toFixed(1)}% of milestone`}</span>}
+        {ch && <span className="pill pill-tr">{ch.text}<span className="muted"> 24h</span></span>}
+        {s && <span className="pill pill-bl">{s.graduated ? `At least ${MILESTONE_TEXT} bought in` : `${usd(s.raised)} of ${MILESTONE_TEXT} bought in`}</span>}
       </div>
       <div className="tcard-body">
         <p className="tcard-sym">$<bdi>{tokenText(l.symbol)}</bdi></p>

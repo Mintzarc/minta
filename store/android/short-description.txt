@@ -1,0 +1,1 @@
+Launch and trade tokens on VYRE. Connect your wallet app with WalletConnect.

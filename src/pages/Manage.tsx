@@ -12,6 +12,7 @@ import { loweredTaxes, refusedForSplit, splitBps, taxSplitProblem } from '../lib
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton } from '../components/ui';
+import { BlockedToken, useTokenGate } from '../components/Hidden';
 import { LaunchFileFields, emptyLaunchFile, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { API_URL, hasContent, saveLaunchFile, withUploadedPicture, type LaunchFile } from '../lib/api';
 
@@ -38,6 +39,7 @@ async function padTx(wallet: WalletLike, call: PadCall): Promise<Hash> {
 export default function Manage({ token }: { token: Address }) {
   const { account, onVyre, confirmHint } = useWallet();
   const emailCantTrade = useEmailCantTrade();
+  const gate = useTokenGate();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [wallets, setWallets] = useState<Split | null>(null);
   const [pending, setPending] = useState<Address | null>(null);
@@ -69,12 +71,14 @@ export default function Manage({ token }: { token: Address }) {
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  if (launch === undefined) {
-    return readErr
+  if (launch === undefined || !gate.ready) {
+    return readErr && launch === undefined
       ? <div className="empty"><p>Couldn’t reach VYRE just now, so the launch couldn’t be read.</p><button className="btn btn-line btn-sm" type="button" onClick={() => { setReadErr(false); load(); }}>Try again</button></div>
       : <Loading what="Reading the launch" />;
   }
   if (launch === null) return <p className="err">That address isn’t a launch.</p>;
+  // a token or creator MINTA's team hides: no name, picture, creator or link to its pages
+  if (gate.blocked(launch)) return <BlockedToken />;
   const isCreator = !!account && getAddress(account) === getAddress(launch.creator);
   const isOffered = !!account && !!pending && getAddress(account) === getAddress(pending);
   const run = (call: PadCall, text: string) => async (say: (t: string) => void) => {
@@ -99,7 +103,7 @@ export default function Manage({ token }: { token: Address }) {
       {account && isOffered && (
         <div className="card">
           <h2 className="h3">You’ve been offered this launch</h2>
-          <p className="small">Accept to become its creator: its taxes (now {pct(launch.buyTaxBps)} buy, {pct(launch.sellTaxBps)} sell) go to you from then on. Tax earned until now goes where the current creator set it.</p>
+          <p className="small">Accept to become its creator: its taxes (now {pct(launch.buyTaxBps)} buy, {pct(launch.sellTaxBps)} sell) {NETWORK.testnet ? 'go to you from then on' : 'are paid out to the creator’s tax wallets from then on (nine tenths of each payout; a tenth goes to the platform wallet)'}. Tax collected until now goes where the current creator set it.</p>
           <TxButton label="Accept" run={run({ functionName: 'acceptCreator', args: [token, launch.buyTaxBps, launch.sellTaxBps] }, 'You’re the creator now.')} />
         </div>
       )}
@@ -154,7 +158,7 @@ function TaxWallets({ launch, current, failed, retry, run }: { launch: Launch; c
   return (
     <div className="card">
       <h2 className="h3">Split the tax</h2>
-      <p className="small">Up to four wallets, each with a share of the creator’s side of the tax{NETWORK.testnet ? '' : ' (what is left after the platform wallet’s tenth)'}. Tax earned so far is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
+      <p className="small">Up to four wallets, each with a share of the creator’s side of the tax{NETWORK.testnet ? '' : ' (what is left after the platform wallet’s tenth)'}. Tax already collected is paid out first, the old way. Use wallets you control: tax sent to a contract that can’t move it is lost.</p>
       {current ? <SplitEditor launch={launch} current={current} run={run} />
         : failed ? (
           <div className="split-failed" role="alert">
@@ -210,6 +214,8 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<LaunchFileState>(emptyLaunchFile);
   const [touched, setTouched] = useState(false);
+  // saving a picture, description or links needs the Terms accepted (they say what tokens may not be), as launching does
+  const [accepted, setAccepted] = useState(false);
   // the file this editor just saved: when the launch then points at it, the editor already shows it (and its "Saved" stays up)
   const saved = useRef('');
   useEffect(() => {
@@ -261,7 +267,11 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
           <LaunchFileFields value={state} onChange={(v) => { setTouched(true); setState(v); }} />
           {uri && !state.useOwn && emptied && <p className="small">Nothing here would be kept in a file, so saving removes the launch’s picture, description and links.</p>}
           {problem && <p className="err small">{problem}</p>}
-          <TxButton className="btn btn-line" label="Save" disabled={!!problem || !touched}
+          <label className="check accept-terms">
+            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
+            <span>I accept the <a href="/terms/" target="_blank" rel="noopener noreferrer">Terms</a>: no picture, description or link that breaks the law, copies someone else’s work or deceives people.</span>
+          </label>
+          <TxButton className="btn btn-line" label="Save" disabled={!!problem || !touched || !accepted}
             run={async (say) => {
               let next = '';
               if (state.useOwn) next = state.own.trim();

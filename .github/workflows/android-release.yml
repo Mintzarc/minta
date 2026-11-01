@@ -1,0 +1,97 @@
+name: Android release
+# Builds the SIGNED release bundle (.aab) for Google Play. Run by hand: Actions, "Android release", Run workflow.
+# The upload key and its passwords come only from repository secrets; nothing is printed.
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'versionCode: a whole number higher than the last one uploaded to Play (the first upload is 1)'
+        required: true
+        default: '1'
+      version_name:
+        description: 'versionName shown to people, for example 1.0.0'
+        required: true
+        default: '1.0.0'
+      first_upload:
+        description: 'Tick for the very first upload to Play only: the app-signing fingerprint does not exist yet, so the assetlinks check is skipped'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  bundle:
+    # only the main branch builds a release (the key's environment allows main only, and this stops a run from any other branch at once)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # the four secrets live in this environment (Settings, Environments), which only the branch main may use
+    environment: android-release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: gradle/actions/wrapper-validation@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Check the site's Digital Asset Links file names the Play signing key
+        if: ${{ !inputs.first_upload }}
+        run: RELEASE_CHECK=1 node --test test/android.test.mjs
+      - name: Check the live blocklist file is valid
+        if: ${{ !inputs.first_upload }}
+        run: |
+          curl -fsS --max-time 30 https://minta.vyrechain.com/blocklist.json -o "$RUNNER_TEMP/blocklist.json"
+          node android/scripts/check-blocklist.mjs "$RUNNER_TEMP/blocklist.json"
+      - name: first_upload is ticked, so the Digital Asset Links check is skipped
+        if: ${{ inputs.first_upload }}
+        run: |
+          echo "::warning title=Digital Asset Links check skipped::first_upload was ticked: public/.well-known/assetlinks.json is not required to name the Play signing key for this build. Add the fingerprint after the upload (docs/ANDROID.md, step 9)."
+          echo "Digital Asset Links check SKIPPED (first_upload). The installed app will show a browser bar until the Play signing fingerprint is added to assetlinks.json." >> "$GITHUB_STEP_SUMMARY"
+      - name: Check the inputs and that the secrets exist
+        env:
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          HAVE_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+          HAVE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
+          HAVE_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS != '' }}
+          HAVE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]{0,8}$ ]] || { echo "version_code must be a whole number"; exit 1; }
+          [[ "$VERSION_NAME" =~ ^[0-9A-Za-z._-]{1,30}$ ]] || { echo "version_name has odd characters"; exit 1; }
+          for v in HAVE_KEYSTORE HAVE_STORE_PASSWORD HAVE_ALIAS HAVE_KEY_PASSWORD; do
+            [ "${!v}" = "true" ] || { echo "A repository secret is missing (see docs/ANDROID.md, step 2): $v"; exit 1; }
+          done
+      - name: Build the signed bundle
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          MINTA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MINTA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MINTA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+        working-directory: android
+        run: |
+          umask 077
+          KS="$RUNNER_TEMP/upload.keystore"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KS"
+          export MINTA_KEYSTORE_FILE="$KS"
+          ./gradlew --no-daemon bundleRelease -PmintaVersionCode="$VERSION_CODE" -PmintaVersionName="$VERSION_NAME"
+      - name: Remove the decoded key file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.keystore"
+      - name: Check the bundle is signed and has the right package
+        working-directory: android
+        run: |
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          test -f "$AAB"
+          jarsigner -verify "$AAB" > "$RUNNER_TEMP/verify.txt" 2>&1 || { cat "$RUNNER_TEMP/verify.txt"; exit 1; }
+          grep -q "jar verified" "$RUNNER_TEMP/verify.txt"
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml | grep -aq 'com.vyrechain.minta'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: minta-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30

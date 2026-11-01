@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MINTA</string>
+    <string name="asset_statements" translatable="false">[{\"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": {\"namespace\": \"web\", \"site\": \"https://minta.vyrechain.com\"}}]</string>
+    <string name="shortcut_explore">Explore tokens</string>
+    <string name="shortcut_docs">Read the docs</string>
+</resources>

@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+def mintaVersionCode = project.hasProperty('mintaVersionCode') ? project.property('mintaVersionCode') : '1'
+def mintaVersionName = project.hasProperty('mintaVersionName') ? project.property('mintaVersionName') : '1.0.0'
+
+android {
+    namespace 'com.vyrechain.minta'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.vyrechain.minta'
+        minSdk 24
+        targetSdk 36
+        // the release workflow raises these without a commit (-PmintaVersionCode=2 -PmintaVersionName=1.0.1); defaults are what the docs name
+        versionCode mintaVersionCode.toInteger()
+        versionName mintaVersionName
+    }
+
+    // The release is signed with the upload key. Its file and passwords come only from the environment (the workflow sets
+    // them from repository secrets); nothing about the key is in this repository. Without them, the release is left unsigned.
+    signingConfigs {
+        release {
+            def file = System.getenv('MINTA_KEYSTORE_FILE')
+            if (file) {
+                storeFile new File(file)
+                storePassword System.getenv('MINTA_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('MINTA_KEY_ALIAS')
+                keyPassword System.getenv('MINTA_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('MINTA_KEYSTORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // no native code, so the app is 64-bit ready as it is
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.4'
+}

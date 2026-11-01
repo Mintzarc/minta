@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { captureRef, href, useRoute, type Route } from './lib/router';
 import { ConnectButton, FaceIdConfirm } from './components/ui';
+import WalletConnectSheet from './components/WalletConnectSheet';
 import { SearchPanel, shortcutLabel, useSearchShortcut } from './components/Search';
 import Explore from './pages/Explore';
 import Token from './pages/Token';
@@ -66,6 +67,7 @@ export default function App() {
         {route.page === 'docs' && <Docs article={route.article} section={route.section} />}
       </main>
       <FaceIdConfirm />
+      <WalletConnectSheet />
       <TxCheckDialog />
       <footer className="foot">
         <p>{NETWORK.testnet ? 'MINTA on the VYRE testnet: test USDC, no real money.' : 'MINTA on VYRE Mainnet: real USDC.'} Trading is risky and launch tokens can go to zero; nothing here is advice.

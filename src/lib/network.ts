@@ -36,6 +36,8 @@ interface NetworkSettings {
   label: string;
   /** How long a withdrawal to Arc takes, in words */
   withdrawal: string;
+  /** Whether email sign-in (Circle) is offered here. Where it is not, the app never asks the sign-in service about it */
+  emailSignIn: boolean;
 }
 
 const SETTINGS: Record<NetworkName, NetworkSettings> = {
@@ -46,6 +48,7 @@ const SETTINGS: Record<NetworkName, NetworkSettings> = {
     minTaxBps: 0,
     label: 'VYRE Testnet',
     withdrawal: 'usually under half an hour on the testnet',
+    emailSignIn: true,
   },
   mainnet: {
     name: 'mainnet', testnet: false, vyre: vyreMainnet, arc: arcMainnet,
@@ -54,6 +57,7 @@ const SETTINGS: Record<NetworkName, NetworkSettings> = {
     minTaxBps: 100,
     label: 'VYRE Mainnet',
     withdrawal: 'a withdrawal takes about a day',
+    emailSignIn: false,
   },
 };
 

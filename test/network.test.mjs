@@ -129,3 +129,11 @@ test('the app sends no partner or fee of its own, and states no platform fee, on
   assert.match(tokenPage, /Buy tax/);
   assert.match(launchPage, /NETWORK\.minTaxBps/, 'the wizard’s tax limits come from the network');
 });
+
+test('email sign-in is offered on the testnet only, and the wallet provider never asks the sign-in service on mainnet', () => {
+  assert.equal(network({ VITE_NETWORK: 'testnet' }).NETWORK.emailSignIn, true);
+  assert.equal(network({ VITE_NETWORK: 'mainnet' }).NETWORK.emailSignIn, false);
+  const src = read('src/lib/wallet.tsx');
+  assert.match(src, /if \(NETWORK\.emailSignIn\) walletConfig\(\)/);
+  assert.equal((src.match(/walletConfig\(\)/g) || []).length, 1, 'walletConfig is called in one place only');
+});
