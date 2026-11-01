@@ -8,7 +8,8 @@ import ts from 'typescript';
 
 const ME = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const OTHER = '0x4444444444444444444444444444444444444444';
-const VYRE_TYPED = JSON.stringify({ domain: { name: 'T', version: '1', chainId: 3045, verifyingContract: OTHER }, types: {}, primaryType: 'Permit', message: {} });
+const DOMAIN_TYPES = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
+const VYRE_TYPED = JSON.stringify({ domain: { name: 'T', version: '1', chainId: 3045, verifyingContract: OTHER }, types: { EIP712Domain: DOMAIN_TYPES }, primaryType: 'Permit', message: {} });
 
 function loadGuard() {
   const ws = ts.transpileModule(fs.readFileSync(new URL('../src/lib/wcstate.ts', import.meta.url), 'utf8'), {
@@ -103,7 +104,7 @@ test('a transaction or typed data for another chain (Arc, Ethereum, a bad number
   const { guardWc } = loadGuard();
   const sent = [];
   const g = guardWc(fakeRaw(sent), ME, () => {});
-  const typed = (chainId) => JSON.stringify({ domain: { name: 'T', version: '1', ...(chainId === undefined ? {} : { chainId }), verifyingContract: OTHER }, types: {}, primaryType: 'Permit', message: {} });
+  const typed = (chainId) => JSON.stringify({ domain: { name: 'T', version: '1', ...(chainId === undefined ? {} : { chainId }), verifyingContract: OTHER }, types: { EIP712Domain: DOMAIN_TYPES }, primaryType: 'Permit', message: {} });
   for (const [method, params] of [
     ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: '0x13a7d6' }]], // Arc
     ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: 5042 }]],
@@ -113,6 +114,9 @@ test('a transaction or typed data for another chain (Arc, Ethereum, a bad number
     ['eth_signTypedData_v4', [ME, typed(5042)]],
     ['eth_signTypedData_v4', [ME, typed('0x1')]],
     ['eth_signTypedData_v4', [ME, typed(undefined)]],
+    ['eth_signTypedData_v4', [ME, JSON.stringify({ domain: { chainId: 3045 }, types: {}, primaryType: 'P', message: {} })]], // chainId not declared in EIP712Domain
+    ['eth_signTypedData_v4', [ME, JSON.stringify({ domain: { chainId: 3045 }, types: { EIP712Domain: [{ name: 'name', type: 'string' }] }, primaryType: 'P', message: {} })]],
+    ['eth_signTypedData_v4', [ME, JSON.stringify({ domain: { chainId: 3045 }, types: { EIP712Domain: 'chainId' }, primaryType: 'P', message: {} })]],
     ['eth_signTypedData_v4', [ME, 'not json']],
     ['eth_signTypedData_v4', [ME, '{}']],
   ]) {
@@ -171,4 +175,28 @@ test('a session that lists a different VYRE account than eth_accounts is refused
   const g = guardWc(raw, ME, () => {});
   await assert.rejects(() => g.request({ method: 'eth_signTypedData_v4', params: [ME, '{}'] }), /account/i);
   assert.equal(sent.length, 0);
+});
+
+test('a guard belongs to the session it was built for: a replaced session is not signed for, and its end is not reported for the new one', async () => {
+  const { guardWc } = loadGuard();
+  const sent = [];
+  const lost = [];
+  const raw = fakeRaw(sent);
+  raw.session = { ...raw.session, topic: 'topic-A' };
+  const real = raw.request.bind(raw);
+  let fail = null;
+  raw.request = async (a, c) => { if (fail && a.method === 'eth_sendTransaction') throw new Error(fail); return real(a, c); };
+  const g = guardWc(raw, ME, (why) => lost.push(why));
+  // its own session's end is reported
+  fail = 'No matching key. session topic doesn\'t exist: abc';
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME }] }));
+  assert.deepEqual(lost, ['closed']);
+  // a new session (another topic) took the provider over: the old guard signs nothing and reports nothing
+  lost.length = 0; fail = null; sent.length = 0;
+  raw.session = { ...raw.session, topic: 'topic-B' };
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME }] }), /replaced by another one/);
+  assert.equal(sent.length, 0);
+  fail = 'No matching key. session topic doesn\'t exist: abc';
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME }] }));
+  assert.deepEqual(lost, [], 'a stale guard must not end the new session');
 });

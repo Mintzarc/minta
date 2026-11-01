@@ -68,11 +68,12 @@ setWcDriver({
 });
 
 function Page() {
-  const { account, onVyre, provider: p } = useWallet();
+  const { account, onVyre, provider: p, disconnect } = useWallet();
   return (
     <main className="main narrow">
       <h1 className="h3">WalletConnect</h1>
       <ConnectButton />
+      <button id="force" onClick={disconnect}>Disconnect now</button>
       <p id="who">{account ?? 'none'}</p>
       <div id="trade">
         <TxButton label="Buy" run={async () => {

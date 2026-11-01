@@ -100,14 +100,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   /** Ends a WalletConnect connection here (the wallet app is told, if it can be reached) */
   const dropWc = useCallback(() => {
+    // a pairing still waiting for the wallet is cancelled too (a late approval must not connect after the person went another way)
+    wcAbort.current?.abort();
+    wcAbort.current = null;
     const raw = wcRaw.current;
     wcRaw.current = null;
     setSavedMark(false);
     raw?.disconnect?.().catch(() => {});
   }, []);
   /** A WalletConnect connection found ended (by the wallet, by time, or by a change of account): clear it and say so */
-  const endWc = useCallback((why: WcFailure, message?: string) => {
-    if (!wcRaw.current) return;
+  const endWc = useCallback((why: WcFailure, message?: string, from?: WcProvider) => {
+    if (!wcRaw.current || (from && wcRaw.current !== from)) return; // only the connection that is current can be ended by its own report
     dropWc();
     setCurrent(null);
     setAccount(null);
@@ -189,7 +192,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
     const addr = getAddress(first);
     wcRaw.current = raw;
-    const guarded = guardWc(raw, addr, (why) => endWc(why));
+    const guarded = guardWc(raw, addr, (why) => endWc(why, undefined, raw));
     keepEmail(null);
     keepFaceId(null);
     store.set(REMEMBER, null);

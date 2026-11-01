@@ -267,3 +267,15 @@ test('the header of wc.ts says the relay is not the only thing contacted: the ve
   assert.match(head, /verification[\s/]+frame/);
   assert.match(head, /later visit/);
 });
+
+test('privacy says what the verification service’s alternative address is: listed by the library, not chosen by MINTA, not allowed as a frame', () => {
+  for (const f of ['public/privacy/index.html', 'public/privacy-testnet/index.html']) {
+    const t = read(f);
+    assert.match(t, /verify\.walletconnect\.com as an alternative address of that service: MINTA does not choose it/);
+    assert.match(t, /lets the frame load only from verify\.walletconnect\.org/);
+  }
+  assert.match(read('docs/ANDROID.md'), /verify\.walletconnect\.com as an alternative address, which MINTA does not choose/);
+  // true to the code and the policy
+  assert.equal(/verifyUrl|verify\.walletconnect\.com/.test(read('src/lib/wc.ts') + read('src/lib/wcstate.ts')), false, 'MINTA never sets the verification address');
+  assert.deepEqual(JSON.parse(JSON.stringify(read('vercel.json').match(/frame-src ([^;"]*)/)[1].split(' ').filter((x) => /walletconnect/.test(x)))), ['https://verify.walletconnect.org']);
+});

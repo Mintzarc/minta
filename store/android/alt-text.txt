@@ -1,19 +1,19 @@
 # One line per graphic: the file, then a short description for people who cannot see it.
 icon-512.png: The MINTA icon: a glowing teal letter M made of glass-like panels on a near-black square.
 feature-graphic.jpg: The MINTA name in white capitals beside a large glowing teal letter M standing on dark rocks under a planet. Text: Browse and report tokens on VYRE. Real USDC. Tokens can fall to zero.
-phone/01-docs-tokenomics.jpg: MINTA docs page "Tokenomics options" with cards for supply, tax, splitting the tax and first buy.
+phone/01-docs-launch-model.jpg: MINTA docs page "Launch model": open launches with one transaction and no approval, and how each token's pool and its locked liquidity work.
 phone/02-report.jpg: A token page cropped to the "Report this token" panel: a message to copy with the ticker and address, Copy, Telegram and X buttons, and links to hide the token or everything from its creator.
 phone/03-agents.jpg: The page on using MINTA with an AI assistant, showing its safety rules: the assistant prepares, you sign; never paste a private key; set a spend limit; these are real funds; check the numbers.
 phone/04-terms.jpg: The MINTA Terms of Service page, with the introduction and the first section.
-tablet-7in/01-docs-tokenomics-narrow.jpg: MINTA docs page "Tokenomics options" with cards for supply, tax, splitting the tax and first buy.
-tablet-7in/02-docs-contracts.jpg: MINTA docs page "Smart contracts": a table of the contract names, addresses and what each does, and the review status.
-tablet-7in/03-agents.jpg: The page on using MINTA with an AI assistant, showing safety rules, numbered steps and a starter message to copy.
+tablet-7in/01-docs-sdk-narrow.jpg: MINTA docs page "API & SDK": how to install the SDK, a short code example that launches a token, and links to the full reference.
+tablet-7in/02-agents.jpg: The page on using MINTA with an AI assistant, showing safety rules, numbered steps and a starter message to copy.
+tablet-7in/03-privacy.jpg: The MINTA Privacy Policy page, from "The short version": no accounts, ads or analytics, what the blockchain makes public, and which services see your IP address.
 tablet-7in/04-terms.jpg: The MINTA Terms of Service page, with the introduction and the first sections.
 tablet-10in/01-docs-faq.jpg: MINTA docs page "Common questions": a list of questions, with the first answer open: what you need to start, whether liquidity can be pulled, whether a creator can raise the tax, what a trade costs in gas, whether MINTA checks a transaction before you sign it, and whether you can lose money.
-tablet-10in/02-docs-tokenomics.jpg: MINTA docs page "Tokenomics options" with cards for supply, tax, splitting the tax and first buy.
-tablet-10in/03-docs-contracts.jpg: MINTA docs page "Smart contracts": a table of the contract names, addresses and what each does, and the review status.
+tablet-10in/02-agents.jpg: The page on using MINTA with an AI assistant, showing safety rules, numbered steps and a starter message to copy.
+tablet-10in/03-privacy.jpg: The MINTA Privacy Policy page, from "The short version": no accounts, ads or analytics, what the blockchain makes public, and which services see your IP address.
 tablet-10in/04-terms.jpg: The MINTA Terms of Service page, with the introduction and the first sections.
 desktop/01-docs-faq.jpg: MINTA docs page "Common questions": a list of questions, with the first answer open: what you need to start, whether liquidity can be pulled, whether a creator can raise the tax, what a trade costs in gas, whether MINTA checks a transaction before you sign it, and whether you can lose money.
-desktop/02-docs-tokenomics.jpg: MINTA docs page "Tokenomics options" with cards for supply, tax, splitting the tax and first buy.
-desktop/03-docs-contracts.jpg: MINTA docs page "Smart contracts": a table of the contract names, addresses and what each does, and the review status.
+desktop/02-agents.jpg: The page on using MINTA with an AI assistant, showing safety rules, numbered steps and a starter message to copy.
+desktop/03-privacy.jpg: The MINTA Privacy Policy page, from "The short version": no accounts, ads or analytics, what the blockchain makes public, and which services see your IP address.
 desktop/04-terms.jpg: The MINTA Terms of Service page, with the introduction and the first sections.

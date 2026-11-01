@@ -260,7 +260,7 @@ test('key files of any spelling stay out of git (.gitignore), and the descriptio
 const HYPE_WORDS = /\b(graduat\w*|trending|grow|moon\w*|rocket\w*|gems?|pump\w*|milestone reached)\b/i;
 const EARNING_WORDS = /\b(earn(s|ed|ing|ings)?|profit(s|able|ably)?|income|rewards?|passive|revenue|winnings?|gains?|get rich|make money|moon(s|ing)?|lambo|keep ninety|keeps? 90|creators? keeps?|keeps? (the |a )?(whole|all|90|nine|ninety)|nine tenths? (to|for) you)/i;
 // the payout split is a fact for the docs page in the app, not for a store text or a picture's alt text
-const PAYOUT_SPLIT_WORDS = /nine tenths?|tax wallets?|a tenth (of|goes)|platform wallet/i;
+const PAYOUT_SPLIT_WORDS = /nine tenths?|tax wallets?|a tenth (of|goes)|platform wallet|splitting the tax|split(s|ting)? (of |between |the )?(the )?tax|where (a |the )?(creator.s )?tax goes|payouts?/i;
 test('the store texts and alt text carry no earning, profit or income wording', () => {
   const dir = path.join(ROOT, 'store/android');
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));

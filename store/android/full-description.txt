@@ -4,7 +4,7 @@ MINTA is a launchpad on VYRE, a chain that runs on USDC. This app lets you look 
 
 WHAT YOU CAN DO IN THIS APP
 - Explore every launch on VYRE: new, most traded and those with at least $10,000 USDC bought in, with price, market cap, 24-hour volume and holders.
-- Open a token's page: its chart, latest trades, its tax settings and where the tax goes, and the links its creator added.
+- Open a token's page: its chart, latest trades, its tax settings, and the links its creator added.
 - Report a token whose name, picture, description or links break the terms, and hide a token on your own device.
 - Read the docs, the terms and the privacy policy, and the page on using MINTA with an AI assistant that prepares things while you sign in your own wallet.
 

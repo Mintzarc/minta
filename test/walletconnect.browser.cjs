@@ -127,6 +127,20 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     await ctx.close();
   }
 
+  // ---- disconnecting (or connecting another wallet, which ends the same way) while a pairing waits: a late approval connects nothing
+  {
+    const { pg, ctx } = await open(() => {});
+    await chooseWc(pg);
+    await pg.waitForSelector('.wc-qr');
+    await pg.evaluate(() => document.querySelector('#force').click());
+    await pg.evaluate(() => window.__pair.resolve());
+    await pg.waitForTimeout(600);
+    ok(await who(pg) === 'none', 'an approval that comes after Disconnect connects nothing');
+    ok(await pg.evaluate(() => window.__disconnects) <= 1, 'and no connection is left open');
+    ok(await pg.evaluate(() => localStorage.getItem('minta.wc:3045')) === null, 'and nothing is kept');
+    await ctx.close();
+  }
+
   // ---- the wallet moves to another network, then another account, mid-flow
   {
     const { pg, ctx } = await open();

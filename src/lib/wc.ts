@@ -20,7 +20,7 @@ import {
 export interface WcProvider extends EIP1193Provider {
   on(event: string, fn: (x: unknown) => void): unknown;
   removeListener(event: string, fn: (x: unknown) => void): unknown;
-  session?: { expiry?: number; namespaces?: Record<string, { accounts?: string[] }> };
+  session?: { topic?: string; expiry?: number; namespaces?: Record<string, { accounts?: string[] }> };
   disconnect?: () => Promise<void>;
 }
 
@@ -166,8 +166,12 @@ function onVyre(method: string, params: unknown): boolean {
   if (method === 'eth_signTypedData_v4') {
     let doc: unknown = params[1];
     if (typeof doc === 'string') { try { doc = JSON.parse(doc); } catch { return false; } }
-    const domain = (doc as { domain?: { chainId?: unknown } } | null)?.domain;
-    return !!domain && typeof domain === 'object' && chainNumber(domain.chainId) === CHAIN_ID;
+    const d = doc as { domain?: { chainId?: unknown }; types?: { EIP712Domain?: unknown } } | null;
+    const domain = d?.domain;
+    if (!domain || typeof domain !== 'object' || chainNumber(domain.chainId) !== CHAIN_ID) return false;
+    // the wallet hashes the domain by its declared fields: a chainId that EIP712Domain does not list would be ignored when signing
+    const fields = d?.types?.EIP712Domain;
+    return Array.isArray(fields) && fields.some((f) => (f as { name?: unknown } | null)?.name === 'chainId');
   }
   return false;
 }
@@ -180,8 +184,13 @@ function onVyre(method: string, params: unknown): boolean {
  * A request to move the wallet to another chain is refused (this connection is VYRE's only). `onLost` hears when the
  * connection is found gone.
  */
-export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailure) => void): WcProvider {
+export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFailure) => void): WcProvider {
+  // this guard belongs to the session that was current when it was built: a later session's end is not its to report, and it signs for no other
+  const topic = raw.session?.topic;
+  const sameSession = () => { const now = raw.session?.topic; return topic === undefined || now === undefined || now === topic; };
+  const onLost = (why: WcFailure) => { if (sameSession()) onLostRaw(why); };
   const live = async () => {
+    if (!sameSession()) throw new WcError('other', 'This connection was replaced by another one, so nothing was sent. Disconnect and connect again.');
     const [chainId, accounts] = await Promise.all([raw.request({ method: 'eth_chainId' }).catch(() => null), raw.request({ method: 'eth_accounts' }).catch(() => null)]);
     const r = wcLiveCheck({ wantChain: CHAIN_ID, chainId, account, accounts, expiry: raw.session?.expiry, now: Date.now() });
     if (!r.ok) { if (r.why === 'expired') onLost('expired'); throw new WcError(r.why, r.message); }

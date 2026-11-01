@@ -19,11 +19,11 @@ export const SETS = {
  *  `sets` lists where a screen is used (default: every set). */
 export const SCREENS = [
   { name: 'docs-faq', path: '/#/docs/faq', clip: 'below-bar', sets: ['tablet10', 'desktop'], note: 'Docs: common questions' },
-  { name: 'docs-tokenomics', path: '/#/docs/tokenomics', clip: 'below-bar', sets: ['phone', 'tablet10', 'desktop'], note: 'Docs: supply and tax' },
-  { name: 'docs-tokenomics-narrow', path: '/#/docs/tokenomics', clip: 'below-bar', layoutWidth: 480, sets: ['tablet7'], note: 'Docs: supply and tax, in a 480 px wide layout (a 7-inch tablet in a narrow window) so the article fills a 9:16 picture' },
-  { name: 'docs-contracts', path: '/#/docs/contracts', clip: 'below-bar', sets: ['tablet7', 'tablet10', 'desktop'], note: 'Docs: contracts and review status' },
+  { name: 'docs-launch-model', path: '/#/docs/launch-model', clip: 'below-bar', sets: ['phone'], note: 'Docs: launch model (open launches, pools)' },
+  { name: 'docs-sdk-narrow', path: '/#/docs/sdk', clip: 'below-bar', layoutWidth: 480, sets: ['tablet7'], note: 'Docs: API and SDK, in a 480 px wide layout' },
   { name: 'report', path: null, clip: 'report', sets: ['phone'], note: 'A token page cropped to the Report this token panel and the Hide buttons (no picture, no price)' },
-  { name: 'agents', path: '/agents/', scrollTo: 'Safety rules', sets: ['phone', 'tablet7'], note: 'Use MINTA with an AI assistant: the safety rules' },
+  { name: 'agents', path: '/agents/', scrollTo: 'Safety rules', sets: ['phone', 'tablet7', 'tablet10', 'desktop'], note: 'Use MINTA with an AI assistant: the safety rules' },
+  { name: 'privacy', path: '/privacy/', scrollTo: 'The short version', sets: ['tablet7', 'tablet10', 'desktop'], note: 'Privacy: the short version' },
   { name: 'terms', path: '/terms/', scrollTo: 'Terms of', note: 'Terms' },
 ];
 /** Wide screens show a docs page in this layout width (the article column is then 992 px: 16:9 is 992 x 558, every article fills it) */
