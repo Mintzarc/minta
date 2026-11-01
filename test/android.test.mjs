@@ -329,3 +329,11 @@ test('the creator pages do not say the tax "goes to you" on mainnet, where a ten
     }
   }
 });
+
+test('the agents page and the store texts do not use the word "collect" (a creator’s tax is set or lowered there, not collected)', () => {
+  for (const f of ['public/agents/index.html', ...fs.readdirSync(path.join(ROOT, 'store/android')).filter((n) => n.endsWith('.txt')).map((n) => `store/android/${n}`)]) {
+    const text = read(f).replace(/<!--[\s\S]*?-->/g, '');
+    const m = /\bcollect(s|ed|ing)?\b/i.exec(text);
+    assert.equal(m, null, `${f} uses "${m && m[0]}"`);
+  }
+});

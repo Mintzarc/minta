@@ -19,12 +19,12 @@ const URI = `wc:${'ab'.repeat(32)}@2?expiryTimestamp=1793462181&relay-protocol=i
 interface Fake { account: string; chain: number; reject: boolean; lost: boolean; expiry?: number; sessionAccount?: string }
 type W = {
   __fake: Fake; __sent: { method: string; params: unknown; chain?: string }[]; __asked: string[]; __starts: number; __disconnects: number;
-  __pair: { resolve: () => void; reject: (e: unknown) => void } | null; __restoreable: boolean; __emit: (e: string, v: unknown) => void;
+  __pair: { resolve: () => void; reject: (e: unknown) => void } | null; __pairs: { resolve: () => void; reject: (e: unknown) => void }[]; __restoreable: boolean; __emit: (e: string, v: unknown) => void;
   __lastTrade: string; __ids: { PAD: string; OTHER: string; URI: string };
 };
 const w = window as unknown as W;
 w.__fake = { account: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', chain: VYRE_CHAIN.id, reject: false, lost: false };
-w.__sent = []; w.__asked = []; w.__starts = 0; w.__disconnects = 0; w.__pair = null; w.__restoreable = false; w.__lastTrade = '';
+w.__sent = []; w.__asked = []; w.__starts = 0; w.__disconnects = 0; w.__pair = null; w.__pairs = []; w.__restoreable = false; w.__lastTrade = '';
 w.__ids = { PAD, OTHER, URI };
 
 const listeners = new Map<string, Set<(x: unknown) => void>>();
@@ -61,7 +61,9 @@ setWcDriver({
   start: ({ onUri, signal }) => new Promise<WcProvider>((resolve, reject) => {
     w.__starts++;
     w.__pair = { resolve: () => resolve(provider), reject };
-    signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    w.__pairs.push(w.__pair);
+    // like the real library: cancelling does not stop a pairing, so a wallet can still approve it afterwards (signal is not used)
+    void signal;
     setTimeout(() => onUri(URI), 0);
   }),
   restore: async () => (w.__restoreable ? provider : null),

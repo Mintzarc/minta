@@ -182,7 +182,7 @@ test('the connection is for VYRE alone: one chain asked for, a session without a
   assert.match(wc, /const CHAIN_ID = VYRE_CHAIN\.id/);
   assert.match(wc, /chains: \[CAIP\]/);
   assert.equal((wc.match(/chains:/g) || []).length, 1, 'one chain list');
-  assert.match(wc, /if \(!vyreAccount\(p\)\) \{ await p\.disconnect\?\.\(\)\.catch\(\(\) => \{\}\); throw new WcError\('chain'\); \}/);
+  assert.match(wc, /if \(!vyreAccount\(p\)\) \{[\s\S]{0,500}await p\.disconnect\?\.\(\)[\s\S]{0,60}throw new WcError\('chain'\);\s*\}/);
   assert.match(wc, /wallet_switchEthereumChain/);
   assert.match(wc, /\(raw\.request as .*\)\(args, CAIP\)/, 'a request names the chain it is for');
   assert.match(read('src/lib/chain.ts'), /isMintaWalletConnect === true && chain\.id !== VYRE_CHAIN\.id/);

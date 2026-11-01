@@ -377,7 +377,7 @@ Task: `;
       <ul>
         <li><b>Launch a token:</b> name, ticker, supply, and a creator tax of ${f.minTaxPct}% to ${f.maxTaxPct}% for buys and for sells. One transaction. An optional first buy of your own in the same transaction.</li>
         <li><b>Buy and sell:</b> with USDC, with a minimum amount out so a price move can’t take more than you accepted.</li>
-        <li><b>Collect a creator’s tax,</b> or lower it later (never raise it, never below ${f.minTaxPct}%).</li>
+        <li><b>Set or lower a creator’s tax</b> (never raise it, never below ${f.minTaxPct}%).</li>
         <li><b>Read launches:</b> the launchpad lists every token; the explorer shows the rest.</li>
       </ul>
     </section>

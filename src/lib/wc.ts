@@ -20,7 +20,7 @@ import {
 export interface WcProvider extends EIP1193Provider {
   on(event: string, fn: (x: unknown) => void): unknown;
   removeListener(event: string, fn: (x: unknown) => void): unknown;
-  session?: { topic?: string; expiry?: number; namespaces?: Record<string, { accounts?: string[] }> };
+  session?: { topic?: string; pairingTopic?: string; expiry?: number; namespaces?: Record<string, { accounts?: string[] }> };
   disconnect?: () => Promise<void>;
 }
 
@@ -52,6 +52,10 @@ type Universal = {
     namespaces?: Record<string, unknown>;
     cleanupPendingPairings(): Promise<void>;
     abortPairingAttempt(): void;
+    client?: {
+      disconnect(o: { topic: string; reason: { code: number; message: string } }): Promise<void>;
+      session?: { getAll?: () => { topic: string; pairingTopic?: string }[] };
+    };
   }>;
 };
 
@@ -84,15 +88,34 @@ function vyreAccount(p: WcProvider): string | null {
   return sessionHasAccount(s?.namespaces?.eip155?.accounts, CHAIN_ID, s?.expiry, Date.now());
 }
 
+/** The pairing's own address (its topic) in a `wc:` pairing link, which names this attempt among any others */
+const pairingOf = (uri: string): string | null => /^wc:([0-9a-f]{64})@/i.exec(uri)?.[1]?.toLowerCase() ?? null;
+
+/** Ends the session that came from one pairing attempt, and only that one. The library is shared by every attempt and its
+ *  `session`, `disconnect()` and the result of `connect()` may by then belong to a later attempt, so the session is looked
+ *  up by the pairing the attempt began with; the library's own state is cleared only when it still points at that session. */
+async function endAttempt(p: Awaited<ReturnType<typeof library>>, pairing: string | null): Promise<void> {
+  if (!pairing) return;
+  const mine = p.client?.session?.getAll?.().find((x) => x.pairingTopic?.toLowerCase() === pairing);
+  if (!mine) return;
+  try {
+    if (p.session?.topic === mine.topic) await p.disconnect?.();
+    else await p.client?.disconnect({ topic: mine.topic, reason: { code: 6000, message: 'User disconnected.' } });
+  } catch { /* already gone */ }
+}
+
 const realDriver: WcDriver = {
   async start({ onUri, signal }) {
     let p: Awaited<ReturnType<typeof library>>;
     try { p = await withTimeout(library(), WC_RELAY_TIMEOUT_MS, 'relay'); } catch (e) { throw e instanceof WcError ? e : new WcError(classifyWcError(e)); }
     if (signal.aborted) throw new WcError('other');
-    const show = (u: unknown) => { if (typeof u === 'string') onUri(u); };
+    // this attempt is known by its pairing: the library cannot be told to stop one (abortPairingAttempt does nothing in 2.26)
+    let pairing: string | null = null;
+    // the event is shared by every attempt: this one takes the first address it hears (its own, shown as it starts) and stops listening when cancelled
+    const show = (u: unknown) => { if (typeof u === 'string' && !signal.aborted) { if (pairing === null) pairing = pairingOf(u); onUri(u); } };
     p.on('display_uri', show);
-    const gone = () => { try { p.abortPairingAttempt(); } catch { /* nothing to stop */ } };
-    signal.addEventListener('abort', gone, { once: true });
+    const hush = () => p.removeListener('display_uri', show);
+    signal.addEventListener('abort', hush, { once: true });
     try {
       // VYRE is the chain asked for. (Read from the library, v2.26: it folds "required" namespaces into the optional ones before
       // sending, "requiredNamespaces are deprecated", so a wallet may approve without VYRE. That is why a session that doesn't
@@ -102,12 +125,18 @@ const realDriver: WcDriver = {
       throw new WcError(classifyWcError(e));
     } finally {
       p.removeListener('display_uri', show);
-      signal.removeEventListener('abort', gone);
+      signal.removeEventListener('abort', hush);
     }
-    // approved after the person cancelled: end that connection at once
-    if (signal.aborted) { await p.disconnect?.().catch(() => {}); throw new WcError('other'); }
-    // whatever the wallet agreed to, it must list an account on VYRE: if not, end it
-    if (!vyreAccount(p)) { await p.disconnect?.().catch(() => {}); throw new WcError('chain'); }
+    // approved after the person cancelled: end that attempt's connection at once (and no other)
+    if (signal.aborted) { await endAttempt(p, pairing); throw new WcError('other'); }
+    // the library's current session must be this attempt's (another attempt's approval may have replaced it), and list an account on VYRE
+    if (pairing && p.session?.pairingTopic !== undefined && p.session.pairingTopic.toLowerCase() !== pairing) { await endAttempt(p, pairing); throw new WcError('other'); }
+    if (!vyreAccount(p)) {
+      await endAttempt(p, pairing);
+      // the library still points at this attempt's session (it was not found by its pairing): end that one
+      if (p.session && (!p.session.pairingTopic || p.session.pairingTopic.toLowerCase() === pairing)) await p.disconnect?.().catch(() => {});
+      throw new WcError('chain');
+    }
     return p;
   },
   async restore() {

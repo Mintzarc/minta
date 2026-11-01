@@ -113,6 +113,23 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     await ctx.close();
   }
 
+  // ---- cancel, connect again, then both pairings are approved (the first late): the late one is ended, the second stays connected
+  {
+    const { pg, ctx } = await open(() => {});
+    await chooseWc(pg); await pg.waitForSelector('.wc-qr');
+    await pg.getByRole('button', { name: 'Cancel' }).click();
+    await chooseWc(pg); await pg.waitForSelector('.wc-qr');
+    ok(await pg.evaluate(() => window.__pairs.length) === 2, 'a second pairing was started after the first was cancelled');
+    await pg.evaluate(() => window.__pairs[0].resolve());
+    await pg.waitForTimeout(500);
+    ok(await who(pg) === 'none', 'the cancelled pairing’s late approval connects nothing');
+    ok(await pg.evaluate(() => window.__disconnects) === 1, 'and ends that connection once');
+    await pg.evaluate(() => window.__pairs[1].resolve());
+    ok(await until(pg, () => document.querySelector('#who').textContent !== 'none'), 'the second pairing connects');
+    ok(await pg.evaluate(() => window.__disconnects) === 1, 'and nothing else was ended');
+    await ctx.close();
+  }
+
   // ---- eth_accounts and the session name different accounts on VYRE: refused at connect, nothing connected
   {
     const { pg, ctx } = await open(() => {});
@@ -136,7 +153,7 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     await pg.evaluate(() => window.__pair.resolve());
     await pg.waitForTimeout(600);
     ok(await who(pg) === 'none', 'an approval that comes after Disconnect connects nothing');
-    ok(await pg.evaluate(() => window.__disconnects) <= 1, 'and no connection is left open');
+    ok(await pg.evaluate(() => window.__disconnects) === 1, 'and the late connection is ended, exactly once');
     ok(await pg.evaluate(() => localStorage.getItem('minta.wc:3045')) === null, 'and nothing is kept');
     await ctx.close();
   }
@@ -222,6 +239,7 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     await pg.evaluate(() => { try { window.__pair.resolve(); } catch { /* aborted */ } });
     await pg.waitForTimeout(400);
     ok(await who(pg) === 'none', 'an approval after cancelling does not connect');
+    ok(await pg.evaluate(() => window.__disconnects) === 1, 'and the connection it made is ended, once');
     await ctx.close();
   }
 
