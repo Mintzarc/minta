@@ -259,6 +259,8 @@ test('key files of any spelling stay out of git (.gitignore), and the descriptio
 // Achievement and hype words: banned in the store texts and the pages' words (a code identifier such as a stats field is not a word on a page)
 const HYPE_WORDS = /\b(graduat\w*|trending|grow|moon\w*|rocket\w*|gems?|pump\w*|milestone reached)\b/i;
 const EARNING_WORDS = /\b(earn(s|ed|ing|ings)?|profit(s|able|ably)?|income|rewards?|passive|revenue|winnings?|gains?|get rich|make money|moon(s|ing)?|lambo|keep ninety|keeps? 90|creators? keeps?|keeps? (the |a )?(whole|all|90|nine|ninety)|nine tenths? (to|for) you)/i;
+// the payout split is a fact for the docs page in the app, not for a store text or a picture's alt text
+const PAYOUT_SPLIT_WORDS = /nine tenths?|tax wallets?|a tenth (of|goes)|platform wallet/i;
 test('the store texts and alt text carry no earning, profit or income wording', () => {
   const dir = path.join(ROOT, 'store/android');
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));
@@ -267,6 +269,8 @@ test('the store texts and alt text carry no earning, profit or income wording', 
     read(`store/android/${f}`).split('\n').forEach((line, i) => {
       const m = EARNING_WORDS.exec(line);
       assert.equal(m, null, `store/android/${f}:${i + 1} promotes or implies earning ("${m && m[0]}")`);
+      const sp = PAYOUT_SPLIT_WORDS.exec(line);
+      assert.equal(sp, null, `store/android/${f}:${i + 1} states the payout split ("${sp && sp[0]}")`);
       const h = HYPE_WORDS.exec(line);
       assert.equal(h, null, `store/android/${f}:${i + 1} uses an achievement or hype word ("${h && h[0]}")`);
     });
@@ -279,8 +283,13 @@ test('no Play-visible source (every page, component, fee text, public page, llms
     ...walk('src/pages').filter((f) => f.endsWith('.tsx')), ...walk('src/components').filter((f) => f.endsWith('.tsx')), 'src/lib/fees.ts',
     ...walk('public').filter((f) => f.endsWith('.html') || /\/llms[^/]*\.txt$/.test(f)),
     ...walk('store/android').filter((f) => f.endsWith('.txt')),
+    // the rest of what ships in the app: its code's words (identifiers and comments are removed below), its first page, its manifest and the repository's notes
+    // (docs/ANDROID.md is the Play submission guide: it quotes Google's policy words ("earn", "Rewards") and is not served, so it is left out)
+    ...fs.readdirSync(path.join(ROOT, 'src/lib')).filter((f) => f.endsWith('.ts')).map((f) => `src/lib/${f}`),
+    'src/App.tsx', 'src/main.tsx', 'index.html', 'public/manifest.webmanifest',
+    ...fs.readdirSync(path.join(ROOT, 'docs')).filter((f) => f.endsWith('.md') && f !== 'ANDROID.md').map((f) => `docs/${f}`),
   ];
-  assert.ok(files.length >= 30 && files.includes('src/components/TokenCard.tsx') && files.includes('public/privacy/index.html') && files.includes('store/android/full-description.txt'));
+  assert.ok(files.length >= 60 && files.includes('src/App.tsx') && files.includes('index.html') && files.includes('public/manifest.webmanifest') && files.includes('src/lib/network.ts') && files.includes('src/components/TokenCard.tsx') && files.includes('public/privacy/index.html') && files.includes('store/android/full-description.txt'));
   const seen = [];
   for (const f of files) {
     // comments are not words on a page; the Terms' two "profits" lines are warnings (a limit of liability, a ban on promises of profits)

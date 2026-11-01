@@ -3,8 +3,9 @@
 // approves, and every transaction is then signed in the wallet app.
 //
 // The library (@walletconnect/universal-provider, an EIP-1193 provider; not its ethereum-provider package, which pulls in the
-// Reown AppKit modal) is loaded only when someone taps WalletConnect. MINTA draws its own connect sheet. The library is started with
-// its telemetry off. The one server it talks to is the relay (wss://relay.walletconnect.org); the wallet app may talk to others.
+// Reown AppKit modal) is loaded when someone taps WalletConnect (and on a later visit while a saved connection exists). MINTA draws its own connect sheet. The library is started with
+// its telemetry off. The page talks to the relay (wss://relay.walletconnect.org), and the library opens WalletConnect's verification
+// frame at each connect or sign request; the wallet app may talk to others.
 // The connection is for VYRE's chain only.
 import type { EIP1193Provider } from 'viem';
 import { VYRE_CHAIN } from './chain';
@@ -148,11 +149,35 @@ function signingAccount(method: string, params: unknown): string | null {
   return null;
 }
 
+/** A chain id as a wallet or a typed-data domain may write it (a number, a decimal string or 0x hex), or null when it can't be read */
+function chainNumber(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? v : null;
+  if (typeof v === 'string' && /^(0x[0-9a-fA-F]{1,16}|[0-9]{1,16})$/.test(v)) return Number(v);
+  return null;
+}
+
+/** True unless the request names another chain: a transaction's chainId (when it has one) and a typed-data domain's chainId (which must be there) are VYRE's */
+function onVyre(method: string, params: unknown): boolean {
+  if (!Array.isArray(params)) return false;
+  if (method === 'eth_sendTransaction') {
+    const tx = params[0] as { chainId?: unknown } | undefined;
+    return !tx || typeof tx !== 'object' || tx.chainId === undefined || chainNumber(tx.chainId) === CHAIN_ID;
+  }
+  if (method === 'eth_signTypedData_v4') {
+    let doc: unknown = params[1];
+    if (typeof doc === 'string') { try { doc = JSON.parse(doc); } catch { return false; } }
+    const domain = (doc as { domain?: { chainId?: unknown } } | null)?.domain;
+    return !!domain && typeof domain === 'object' && chainNumber(domain.chainId) === CHAIN_ID;
+  }
+  return false;
+}
+
 /**
  * The provider the rest of the app uses for a WalletConnect connection. Every request that asks the wallet to sign is first checked:
  * the connection is on VYRE's chain, still lists the account the app shows, hasn't expired, and the request is for that account
- * (a send, a signature, or typed data — not only eth_sendTransaction). A raw transaction is refused (it can’t be bound to the
- * account). A request to move the wallet to another chain is refused (this connection is VYRE's only). `onLost` hears when the
+ * and on VYRE's chain (a transaction naming another chainId, or typed data whose domain isn't VYRE's, is refused), and it is read
+ * once before it is checked. Only a transaction or a typed-data signature may be asked; any other signing method is refused.
+ * A request to move the wallet to another chain is refused (this connection is VYRE's only). `onLost` hears when the
  * connection is found gone.
  */
 export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailure) => void): WcProvider {
@@ -166,7 +191,14 @@ export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailur
       throw new WcError('other', 'The account in your wallet changed, so nothing was sent. Disconnect and connect again.');
     }
   };
-  const request = async (args: { method: string; params?: unknown }) => {
+  const request = async (given: { method: string; params?: unknown }) => {
+    // read the request once: what is checked is exactly what is sent (a getter that answers differently the second time changes nothing)
+    let args: { method: string; params?: unknown };
+    try {
+      const method = given?.method;
+      const params = given?.params;
+      args = JSON.parse(JSON.stringify({ method, params })) as { method: string; params?: unknown };
+    } catch { throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.'); }
     if (args && SWITCHES.has(args.method)) {
       const want = (args.params as { chainId?: string }[] | undefined)?.[0]?.chainId;
       if (typeof want === 'string' && Number(want) === CHAIN_ID) return null; // already on it, by construction
@@ -181,6 +213,9 @@ export function guardWc(raw: WcProvider, account: string, onLost: (why: WcFailur
     if (typeof who !== 'string' || who.toLowerCase() !== account.toLowerCase()) {
       const kind = args.method === 'eth_sendTransaction' ? 'transaction' : 'signature';
       throw new WcError('other', `That ${kind} isn’t from the account you connected, so nothing was sent.`);
+    }
+    if (!onVyre(args.method, args.params)) {
+      throw new WcError('chain', `That request is for another network. This connection works on ${VYRE_CHAIN.name} only, so nothing was sent.`);
     }
     try {
       return await (raw.request as (a: unknown, chain?: string) => Promise<unknown>)(args, CAIP);

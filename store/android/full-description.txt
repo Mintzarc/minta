@@ -15,7 +15,7 @@ YOUR WALLET, YOUR KEYS
 MINTA never holds your funds or your keys, and has no accounts, no ads, and no analytics or tracking cookies. The network services the app calls see your IP address when it loads data, and so does the WalletConnect service if you connect a wallet with it. Anything that moves money is a transaction you sign in your own wallet.
 
 WHAT IT COSTS
-- The creator of a token sets a tax of 1% to 10% on buys and 1% to 10% on sells. That tax is the only fee a trade pays. When it is paid out, a tenth of it goes to the platform and the rest to the creator's tax wallets.
+- The creator of a token sets a tax of 1% to 10% on buys and 1% to 10% on sells. That tax is the only fee a trade pays.
 - The network fee for a transaction is paid in USDC: about a twentieth of a cent.
 - Moving USDC back to Arc takes about a day.
 

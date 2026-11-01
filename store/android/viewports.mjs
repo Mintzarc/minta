@@ -18,7 +18,7 @@ export const SETS = {
  *  picture is cut at its end (narrow screens) or an article that fills it is chosen (wide screens). Nothing is hidden by injected styles.
  *  `sets` lists where a screen is used (default: every set). */
 export const SCREENS = [
-  { name: 'docs-fees', path: '/#/docs/fees', clip: 'below-bar', sets: ['tablet10', 'desktop'], note: 'Docs: fees and revenue' },
+  { name: 'docs-faq', path: '/#/docs/faq', clip: 'below-bar', sets: ['tablet10', 'desktop'], note: 'Docs: common questions' },
   { name: 'docs-tokenomics', path: '/#/docs/tokenomics', clip: 'below-bar', sets: ['phone', 'tablet10', 'desktop'], note: 'Docs: supply and tax' },
   { name: 'docs-tokenomics-narrow', path: '/#/docs/tokenomics', clip: 'below-bar', layoutWidth: 480, sets: ['tablet7'], note: 'Docs: supply and tax, in a 480 px wide layout (a 7-inch tablet in a narrow window) so the article fills a 9:16 picture' },
   { name: 'docs-contracts', path: '/#/docs/contracts', clip: 'below-bar', sets: ['tablet7', 'tablet10', 'desktop'], note: 'Docs: contracts and review status' },

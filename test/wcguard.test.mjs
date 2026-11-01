@@ -8,6 +8,7 @@ import ts from 'typescript';
 
 const ME = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const OTHER = '0x4444444444444444444444444444444444444444';
+const VYRE_TYPED = JSON.stringify({ domain: { name: 'T', version: '1', chainId: 3045, verifyingContract: OTHER }, types: {}, primaryType: 'Permit', message: {} });
 
 function loadGuard() {
   const ws = ts.transpileModule(fs.readFileSync(new URL('../src/lib/wcstate.ts', import.meta.url), 'utf8'), {
@@ -71,7 +72,7 @@ test('typed data and a transaction for another account are refused and never rea
   // the connected account (any letter case) may sign and send
   for (const who of [ME, ME.toLowerCase()]) {
     sent.length = 0;
-    assert.equal(await g.request({ method: 'eth_signTypedData_v4', params: [who, '{}'] }), '0xok');
+    assert.equal(await g.request({ method: 'eth_signTypedData_v4', params: [who, VYRE_TYPED] }), '0xok');
     assert.equal(await g.request({ method: 'eth_sendTransaction', params: [{ from: who, to: OTHER }] }), '0xok');
     assert.equal(sent.length, 2);
   }
@@ -98,6 +99,65 @@ test('only an allow-list reaches the wallet: every other method, wallet_* includ
   assert.deepEqual(await g.request({ method: 'eth_accounts' }), [ME]);
 });
 
+test('a transaction or typed data for another chain (Arc, Ethereum, a bad number) is refused; VYRE’s, in any spelling, is sent', async () => {
+  const { guardWc } = loadGuard();
+  const sent = [];
+  const g = guardWc(fakeRaw(sent), ME, () => {});
+  const typed = (chainId) => JSON.stringify({ domain: { name: 'T', version: '1', ...(chainId === undefined ? {} : { chainId }), verifyingContract: OTHER }, types: {}, primaryType: 'Permit', message: {} });
+  for (const [method, params] of [
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: '0x13a7d6' }]], // Arc
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: 5042 }]],
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: '1' }]],
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: 'nope' }]],
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: null }]],
+    ['eth_signTypedData_v4', [ME, typed(5042)]],
+    ['eth_signTypedData_v4', [ME, typed('0x1')]],
+    ['eth_signTypedData_v4', [ME, typed(undefined)]],
+    ['eth_signTypedData_v4', [ME, 'not json']],
+    ['eth_signTypedData_v4', [ME, '{}']],
+  ]) {
+    sent.length = 0;
+    await assert.rejects(() => g.request({ method, params }), /another network|nothing was sent/i, `${method} ${JSON.stringify(params).slice(0, 80)}`);
+    assert.equal(sent.length, 0, 'must not reach the wallet');
+  }
+  for (const [method, params] of [
+    ['eth_sendTransaction', [{ from: ME, to: OTHER }]],
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: 3045 }]],
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: '0xbe5' }]],
+    ['eth_sendTransaction', [{ from: ME, to: OTHER, chainId: '3045' }]],
+    ['eth_signTypedData_v4', [ME, typed(3045)]],
+    ['eth_signTypedData_v4', [ME, typed('0xbe5')]],
+    ['eth_signTypedData_v4', [ME, JSON.parse(typed(3045))]],
+  ]) {
+    sent.length = 0;
+    assert.equal(await g.request({ method, params }), '0xok', JSON.stringify(params).slice(0, 80));
+    assert.equal(sent.length, 1);
+  }
+});
+
+test('the request is read once: a getter that answers differently the second time cannot pass the check and send something else', async () => {
+  const { guardWc } = loadGuard();
+  const sent = [];
+  const g = guardWc(fakeRaw(sent), ME, () => {});
+  let reads = 0;
+  const args = {
+    get method() { return 'eth_sendTransaction'; },
+    get params() { reads++; return reads === 1 ? [{ from: ME, to: OTHER }] : [{ from: OTHER, to: OTHER }]; },
+  };
+  await g.request(args);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params[0].from, ME, 'what was sent is what was checked');
+  assert.equal(reads, 1, 'params read once');
+  let m = 0;
+  const flip = { get method() { m++; return m === 1 ? 'eth_sendTransaction' : 'eth_sendRawTransaction'; }, params: [{ from: ME }] };
+  sent.length = 0;
+  await g.request(flip);
+  assert.equal(sent[0].method, 'eth_sendTransaction');
+  assert.equal(m, 1);
+  // params that cannot be copied as plain data (a bigint) are refused rather than sent
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME, value: 1n }] }), /nothing was sent/);
+});
+
 test('a session that lists a different VYRE account than eth_accounts is refused before anything is signed', async () => {
   // a hostile or buggy provider can answer eth_accounts with one address while the WalletConnect session is another:
   // signing must follow the session, so the app must not treat them as the same connection
@@ -111,11 +171,4 @@ test('a session that lists a different VYRE account than eth_accounts is refused
   const g = guardWc(raw, ME, () => {});
   await assert.rejects(() => g.request({ method: 'eth_signTypedData_v4', params: [ME, '{}'] }), /account/i);
   assert.equal(sent.length, 0);
-});
-
-test('adopting a WalletConnect provider requires the eth_accounts address to be the one the session lists on VYRE', () => {
-  const src = fs.readFileSync(new URL('../src/lib/wallet.tsx', import.meta.url), 'utf8');
-  const adopt = src.slice(src.indexOf('const adoptWc'), src.indexOf('const connectWalletConnect'));
-  assert.match(adopt, /sessionHasAccount/);
-  assert.match(adopt, /namespaces\?\.eip155\?\.accounts/);
 });

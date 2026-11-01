@@ -260,3 +260,10 @@ test('only the methods the app uses are asked of the wallet at connect (no perso
   assert.match(read('src/lib/wcstate.ts'), /WC_REQUIRED_METHODS = \['eth_sendTransaction'\]/);
   assert.match(read('src/lib/wcstate.ts'), /WC_OPTIONAL_METHODS = \['eth_signTypedData_v4'\] as const/);
 });
+
+test('the header of wc.ts says the relay is not the only thing contacted: the verification frame too, and a saved connection on later visits', () => {
+  const head = read('src/lib/wc.ts').split('\n').slice(0, 12).join('\n');
+  assert.equal(/The one server it talks to/.test(head), false);
+  assert.match(head, /verification[\s/]+frame/);
+  assert.match(head, /later visit/);
+});
