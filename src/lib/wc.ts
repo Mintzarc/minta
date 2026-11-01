@@ -88,56 +88,98 @@ function vyreAccount(p: WcProvider): string | null {
   return sessionHasAccount(s?.namespaces?.eip155?.accounts, CHAIN_ID, s?.expiry, Date.now());
 }
 
-/** The pairing's own address (its topic) in a `wc:` pairing link, which names this attempt among any others */
+/** The pairing's own address (its topic) in a `wc:` pairing link, which names one attempt among any others */
 const pairingOf = (uri: string): string | null => /^wc:([0-9a-f]{64})@/i.exec(uri)?.[1]?.toLowerCase() ?? null;
 
-/** Ends the session that came from one pairing attempt, and only that one. The library is shared by every attempt and its
- *  `session`, `disconnect()` and the result of `connect()` may by then belong to a later attempt, so the session is looked
- *  up by the pairing the attempt began with; the library's own state is cleared only when it still points at that session. */
-async function endAttempt(p: Awaited<ReturnType<typeof library>>, pairing: string | null): Promise<void> {
-  if (!pairing) return;
-  const mine = p.client?.session?.getAll?.().find((x) => x.pairingTopic?.toLowerCase() === pairing);
-  if (!mine) return;
-  try {
-    if (p.session?.topic === mine.topic) await p.disconnect?.();
-    else await p.client?.disconnect({ topic: mine.topic, reason: { code: 6000, message: 'User disconnected.' } });
-  } catch { /* already gone */ }
+type Lib = Awaited<ReturnType<typeof library>>;
+type Session = NonNullable<WcProvider['session']>;
+const USER_DISCONNECTED = { code: 6000, message: 'User disconnected.' };
+
+/** The session MINTA last handed on as the connected one (so it can be put back if a late approval overwrites the library's pointer) */
+let liveSession: Session | null = null;
+
+/** Ends one session by its topic, and never calls the library's own disconnect(): that clears the library's current session and
+ *  deletes every pairing, which would take down a connection or pairing that is still wanted. If the library's pointer was left on
+ *  the ended session, it is put back on the live one (when it still exists) or cleared. */
+async function endTopic(p: Lib, topic: string | undefined): Promise<void> {
+  if (!topic) return;
+  try { await p.client?.disconnect({ topic, reason: USER_DISCONNECTED }); } catch { /* already gone */ }
+  if (p.session?.topic === topic) {
+    const alive = liveSession && liveSession.topic !== topic && p.client?.session?.getAll?.().some((x) => x.topic === liveSession!.topic);
+    p.session = alive ? liveSession! : undefined;
+  }
 }
 
-const realDriver: WcDriver = {
-  async start({ onUri, signal }) {
-    let p: Awaited<ReturnType<typeof library>>;
-    try { p = await withTimeout(library(), WC_RELAY_TIMEOUT_MS, 'relay'); } catch (e) { throw e instanceof WcError ? e : new WcError(classifyWcError(e)); }
-    if (signal.aborted) throw new WcError('other');
-    // this attempt is known by its pairing: the library cannot be told to stop one (abortPairingAttempt does nothing in 2.26)
-    let pairing: string | null = null;
-    // the event is shared by every attempt: this one takes the first address it hears (its own, shown as it starts) and stops listening when cancelled
-    const show = (u: unknown) => { if (typeof u === 'string' && !signal.aborted) { if (pairing === null) pairing = pairingOf(u); onUri(u); } };
-    p.on('display_uri', show);
-    const hush = () => p.removeListener('display_uri', show);
-    signal.addEventListener('abort', hush, { once: true });
+/** Ends the session that came from one pairing attempt: the one whose pairing is this attempt's, never "whatever the library holds" */
+async function endAttempt(p: Lib, pairing: string | null): Promise<void> {
+  const mine = pairing ? p.client?.session?.getAll?.().find((x) => x.pairingTopic?.toLowerCase() === pairing) : undefined;
+  // not listed (a stand-in or an older library): the session the library holds, when it carries this pairing or none
+  const held = p.session && (!p.session.pairingTopic || p.session.pairingTopic.toLowerCase() === pairing) ? p.session.topic : undefined;
+  await endTopic(p, mine?.topic ?? held);
+}
+
+/** One pairing with the library, shared by every start() made while it waits: the library has one connect() in flight at a time
+ *  (its `display_uri` and `session` are shared, and it cannot cancel one: abortPairingAttempt does nothing in 2.26), so a person who
+ *  cancels and taps again is shown the same code and the same approval, never a second pairing that could be mixed up with the first. */
+interface Waiter { onUri: (uri: string) => void; signal: AbortSignal; resolve: (p: WcProvider) => void; reject: (e: unknown) => void }
+interface Inflight { waiters: Set<Waiter>; uri: string | null; pairing: string | null }
+let inflight: Inflight | null = null;
+
+function begin(p: Lib): Inflight {
+  const f: Inflight = { waiters: new Set(), uri: null, pairing: null };
+  // only the first address this connect() shows is its own; a waiter that was cancelled is not shown anything
+  const show = (u: unknown) => {
+    if (typeof u !== 'string' || f.uri !== null) return;
+    f.uri = u; f.pairing = pairingOf(u);
+    for (const w of f.waiters) if (!w.signal.aborted) w.onUri(u);
+  };
+  p.on('display_uri', show);
+  const fail = (e: unknown) => { for (const w of f.waiters) w.reject(e); };
+  void (async () => {
     try {
       // VYRE is the chain asked for. (Read from the library, v2.26: it folds "required" namespaces into the optional ones before
       // sending, "requiredNamespaces are deprecated", so a wallet may approve without VYRE. That is why a session that doesn't
       // list an account on VYRE is refused below, and again before every signature.)
       await p.connect({ optionalNamespaces: { eip155: namespaceOf([...WC_REQUIRED_METHODS, ...WC_OPTIONAL_METHODS]) } });
     } catch (e) {
-      throw new WcError(classifyWcError(e));
-    } finally {
+      if (inflight === f) inflight = null;
       p.removeListener('display_uri', show);
-      signal.removeEventListener('abort', hush);
+      fail(new WcError(classifyWcError(e)));
+      return;
     }
-    // approved after the person cancelled: end that attempt's connection at once (and no other)
-    if (signal.aborted) { await endAttempt(p, pairing); throw new WcError('other'); }
-    // the library's current session must be this attempt's (another attempt's approval may have replaced it), and list an account on VYRE
-    if (pairing && p.session?.pairingTopic !== undefined && p.session.pairingTopic.toLowerCase() !== pairing) { await endAttempt(p, pairing); throw new WcError('other'); }
-    if (!vyreAccount(p)) {
-      await endAttempt(p, pairing);
-      // the library still points at this attempt's session (it was not found by its pairing): end that one
-      if (p.session && (!p.session.pairingTopic || p.session.pairingTopic.toLowerCase() === pairing)) await p.disconnect?.().catch(() => {});
-      throw new WcError('chain');
+    if (inflight === f) inflight = null;
+    p.removeListener('display_uri', show);
+    // the person who is still waiting (the latest one that has not cancelled); nobody: it was approved after cancelling, so end it at once
+    const waiting = [...f.waiters].filter((w) => !w.signal.aborted).pop();
+    if (!waiting) { await endAttempt(p, f.pairing); fail(new WcError('other')); return; }
+    // the library's current session must be this attempt's (a replaced one is ended by its own topic and refused)
+    const got = p.session;
+    if (f.pairing && got?.pairingTopic !== undefined && got.pairingTopic.toLowerCase() !== f.pairing) {
+      await endAttempt(p, f.pairing);
+      await endTopic(p, got.topic);
+      fail(new WcError('other')); return;
     }
-    return p;
+    // whatever the wallet agreed to, it must list an account on VYRE: if not, end it
+    if (!vyreAccount(p)) { await endAttempt(p, f.pairing); fail(new WcError('chain')); return; }
+    liveSession = p.session ?? null;
+    for (const w of f.waiters) { if (w === waiting) w.resolve(p); else w.reject(new WcError('other')); }
+  })();
+  return f;
+}
+
+const realDriver: WcDriver = {
+  async start({ onUri, signal }) {
+    let p: Lib;
+    try { p = await withTimeout(library(), WC_RELAY_TIMEOUT_MS, 'relay'); } catch (e) { throw e instanceof WcError ? e : new WcError(classifyWcError(e)); }
+    if (signal.aborted) throw new WcError('other');
+    return new Promise<WcProvider>((resolve, reject) => {
+      const w: Waiter = { onUri, signal, resolve, reject };
+      const f = inflight ?? (inflight = begin(p));
+      f.waiters.add(w);
+      // cancelling answers this start at once; the pairing itself carries on and is ended if it is approved later
+      signal.addEventListener('abort', () => reject(new WcError('other')), { once: true });
+      if (f.uri) onUri(f.uri); // resuming a pairing already shown: the same code
+    });
   },
   async restore() {
     // nothing saved: don't even load the library or ask the relay
@@ -145,6 +187,7 @@ const realDriver: WcDriver = {
     let p: Awaited<ReturnType<typeof library>>;
     try { p = await withTimeout(library(), WC_RELAY_TIMEOUT_MS, 'relay'); } catch { return null; }
     if (!vyreAccount(p)) { await p.disconnect?.().catch(() => {}); return null; }
+    liveSession = p.session ?? null;
     return p;
   },
 };
