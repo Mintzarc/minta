@@ -15,6 +15,8 @@ Play's words first and follow the meaning.
 
 ## 0. Facts to have open
 
+- **The developer account's registered business is "Precision Pilot Services".** The owner says so; it has not been checked by us. Before anything else, read the account's entity in Play Console (Settings, Developer account, Account details; the organisation name and developer name shown there). **Stop and ask the owner** if the name shown is anything else, if the account is a personal account instead of an organisation, or if any form asks for a licence, a registration, a regulator, an entity or legal answer. Do not copy the business name into any listing text, picture, Terms or privacy page: it stays in the console only.
+
 - App name: `MINTA`. Package name: `com.vyrechain.minta`. Version name `1.0.0`, version code `1` (first upload).
 - Website: `https://minta.vyrechain.com`. Privacy policy: `https://minta.vyrechain.com/privacy/`. Terms: `https://minta.vyrechain.com/terms/`.
 - Contact on the pages: MINTA on Telegram `https://t.me/+HDa2YpR0piA3ZWE0` and X `@MintaLaunchpad`. **No email address is published.** Play requires a contact email for the store listing: the
@@ -131,7 +133,7 @@ Save, then review the summary Play generates. It must show data shared, none sol
 2. **Internal testing first:** Test and release, Testing, Internal testing, Create new release. Upload `app-release.aab` (version code 1, version name 1.0.0). Release name: `1.0.0`. Release notes: `First release.`
 3. **Testers:** add only the email addresses the owner gives (a list). Save, review, roll out. Send the opt-in link to the owner.
 4. **Closed testing / Production:** whether Play asks for a closed test first (12 testers for 14 days) depends on the account; read the Dashboard. Do not start a closed test or Production without the owner's go-ahead. At "Send for review", stop unless the owner has said to send.
-5. Anything Play asks about developer verification, identity, D-U-N-S, organisation documents or fees: stop and ask.
+5. Anything Play asks about developer verification, identity, D-U-N-S, organisation documents (the account is registered to Precision Pilot Services, as the owner states) or fees: stop and ask. If the entity named on any form differs from the account's entity, stop and ask.
 
 ## 7. After the first upload: the Digital Asset Links fingerprint
 
@@ -156,4 +158,4 @@ Until this is done the installed app shows a browser bar at the top.
 
 ## 8. Stop-and-ask list (summary)
 
-Stop and ask the owner at: the contact email; the declarations in section 1; the Financial features declaration whenever it mentions a licence, regulator, country or legal status; the content-rating questions that need a judgement; the category an IP address or a wallet address falls under when Play's wording is unclear; the country list; any fee or payment; identity, organisation or D-U-N-S verification; sending the release for review; Production; and anything not written here. Never enter a password, a key, a keystore or a code.
+Stop and ask the owner at: the account's entity differing from Precision Pilot Services, or any form asking for a licence or legal answer; the contact email; the declarations in section 1; the Financial features declaration whenever it mentions a licence, regulator, country or legal status; the content-rating questions that need a judgement; the category an IP address or a wallet address falls under when Play's wording is unclear; the country list; any fee or payment; identity, organisation or D-U-N-S verification; sending the release for review; Production; and anything not written here. Never enter a password, a key, a keystore or a code.
