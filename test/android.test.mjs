@@ -337,3 +337,12 @@ test('the agents page and the store texts do not use the word "collect" (a creat
     assert.equal(m, null, `${f} uses "${m && m[0]}"`);
   }
 });
+
+test('every Android workflow gives setup-android an explicit package list without the old "tools" package (its default list fails: Failed to find package \'tools\')', () => {
+  for (const f of ['android-debug.yml', 'android-emulator.yml', 'android-release.yml']) {
+    const y = read(`.github/workflows/${f}`);
+    const m = /uses: android-actions\/setup-android@[0-9a-f]{40}[^\n]*\n\s+with:\n(?:\s+#[^\n]*\n)*\s+packages: ([^\n]+)\n/.exec(y);
+    assert.ok(m, `${f}: setup-android has no explicit packages`);
+    assert.deepEqual(m[1].trim().split(/\s+/), ['platform-tools'], `${f}: packages`);
+  }
+});
