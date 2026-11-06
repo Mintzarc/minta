@@ -117,7 +117,7 @@ Data types (tick these, no others). For each: Collected **Yes**; Shared **Yes**;
 | Photos and videos, Photos | a picture the creator picks for a token (public on the token's page) | Yes | App functionality |
 | App activity, Other user-generated content | a token's description and links (public on the token's page) | Yes | App functionality |
 
-The category an IP address or a wallet address belongs to is the owner's call if Play's wording is unclear: stop and ask rather than leave the type unticked. If Play offers a service-provider exemption for Vercel, the owner decides whether to use it (default: do not use it, declare as shared).
+The category an IP address or a wallet address belongs to is for the owner to decide if Play's wording is unclear: stop and ask rather than leave the type unticked. If Play offers a service-provider exemption for Vercel, the owner decides whether to use it (default: do not use it, declare as shared).
 
 Save, then review the summary Play generates. It must show data shared, none sold, encrypted in transit, deletion available. Submit.
 

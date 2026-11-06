@@ -180,7 +180,7 @@ test('the release workflow warns visibly when the links check is skipped, really
   assert.match(rel, /grep -q "jar verified"/);
   assert.match(rel, /name: Remove the decoded key file\n\s+if: always\(\)\n\s+run: rm -f "\$RUNNER_TEMP\/upload\.keystore"/);
   assert.equal((rel.match(/rm -f/g) || []).length, 1, 'one removal, in the always() step');
-  assert.ok(docs.includes('`main` only') && docs.includes('Merge `android` into `main`'), 'the docs restrict the environment to main and say to merge first');
+  assert.ok(docs.includes('`main` only') && docs.includes('is on `main`'), 'the docs restrict the environment to main and say the Android folder is on main');
 });
 
 test('the shortcuts are named for what the app does (no "Launch" label) and the docs list the exported components', () => {
