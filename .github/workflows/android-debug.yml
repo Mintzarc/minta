@@ -24,6 +24,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          # the action's default list is 'tools platform-tools'; the current sdkmanager has no package called 'tools' ("Failed to find package 'tools'", exit 1)
+          packages: platform-tools
       - name: Build the debug APK and lint the manifest
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug lintDebug
