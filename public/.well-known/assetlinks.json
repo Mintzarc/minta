@@ -1,1 +1,8 @@
-[]
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.vyrechain.minta",
+    "sha256_cert_fingerprints": ["27:25:23:D7:61:C8:33:F7:46:E1:C5:A0:D6:A3:AB:4D:9C:0B:C9:37:61:65:39:A9:C3:AC:7E:D0:59:8D:8B:89"]
+  }
+}]
