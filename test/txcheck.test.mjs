@@ -831,3 +831,21 @@ test('the check’s own stops (the person’s Cancel, the wallet moved network) 
     assert.equal(W.walletSendFailure(e), null, 'not read as a send the wallet did not confirm');
   } finally { await api.close(); }
 });
+
+test('only the check’s own Cancel counts as one (not an error that carries its name), and a no-such-method wallet’s follow-up is read like any send', async () => {
+  const W = await import('../src/lib/walletError.ts');
+  assert.equal(wasCancelledByCheck(new CheckCancelled()), true);
+  assert.equal(wasCancelledByCheck({ cause: { cause: new CheckCancelled() } }), true);
+  assert.equal(wasCancelledByCheck(Object.assign(new Error('Cancelled. Nothing was sent.'), { name: 'CheckCancelled' })), false, 'a wallet’s error named like it is a wallet’s answer');
+  assert.equal(wasCancelledByCheck({ name: 'CheckCancelled', code: 4001 }), false);
+  // the follow-up that is passed on (the first answer was "no such method") rejecting with a bare string: the wallet's words, not the library's
+  const api = await standIn(json(200, ok));
+  try {
+    const w = twoFaced(Object.assign(new Error('no such method'), { code: -32601 }), 'Something odd happened');
+    const client = createWalletClient({ account: ME, chain: vyreTestnet, transport: custom(guardProvider(w, { chainId: 7357, url: api.url, ask: async () => true })) });
+    for (const run of [() => client.sendTransaction({ to: OTHER, value: 1n, ...FEES }), () => client.writeContract({ address: OTHER, abi: vyreTokenAbi, functionName: 'approve', args: [OTHER, 5n], ...FEES })]) {
+      const e = await run().then(() => null, (x) => x);
+      assert.equal(W.walletSendFailure(e), 'Your wallet didn’t confirm this. It said: “Something odd happened”. It may still have gone out: check your wallet’s activity before trying again.');
+    }
+  } finally { await api.close(); }
+});

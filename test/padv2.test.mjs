@@ -17,6 +17,8 @@ const TOKEN = getAddress('0x1111111111111111111111111111111111111111');
 const POOL = getAddress('0x2222222222222222222222222222222222222222');
 const E18 = 10n ** 18n;
 const eq = (a, b) => a.toLowerCase() === b.toLowerCase();
+// a well-formed Error("no"): what a node attaches to a revert
+const REVERT_DATA = '0x08c379a0' + '20'.padStart(64, '0') + '2'.padStart(64, '0') + '6e6f'.padEnd(64, '0');
 
 test('the deployment is eight different, checksummed, non-zero addresses on chain 3045 (the addresses themselves are checked against the deployment record by hand, not written out here)', () => {
   const all = Object.entries(P.PAD_V2).filter(([k]) => k !== 'startBlock');
@@ -144,7 +146,7 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
           // a sale that carries a permit can be made to revert, or the node to fail, to see what the fallback does
           const inner = decodeFunctionData({ abi: P.swapRouterAbi, data: input }).args[0].map((d) => decodeFunctionData({ abi: P.swapRouterAbi, data: d }).functionName);
           if (inner[0] === 'selfPermitIfNecessary') {
-            if (saleWithPermit === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: '0x08c379a0' + '00'.repeat(28) });
+            if (saleWithPermit === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: REVERT_DATA });
             if (saleWithPermit === 'down') throw Object.assign(new Error('Internal error'), { code: -32603 });
             if (saleWithPermit === 'reverts-in-words') throw Object.assign(new Error('execution reverted: Too little received'), { code: -32000 });
           }
@@ -153,7 +155,7 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
         // the token (name, symbol, supply, allowance, nonce, permit, approve)
         const f = decodeFunctionData({ abi: vyreTokenAbi, data: input });
         if (f.functionName === 'permit') {
-          if (permitAlone === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: '0x08c379a0' + '00'.repeat(28) });
+          if (permitAlone === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: REVERT_DATA });
           if (permitAlone === 'down') throw new TypeError('fetch failed');
           if (permitAlone === 'reverts-code-only') throw Object.assign(new Error('VM error'), { code: 3 });
           if (permitAlone === 'internal') throw Object.assign(new Error('Internal error'), { code: -32603 });

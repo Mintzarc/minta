@@ -80,6 +80,12 @@ test('reason(): the wallet’s refusal, a send that may have gone out, a revert,
       assert.equal(t, `Your wallet didn’t confirm this. It said: “${m}”. ${MAYBE}`, m);
     }
   }
+  // the connection found gone after the wallet was asked: it may have gone out, through the library's send step or on its own
+  const lost = Object.assign(new Error('Your wallet ended the connection, so you’re disconnected. Connect again.'), { name: 'WcError', why: 'closed' });
+  W.markLostAfterAsking(lost);
+  for (const e of [lost, await sendErr(lost), await sendPlain(lost)]) {
+    assert.equal(C.reason(e), `Your wallet’s connection ended before it confirmed this, so you’re disconnected. ${MAYBE} Then connect again.`);
+  }
   // a transaction that was sent and is unread, even from a caller that forgot to keep it: never "busy ... nothing was sent"
   const unread = Object.assign(new Error('sent, but unconfirmed', { cause: new Error('rate limited: one request at a time') }), { name: 'SentButUnconfirmedError', hash: '0x' + 'ab'.repeat(32) });
   assert.match(C.reason(unread), /^Sent, but its result couldn’t be read yet\. It may have gone through: check it/);

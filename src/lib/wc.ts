@@ -9,7 +9,7 @@
 // The connection is for VYRE's chain only.
 import type { EIP1193Provider } from 'viem';
 import { VYRE_CHAIN } from './chain';
-import { markOwn } from './walletError';
+import { markLostAfterAsking, markOwn } from './walletError';
 import { SITE_URL } from './twa';
 import {
   WC_EVENTS, WC_OPTIONAL_METHODS, WC_RELAY_TIMEOUT_MS, WC_RELAY_URL, WC_REQUIRED_METHODS,
@@ -35,7 +35,8 @@ export interface WcDriver {
 
 export class WcError extends Error {
   // (registered as the page's own refusal: lib/walletError.ts shows only these in their own words, never an object that borrows the name)
-  constructor(public why: WcFailure, message?: string) { super(message ?? wcMessage(why)); this.name = 'WcError'; markOwn(this); }
+  // `asked`: made after the wallet was asked (a connection found gone): the page's own error still, but not a stop before asking
+  constructor(public why: WcFailure, message?: string, asked = false) { super(message ?? wcMessage(why)); this.name = 'WcError'; if (asked) markLostAfterAsking(this); else markOwn(this); }
 }
 
 const PROJECT_ID = wcProjectId(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID);
@@ -320,7 +321,8 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
       // (a wallet may reject with a bare string or with nothing: made an error the wallet library can read, with those words or none)
       const e: unknown = thrown && typeof thrown === 'object' ? thrown : new Error(typeof thrown === 'string' ? thrown : '');
       const text = `${(e as { message?: string })?.message ?? ''}`;
-      if (LOST.test(text)) { onLost('closed'); throw new WcError('closed'); }
+      // the wallet had been asked by now: this is not a stop before asking, and says nothing of what the wallet did
+      if (LOST.test(text)) { onLost('closed'); throw new WcError('closed', undefined, true); }
       // remembered for the library's one follow-up (see above): a refused send only, never a signature
       refusedSend = args.method === 'eth_sendTransaction' ? { error: e, at: Date.now(), key: JSON.stringify(args.params ?? null) } : refusedSend;
       throw e;

@@ -130,7 +130,7 @@ export class WalletMovedNetwork extends BaseError {
 /** Whether an error, or anything it was caused by, is a Cancel from the check's dialog (viem wraps a wallet's refusal around it) */
 export function wasCancelledByCheck(e: unknown): boolean {
   for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 6; x = (x as { cause?: unknown }).cause, i++) {
-    if ((x as { name?: unknown }).name === 'CheckCancelled') return true;
+    if (x instanceof CheckCancelled) return true; // the check's own error, not anything that merely carries its name
   }
   return false;
 }
@@ -302,7 +302,7 @@ export function guardProvider(provider: EIP1193Provider, o: GuardOptions): EIP11
     // was sent by an ask the wallet does not know, so that follow-up is the send, and it is checked and passed on like any other)
     if (args.method === 'wallet_sendTransaction' && was && key !== null && key === was.key && Date.now() - was.at < FIRST_ANSWER_MS) {
       if (!NO_SUCH_METHOD.has((was.error as { code?: unknown } | null)?.code)) throw was.error;
-      return toWallet(args); // checked a moment ago as eth_sendTransaction: not asked about twice
+      try { return await toWallet(args); } catch (thrown) { throw asError(thrown); } // (checked a moment ago as eth_sendTransaction: not asked about twice)
     }
     if (checked) {
       // the check may have taken a while (or waited on the person): the send goes to whatever network the wallet is on now

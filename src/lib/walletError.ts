@@ -60,16 +60,20 @@ export function userRejected(e: unknown): boolean {
   return SAID_NO.some((r) => r.test(words));
 }
 
-/** Revert data, wherever a node or a wallet puts it: `data`, `data.data`, or `data.originalError.data` */
-export function hasRevertData(d: unknown, depth = 0): boolean {
-  if (typeof d === 'string') return /^0x[0-9a-fA-F]{8,}$/.test(d);
-  if (!d || typeof d !== 'object' || depth > 3) return false;
+/** The hex a node or a wallet attached to an error, wherever it puts it (`data`, `data.data`, `data.originalError.data`), or '' */
+function attached(d: unknown, depth = 0): string {
+  if (typeof d === 'string') return /^0x(?:[0-9a-fA-F]{2}){4,}$/.test(d) ? d.toLowerCase() : '';
+  if (!d || typeof d !== 'object' || depth > 3) return '';
   const o = d as { data?: unknown; originalError?: unknown };
-  return hasRevertData(o.data, depth + 1) || hasRevertData(o.originalError, depth + 1);
+  return attached(o.data, depth + 1) || attached(o.originalError, depth + 1);
 }
+/** Revert data that says so by itself: Solidity's Error(string) or Panic(uint256). (Any other hex may be a contract's own error,
+ *  or may be anything at all: it counts only next to a node's "execution reverted".) */
+export const hasRevertData = (d: unknown): boolean => /^0x(?:08c379a0|4e487b71)/.test(attached(d));
 
-/** True when a call really reverted on the chain's own terms: the node answered "execution reverted" (code 3, or in so many words)
- *  or gave revert data. A node that could not be reached, or answered with an internal error and nothing else, did not say that. */
+/** True when a call really reverted on the chain's own terms: the node answered "execution reverted" (code 3, or in so many words),
+ *  or gave Solidity's own revert data. A node that could not be reached, or answered with an internal error and nothing else (or with
+ *  some other hex attached), did not say that. */
 export function realRevert(e: unknown): boolean {
   for (const x of links(e)) if (x.code === 3 || hasRevertData(x.data) || x.name === 'ContractFunctionZeroDataError') return true;
   // in words: only the node's or wallet's own answer counts (the library's wrappers say "reverted" for any failure, and repeat the
@@ -95,6 +99,11 @@ export const tidy = (t: string, max = 160): string =>
 /** The page's own refusals (lib/wc.ts registers each WcError it makes here): only these are shown as the page's own words */
 const OWN = new WeakSet<object>();
 export const markOwn = (e: object): void => { OWN.add(e); };
+/** A connection the page found gone AFTER the wallet had been asked (lib/wc.ts): the page's own error, but not proof of anything */
+const LOST_AFTER_ASKING = new WeakSet<object>();
+export const markLostAfterAsking = (e: object): void => { LOST_AFTER_ASKING.add(e); };
+const lostAfterAsking = (e: unknown): boolean => { for (const x of links(e)) if (LOST_AFTER_ASKING.has(x)) return true; return false; };
+
 /** The page's own refusal, wherever it sits in an error: its words already say that nothing was sent, and are shown as they are.
  *  An object that merely calls itself by the same name (a wallet could) is not one. */
 export function ownRefusal(e: unknown): string | null {
@@ -124,7 +133,9 @@ export function stoppedBeforeAsking(e: unknown): boolean {
  * and not something that stopped before the wallet was asked. null for anything else. Whatever the wallet answered (any code,
  * any words, nothing), this is "it may have gone out": see the top of this file.
  */
-export function sendUnconfirmed(e: unknown): { words: string } | null {
+export function sendUnconfirmed(e: unknown): { words: string; lost?: true } | null {
+  // the wallet was asked and its connection ended before it answered: nothing is known of what it did
+  if (lostAfterAsking(e)) return { words: '', lost: true };
   if (!fromSendStep(e) || stoppedBeforeAsking(e) || userRejected(e) || realRevert(e)) return null;
   return { words: tidy(saidBy(e)) };
 }
@@ -135,6 +146,7 @@ const MAY_BE_OUT = 'It may still have gone out: check your wallet’s activity b
 export function walletSendFailure(e: unknown): string | null {
   const o = sendUnconfirmed(e);
   if (!o) return null;
+  if (o.lost) return `Your wallet’s connection ended before it confirmed this, so you’re disconnected. ${MAY_BE_OUT} Then connect again.`;
   return o.words ? `Your wallet didn’t confirm this. It said: “${o.words}”. ${MAY_BE_OUT}` : `Your wallet didn’t confirm this, and gave no reason. ${MAY_BE_OUT}`;
 }
 
@@ -181,6 +193,7 @@ export function afterApprovalFailure(e: unknown): string | null {
   const went = 'The approval went through';
   if (userRejected(inner)) return `${went}. You cancelled the ${thing} in your wallet: press ${button} again when you’re ready.`;
   const o = sendUnconfirmed(inner);
+  if (o?.lost) return `${went}, but your wallet’s connection ended before it confirmed the ${thing}, so you’re disconnected. The ${thing} may still have gone out: check your wallet’s activity before pressing ${button} again.`;
   if (o) return `${went}, but your wallet didn’t confirm the ${thing}.${o.words ? ` It said: “${o.words}”.` : ''} The ${thing} may still have gone out: check your wallet’s activity before pressing ${button} again.`;
   const x = inner as { shortMessage?: unknown; message?: unknown } | null;
   const m = typeof inner === 'string' ? inner : x && typeof x === 'object' ? (typeof x.shortMessage === 'string' ? x.shortMessage : typeof x.message === 'string' ? x.message : '') : '';
@@ -191,3 +204,14 @@ export function afterApprovalFailure(e: unknown): string | null {
 /** What the trade panel says when a sale could not use a signed permit and asks for an exact approval instead (two confirmations) */
 export const PERMIT_UNSIGNED_NOTE = 'Your wallet couldn’t sign the permit, so it is asking for an approval of exactly this amount first, then the sale. Confirm both in your wallet.';
 export const PERMIT_REFUSED_NOTE = 'This token doesn’t take a permit, so your wallet is asking for an approval of exactly this amount first, then the sale. Confirm both in your wallet.';
+
+/**
+ * The launch dialog's main button. After a send the wallet did not confirm (`unsure` 'ask') it does not offer to try again: it
+ * says to check the wallet first, and that press sends nothing; only the next one ('armed') does.
+ */
+export function createLabel(o: { replacing: boolean; unsure: 'no' | 'ask' | 'armed'; failed: boolean }): string {
+  if (o.replacing) return 'Create it in its place';
+  if (o.unsure === 'ask') return 'Check your wallet first';
+  if (o.unsure === 'armed') return 'It isn’t in my wallet: create token';
+  return o.failed ? 'Try again' : 'Create token';
+}

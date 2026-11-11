@@ -157,23 +157,65 @@ test('a real revert is not blamed on the wallet: from the page’s simulation, o
   assert.equal(W.walletSendFailure(null), null);
 });
 
-test('revert data is found where nodes and wallets put it, and only real data counts; a node that fails did not say "reverted"', () => {
-  const hex = '0x08c379a0' + '00'.repeat(28);
-  assert.equal(W.hasRevertData(hex), true);
-  assert.equal(W.hasRevertData({ data: hex }), true);
-  assert.equal(W.hasRevertData({ originalError: { data: hex } }), true);
-  assert.equal(W.hasRevertData({ data: { originalError: { data: hex } } }), true);
-  for (const d of [undefined, null, '', '0x', 'reverted', 5, {}, { data: '0x' }, { originalError: {} }]) assert.equal(W.hasRevertData(d), false, JSON.stringify(d));
+test('revert data counts only when it says so itself (Solidity’s Error or Panic), wherever it is put; other hex needs the node’s "execution reverted"', async () => {
+  const error = '0x08c379a0' + '00'.repeat(28);
+  const panic = '0x4e487b71' + '00'.repeat(31) + '11';
+  for (const hex of [error, panic, error.toUpperCase().replace('0X', '0x')]) {
+    assert.equal(W.hasRevertData(hex), true);
+    assert.equal(W.hasRevertData({ data: hex }), true);
+    assert.equal(W.hasRevertData({ originalError: { data: hex } }), true);
+    assert.equal(W.hasRevertData({ data: { originalError: { data: hex } } }), true);
+  }
+  // a contract's own error (4 bytes), a hash, any other hex: not by itself
+  for (const d of ['0xdeadbeef', '0x' + 'ab'.repeat(32), '0x08c379', undefined, null, '', '0x', 'reverted', 5, {}, { data: '0x' }, { originalError: {} }]) assert.equal(W.hasRevertData(d), false, JSON.stringify(d));
   assert.equal(W.realRevert({ code: 3 }), true, 'code 3 alone');
   assert.equal(W.realRevert({ cause: { code: 3 } }), true);
+  assert.equal(W.realRevert({ code: 3, data: '0xdeadbeef' }), true, 'a custom error with the node’s code for a revert');
+  assert.equal(W.realRevert({ code: -32000, message: 'execution reverted', data: '0xdeadbeef' }), true, 'or with the node’s words for one');
   assert.equal(W.realRevert({ code: -32000, message: 'execution reverted: no' }), true, 'in words alone');
   assert.equal(W.realRevert({ name: 'RpcRequestError', details: 'execution reverted' }), true);
-  assert.equal(W.realRevert({ data: { originalError: { data: hex } } }), true);
+  assert.equal(W.realRevert({ data: { originalError: { data: error } } }), true);
   assert.equal(W.realRevert({ code: -32603, message: 'Internal error' }), false);
+  assert.equal(W.realRevert({ code: -32000, message: 'already known', data: '0x' + 'ab'.repeat(32) }), false, 'a hash attached to "already known" is not a revert');
   assert.equal(W.realRevert(new TypeError('fetch failed')), false);
   // the library's own wrapper says "reverted" for any failure: that alone is not a revert
   assert.equal(W.realRevert({ name: 'ContractFunctionExecutionError', message: 'The contract function "permit" reverted. execution reverted', cause: { name: 'ContractFunctionRevertedError', message: 'execution reverted', cause: new TypeError('fetch failed') } }), false);
   assert.equal(W.realRevert(null), false);
+  // through the library: arbitrary hex next to words like "already known" is a send that may have gone out, not a revert
+  for (const send of [sendErr, sendTx]) {
+    for (const data of ['0x' + 'ab'.repeat(32), '0xdeadbeef', { txHash: '0x' + 'cd'.repeat(32), data: '0x' + 'ab'.repeat(32) }]) {
+      const e = await send({ code: -32000, message: 'already known', data });
+      assert.equal(W.walletSendFailure(e), `Your wallet didn’t confirm this. It said: “already known”. ${MAYBE}`, JSON.stringify(data));
+    }
+  }
+});
+
+test('a connection found gone after the wallet was asked is not a stop before asking: it may have gone out, and the person is disconnected', async () => {
+  const lost = Object.assign(new Error('Your wallet ended the connection, so you’re disconnected. Connect again.'), { name: 'WcError', why: 'closed' });
+  W.markLostAfterAsking(lost);
+  assert.equal(W.ownRefusal(lost), null, 'not the page’s "nothing was sent" words');
+  assert.equal(W.stoppedBeforeAsking(lost), false);
+  const said = `Your wallet’s connection ended before it confirmed this, so you’re disconnected. ${MAYBE} Then connect again.`;
+  assert.equal(W.walletSendFailure(lost), said, 'on its own');
+  for (const send of [sendErr, sendTx]) assert.equal(W.walletSendFailure(await send(lost)), said, 'through the library');
+  const after = Object.assign(new Error('x', { cause: await sendErr(lost) }), { name: W.SALE_AFTER_APPROVAL });
+  const t = W.afterApprovalFailure(after);
+  assert.equal(t, 'The approval went through, but your wallet’s connection ended before it confirmed the sale, so you’re disconnected. The sale may still have gone out: check your wallet’s activity before pressing Sell again.');
+  assert.equal(/Press Sell again\.$/.test(t), false);
+});
+
+test('the launch button after a send the wallet did not confirm: "Check your wallet first", then one more deliberate press, never "Try again"', () => {
+  assert.equal(W.createLabel({ replacing: false, unsure: 'no', failed: false }), 'Create token');
+  assert.equal(W.createLabel({ replacing: false, unsure: 'no', failed: true }), 'Try again');
+  assert.equal(W.createLabel({ replacing: false, unsure: 'ask', failed: true }), 'Check your wallet first');
+  assert.equal(W.createLabel({ replacing: false, unsure: 'armed', failed: true }), 'It isn’t in my wallet: create token');
+  assert.equal(W.createLabel({ replacing: true, unsure: 'ask', failed: true }), 'Create it in its place');
+  // the dialog: the state is set from the send-step reading, the first press only arms, and a new attempt resets it
+  const page = fs.readFileSync(new URL('../src/pages/Launch.tsx', import.meta.url), 'utf8');
+  assert.match(page, /setUnsure\(sendUnconfirmed\(e\) \? 'ask' : 'no'\)/);
+  assert.match(page, /onClick=\{\(\) => \(unsure === 'ask' \? setUnsure\('armed'\) : create\(\)\)\}/);
+  assert.match(page, /const create = async[\s\S]{0,600}setUnsure\('no'\)/);
+  assert.equal(/\? 'Try again' : 'Create token'/.test(page), false, 'the label comes from createLabel only');
 });
 
 test('a wallet’s words are shown as one line, without web addresses, and no longer than 160 characters', async () => {

@@ -7,6 +7,7 @@ import { SentButUnconfirmedError, operationIn, type LaunchParams } from '@vyrech
 import { LAUNCH_LIMITS, checkLaunchParams, getLaunch, launch, vyrePadAbi } from '../lib/pad';
 import { getAddress, isAddress, isAddressEqual, parseEventLogs, type Hash, type TransactionReceipt } from 'viem';
 import { EXPLORER, reason, vyre } from '../lib/chain';
+import { createLabel, sendUnconfirmed } from '../lib/walletError';
 import { amountProblem, exact, iso, parse, pct, percentBps, plainText, price, short, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
@@ -520,6 +521,9 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   const [err, setErr] = useState('');
   // an earlier Face ID transaction found to have gone through: its link, beside the message
   const [earlierHash, setEarlierHash] = useState('');
+  // 'ask': the wallet was asked to send the launch and did not confirm it (it may have gone out): the button says to check the wallet
+  // first, and that press sends nothing ('armed'); only the next one sends
+  const [unsure, setUnsure] = useState<'no' | 'ask' | 'armed'>('no');
   // the picture-and-links file couldn't be saved: offer to launch without it (the API never holds a launch up)
   const [fileFailed, setFileFailed] = useState(false);
   // a check found no receipt yet: offer to start over, for a launch that never reached the chain
@@ -635,6 +639,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
     const place = replacing && sent?.op ? { sender: sent.op.sender as Address, nonce: BigInt(sent.op.nonce), fromBlock: BigInt(sent.op.fromBlock) } : null;
     if (sent && !place) return;
     setErr('');
+    setUnsure('no');
     setEarlierHash('');
     setFileFailed(false);
     if (place && (!faceId || !account || !isAddressEqual(account, place.sender))) {
@@ -701,7 +706,8 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
         setErr(UNREAD);
         return;
       }
-      // before the transaction was sent: back to the review, details kept
+      // not known to have been sent: back to the review, details kept. (A wallet that was asked and did not confirm may have sent
+      // it all the same: the words say so, and the button asks for a look at the wallet before it will send again.)
       const x = e as { earlier?: unknown; hash?: unknown; launch?: { token?: unknown; symbol?: unknown } } | null;
       if (place && sent && x && x.earlier === true) {
         // the first launch (or something in its place) went through meanwhile: the page's own check shows what ran
@@ -712,6 +718,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
       }
       setStep((s) => (s === 'wait' ? s : 'review'));
       setErr(reason(e));
+      setUnsure(sendUnconfirmed(e) ? 'ask' : 'no');
       if (x && x.earlier === true && typeof x.hash === 'string') {
         setEarlierHash(x.hash);
         // it was a launch (from another tab, say): shown rather than another created (read before it was crossed out)
@@ -766,7 +773,8 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
             <div className="row dialog-actions">
               <button type="button" className="btn btn-line" onClick={() => onClose()}>Back to details</button>
               {fileFailed && <button type="button" className="btn btn-line" onClick={() => create(false)} disabled={switched || !params}>Create without picture and links{devBuy}</button>}
-              <button type="button" className="btn btn-accent" onClick={() => create()} disabled={switched || !params}>{replacing ? 'Create it in its place' : err && !earlierHash ? 'Try again' : 'Create token'}{devBuy}</button>
+              {/* after a send the wallet did not confirm, the first press only arms the button (the wallet is to be checked first) */}
+              <button type="button" className="btn btn-accent" onClick={() => (unsure === 'ask' ? setUnsure('armed') : create())} disabled={switched || !params}>{createLabel({ replacing, unsure, failed: !!err && !earlierHash })}{unsure === 'no' ? devBuy : ''}</button>
             </div>
           </>
         )}

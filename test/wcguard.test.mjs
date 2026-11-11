@@ -286,3 +286,21 @@ test('the guard’s own refusals are registered as the page’s own words (and o
   assert.equal(walletError.ownRefusal({ cause: { cause: e } }), e.message, 'wherever it sits in an error');
   assert.equal(walletError.ownRefusal(Object.assign(new Error('Nothing was sent.'), { name: 'WcError' })), null);
 });
+
+test('a connection found gone when the wallet had already been asked is the page’s error, but not one of its "nothing was sent" refusals', async () => {
+  const { guardWc, WcError, walletError } = loadGuard();
+  const raw = fakeRaw([]);
+  const real = raw.request.bind(raw);
+  raw.request = async (a, c) => { if (a.method === 'eth_sendTransaction') throw new Error('No matching key. session topic doesn\'t exist: abc'); return real(a, c); };
+  const lost = [];
+  const g = guardWc(raw, ME, (why) => lost.push(why));
+  const e = await g.request({ method: 'eth_sendTransaction', params: [{ from: ME, to: OTHER }] }).then(() => null, (x) => x);
+  assert.ok(e instanceof WcError && e.why === 'closed');
+  assert.deepEqual(lost, ['closed']);
+  assert.equal(walletError.ownRefusal(e), null);
+  assert.equal(walletError.stoppedBeforeAsking(e), false);
+  assert.match(walletError.walletSendFailure(e), /connection ended before it confirmed this[\s\S]*It may still have gone out/);
+  // a refusal made before the wallet is asked stays the page's own words
+  const before = await g.request({ method: 'eth_sendTransaction', params: [{ from: OTHER, to: OTHER }] }).then(() => null, (x) => x);
+  assert.equal(walletError.ownRefusal(before), before.message);
+});

@@ -200,7 +200,9 @@ export function reason(e: unknown): string {
   // An error from the send step ends here, whatever words or data it carries: the wallet did not confirm it (it may have gone out),
   // or it is a revert with its reason, or the library stopped before asking. It never reaches the readings below, which would turn
   // "already known" into "wait a moment, then try again", or a busy node into "nothing was sent".
-  if (fromSendStep(e)) return walletSendFailure(e) ?? firstWords(m);
+  const unconfirmed = walletSendFailure(e);
+  if (fromSendStep(e)) return unconfirmed ?? firstWords(m);
+  if (unconfirmed) return unconfirmed; // (a connection found gone after the wallet was asked, raised outside the library's send step)
   const face = faceIdReason(e);
   if (face) return face;
   return firstWords(m);
