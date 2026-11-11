@@ -143,12 +143,15 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
       return (await pg.locator('#sell .status').innerText()).trim();
     };
     const t = await sellNow({ code: -32603, message: 'Internal JSON-RPC error. insufficient funds for gas * price + value' });
-    ok(t === 'Your wallet couldn’t send this. It said: “Internal JSON-RPC error. insufficient funds for gas * price + value”. Nothing was sent.', `a refusal that proves nothing went out is shown with the wallet’s own words (${t})`);
-    ok(!/revert|contract function|following reason/i.test(t), 'and nothing calls it a contract revert');
+    ok(t === 'Your wallet didn’t confirm this. It said: “Internal JSON-RPC error. insufficient funds for gas * price + value”. It may still have gone out: check your wallet’s activity before trying again.', `an internal error, whatever its words, is shown with the wallet’s own words and may have gone out (${t})`);
+    ok(!/revert|contract function|following reason|Nothing was sent/i.test(t), 'and nothing calls it a contract revert, or says nothing was sent');
     ok(JSON.stringify(await pg.evaluate(() => window.__notes)) === '["permit-unsigned"]', 'the page was told an exact approval is asked for instead of the permit');
     const asked = await sent(pg);
     ok(asked.length === 2 && asked[0].method === 'eth_signTypedData_v4' && asked[1].method === 'eth_sendTransaction', 'the wallet was asked for the permit, then for one send (the approval)');
     ok(asked[1].params[0].to.toLowerCase() === '0x1111111111111111111111111111111111111111' && asked[1].params[0].data.startsWith('0x095ea7b3'), 'that send is approve() on the token, for the sale’s amount only');
+    // a standard code that cannot follow a broadcast (the wallet is not authorized): only then "Nothing was sent."
+    const refused = await sellNow({ code: 4100, message: 'The requested account has not been authorized' });
+    ok(refused === 'Your wallet couldn’t send this. It said: “The requested account has not been authorized”. Nothing was sent.', `a refusal by a code that proves nothing went out says so (${refused})`);
     // an answer that may only have been lost (the wallet may have sent it): never "Nothing was sent"
     const lost = await sellNow({ code: -32603, message: 'Request timed out' });
     ok(lost === 'Your wallet didn’t confirm this. It said: “Request timed out”. It may still have gone out: check your wallet’s activity before trying again.', `a lost answer says it may have gone out (${lost})`);
@@ -160,8 +163,11 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     // the approval is mined, then the wallet does not confirm the sale: the page says both
     const after = await sellNow({ code: -32603, message: 'Request timed out' }, 1);
     ok(after === 'The approval went through, but your wallet didn’t confirm the sale. It said: “Request timed out”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.', `after a mined approval the page says so, and that the sale may have gone out (${after})`);
-    const after2 = await sellNow({ code: -32000, message: 'insufficient funds for gas * price + value' }, 1);
-    ok(after2 === 'The approval went through, but your wallet couldn’t send the sale. It said: “insufficient funds for gas * price + value”. The sale was not sent: press Sell again.', `and when the wallet refuses the sale outright, that the sale was not sent (${after2})`);
+    const after2 = await sellNow({ code: 4100, message: 'The requested account has not been authorized' }, 1);
+    ok(after2 === 'The approval went through, but your wallet couldn’t send the sale. It said: “The requested account has not been authorized”. The sale was not sent: press Sell again.', `and when the wallet refuses the sale by such a code, that the sale was not sent (${after2})`);
+    // -32000 makes the library ask again as wallet_sendTransaction: the wallet's own first answer is what is shown, as one that may have gone out
+    const after3 = await sellNow({ code: -32000, message: 'insufficient funds for gas * price + value' }, 1);
+    ok(after3 === 'The approval went through, but your wallet didn’t confirm the sale. It said: “insufficient funds for gas * price + value”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.', `a -32000 answer keeps the wallet’s own words (${after3})`);
     ok(!/Nothing was sent/.test(after + after2), 'neither says "Nothing was sent" (the approval was)');
     ok((await sent(pg)).filter((x) => x.method === 'eth_sendTransaction').length === 2, 'the wallet was asked for the approval and then the sale');
     await ctx.close();

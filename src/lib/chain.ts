@@ -1,7 +1,7 @@
 // The chains the app talks to, and the browser wallet.
 // Reads go to VYRE's public RPC through Multicall3 (the RPC serves one request at a time per visitor, so reads made
 // together travel as one). Writes go through the visitor's wallet, and every one is simulated first (the SDK does it).
-import { afterApprovalFailure, firstWords, userRejected, walletSendFailure } from './walletError';
+import { afterApprovalFailure, firstWords, ownRefusal, userRejected, walletSendFailure } from './walletError';
 import {
   createPublicClient,
   createWalletClient,
@@ -186,8 +186,12 @@ export function reason(e: unknown): string {
   // a sale that stopped after its approval was mined: the approval is always mentioned, whatever stopped the sale (a busy network too)
   const afterApproval = afterApprovalFailure(e);
   if (afterApproval) return afterApproval;
-  const err = e as { code?: number; shortMessage?: string; message?: string; cause?: { code?: number } };
+  const err = e as { shortMessage?: string; message?: string };
   if (wasCancelledByCheck(e)) return 'Cancelled. Nothing was sent.';
+  // the page's own guard stopped it before the wallet was asked: its words, as they are
+  const own = ownRefusal(e);
+  if (own) return own;
+  // a refusal in the wallet, by its code or by the wallet's own words for it (a hardware wallet's "User denied" behind any code)
   if (userRejected(e)) return 'Cancelled in your wallet.';
   // an error from the send step (the page had just simulated it): what the wallet's answer proves decides the words, before any
   // other reading of them ("already known" means it may have gone out, not "wait a moment, then try again")
@@ -195,7 +199,6 @@ export function reason(e: unknown): string {
   if (unsent) return unsent;
   const face = faceIdReason(e);
   if (face) return face;
-  if (/user rejected|denied/i.test(err?.message || '')) return 'Cancelled in your wallet.';
   const m = err?.shortMessage || err?.message || String(e);
   return firstWords(m);
 }

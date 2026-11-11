@@ -28,14 +28,37 @@ const { writeContract } = require('viem/actions');
 const ME = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 const abi = parseAbi(['function approve(address spender, uint256 value) returns (bool)']);
 const chain = stubs['./network'].NETWORK.vyre;
+const { sendTransaction } = require('viem/actions');
+const sendPlain = (answer) => sendTransaction(createWalletClient({ account: ME, chain, transport: custom({ request: async ({ method }) => {
+  if (method === 'eth_chainId') return toHex(chain.id);
+  throw answer;
+} }) }), { to: '0x1111111111111111111111111111111111111111', value: 5n, gas: 21000n, chain }).then(() => { throw new Error('it did not fail'); }, (e) => e);
 const sendErr = (answer) => writeContract(createWalletClient({ account: ME, chain, transport: custom({ request: async ({ method }) => {
   if (method === 'eth_chainId') return toHex(chain.id);
   throw answer;
 } }) }), { address: '0x1111111111111111111111111111111111111111', abi, functionName: 'approve', args: [ME, 5n], chain, gas: 100000n }).then(() => { throw new Error('it did not fail'); }, (e) => e);
 
 test('reason(): the wallet’s refusal, a send that may have gone out, a revert, a cancel, and a plain message each read as what they are', async () => {
+  const MAYBE = 'It may still have gone out: check your wallet’s activity before trying again.';
+  assert.equal(C.reason(await sendErr({ code: 4902, message: 'Unrecognized chain ID' })), 'Your wallet couldn’t send this. It said: “Unrecognized chain ID”. Nothing was sent.');
+  // words prove nothing: an internal error that speaks of funds may still have gone out
   assert.equal(C.reason(await sendErr({ code: -32603, message: 'Internal JSON-RPC error. insufficient funds for gas * price + value' })),
-    'Your wallet couldn’t send this. It said: “Internal JSON-RPC error. insufficient funds for gas * price + value”. Nothing was sent.');
+    `Your wallet didn’t confirm this. It said: “Internal JSON-RPC error. insufficient funds for gas * price + value”. ${MAYBE}`);
+  // a plain transfer (the Wallet page's Send and Send back) is read by the same rule: a second send there is a second payment
+  for (const m of ['already known', 'rate limited', 'Request exceeds defined limit', 'one request at a time', 'nonce too low', 'Request timed out', 'replacement underpriced']) {
+    const t = C.reason(await sendPlain({ code: -32000, message: m }));
+    assert.equal(t, `Your wallet didn’t confirm this. It said: “${m}”. ${MAYBE}`, m);
+    assert.equal(/nothing was sent|try again in|Wait a moment/i.test(t), false, m);
+  }
+  assert.equal(C.reason(await sendPlain({ code: 4001, message: 'User rejected the request.' })), 'Cancelled in your wallet.');
+  assert.equal(C.reason(await sendPlain({ code: -32602, message: 'Bad arguments' })), 'Your wallet couldn’t send this. It said: “Bad arguments”. Nothing was sent.');
+  // a hardware wallet's refusal behind an internal error, or with no code: a cancel, not "may have gone out"
+  assert.equal(C.reason(await sendErr({ code: -32603, message: 'MetaMask Tx Signature: User denied transaction signature.' })), 'Cancelled in your wallet.');
+  assert.equal(C.reason(await sendPlain({ message: 'User denied transaction signature' })), 'Cancelled in your wallet.');
+  // the page's own guard refused it before the wallet was asked: its own words, not quoted as a wallet's
+  const guard = Object.assign(new Error('That request is for another network. This connection works on VYRE only, so nothing was sent.'), { name: 'WcError', why: 'chain' });
+  assert.equal(C.reason(await sendErr(guard)), 'That request is for another network. This connection works on VYRE only, so nothing was sent.');
+  assert.equal(C.reason(guard), guard.message);
   assert.equal(C.reason(await sendErr({ code: -32603, message: 'Request timed out' })),
     'Your wallet didn’t confirm this. It said: “Request timed out”. It may still have gone out: check your wallet’s activity before trying again.');
   assert.equal(C.reason(await sendErr({ code: 3, message: 'execution reverted: Too little received' })),
@@ -61,8 +84,8 @@ test('reason(): a sale that stopped after its approval says the approval went th
   const after = (cause) => Object.assign(new Error('the approval went through, but the sale did not', { cause }), { name: W.SALE_AFTER_APPROVAL, approvalHash: '0x' + 'ab'.repeat(32) });
   assert.equal(C.reason(after(await sendErr({ code: -32603, message: 'Request timed out' }))),
     'The approval went through, but your wallet didn’t confirm the sale. It said: “Request timed out”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.');
-  assert.equal(C.reason(after(await sendErr({ code: -32000, message: 'insufficient funds for gas' }))),
-    'The approval went through, but your wallet couldn’t send the sale. It said: “insufficient funds for gas”. The sale was not sent: press Sell again.');
+  assert.equal(C.reason(after(await sendErr({ code: 4100, message: 'Not authorized' }))),
+    'The approval went through, but your wallet couldn’t send the sale. It said: “Not authorized”. The sale was not sent: press Sell again.');
   // a busy network after the approval: never "so nothing was sent" (the approval was)
   for (const m of ['rate limited', 'Request exceeds defined limit', 'busy: try again', 'one request at a time']) {
     const t = C.reason(after(new Error(m)));

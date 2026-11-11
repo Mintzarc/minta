@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createPublicClient, createWalletClient, custom, encodeErrorResult, parseAbi, toHex } from 'viem';
-import { simulateContract, writeContract } from 'viem/actions';
+import { sendTransaction, simulateContract, writeContract } from 'viem/actions';
 import { vyreMainnet } from '@vyrechain/sdk';
 import * as W from '../src/lib/walletError.ts';
 
@@ -27,51 +27,84 @@ const nodeThat = (answer) => createPublicClient({ chain: vyreMainnet, transport:
 const failure = (p) => p.then(() => { throw new Error('it did not fail'); }, (e) => e);
 const sendErr = (answer) => failure(writeContract(walletThat(answer), { ...call, chain: vyreMainnet, gas: 100000n }));
 
-test('a refusal that proves nothing was broadcast is reported with the wallet’s words and "Nothing was sent."', async () => {
-  for (const [answer, words] of [
-    [{ code: -32603, message: 'Internal JSON-RPC error. insufficient funds for gas * price + value' }, 'Internal JSON-RPC error. insufficient funds for gas * price + value'],
-    [{ code: -32000, message: 'transaction underpriced' }, 'transaction underpriced'],
-    [{ code: -32000, message: 'nonce too high' }, 'nonce too high'],
-    [{ code: -32000, message: 'max fee per gas less than block base fee' }, 'max fee per gas less than block base fee'],
-    [{ code: -32602, message: 'Bad arguments' }, 'Bad arguments'],
-    [{ code: -32601, message: 'eth_sendTransaction is not available' }, 'eth_sendTransaction is not available'],
-    [{ code: 4902, message: 'Unrecognized chain ID "0xbe5"' }, 'Unrecognized chain ID 0xbe5'],
-    [{ code: 4100, message: 'The requested account has not been authorized' }, 'The requested account has not been authorized'],
-  ]) {
-    const said = W.walletSendFailure(await sendErr(answer));
-    assert.equal(said, `Your wallet couldn’t send this. It said: “${words}”. Nothing was sent.`, JSON.stringify(answer));
-    assert.equal(/revert|contract function/i.test(said), false, 'it is not called a revert');
+const sendTx = (answer, chainId = vyreMainnet.id) => failure(sendTransaction(createWalletClient({ account: ME, chain: vyreMainnet, transport: custom({ request: async ({ method }) => {
+  if (method === 'eth_chainId') return toHex(chainId);
+  throw answer;
+} }) }), { to: TOKEN, value: 5n, gas: 21000n, chain: vyreMainnet }));
+const MAYBE = 'It may still have gone out: check your wallet’s activity before trying again.';
+
+test('"Nothing was sent." only for a wallet answer whose own code cannot follow a broadcast, whatever its words', async () => {
+  for (const code of [4100, 4200, 4900, 4901, 4902, -32601, -32602]) {
+    for (const send of [sendErr, sendTx]) {
+      const said = W.walletSendFailure(await send({ code, message: 'The wallet says no' }));
+      assert.equal(said, 'Your wallet couldn’t send this. It said: “The wallet says no”. Nothing was sent.', `${code}`);
+    }
   }
+  assert.equal(W.walletSendFailure(await sendErr({ code: 4902, message: '' })), 'Your wallet couldn’t send this. Nothing was sent.');
   // the library's own first line is the one that used to be shown, with the reason cut off
   const e = await sendErr({ code: -32603, message: 'Internal JSON-RPC error. no balance' });
   assert.match(e.shortMessage.split('\n')[0], /reverted with the following reason:$/);
 });
 
-test('an answer that may only have been lost on its way back never says "Nothing was sent": it may have gone out', async () => {
-  for (const answer of [
+test('every other answer from a send, whatever its words, says it may have gone out: never "Nothing was sent", never "try again in a moment"', async () => {
+  const answers = [
     { code: -32603, message: 'Request timed out' },
     { code: -32603, message: 'Internal JSON-RPC error.' },
+    { code: -32603, message: 'Internal JSON-RPC error. insufficient funds for gas * price + value' },
+    { code: -32000, message: 'insufficient funds for gas * price + value' },
+    { code: -32000, message: 'transaction underpriced' },
+    { code: -32000, message: 'nonce too low' },
+    { code: -32000, message: 'nonce too high' },
+    { code: -32000, message: 'replacement transaction underpriced' },
+    { code: -32000, message: 'already known' },
+    { code: -32000, message: 'context deadline exceeded' },
+    { code: -32000, message: 'transaction already in mempool' },
+    { code: -32000, message: '' },
     { code: -32000, message: 'request expired' },
+    { code: -32003, message: 'Transaction rejected' },
+    { code: -32005, message: 'rate limited' },
+    { code: 429, message: 'Too many requests: one request at a time' },
     { code: 5001, message: 'WebSocket connection closed abnormally with code: 1006' },
     { message: 'Failed to fetch' },
+    { message: 'Unauthorized' },
+    { message: 'invalid params' },
     { code: -32603, message: 'Something went wrong.\nPlease try again later' },
-    { code: -32000, message: 'already known' },
-    // what a wallet hears when its first broadcast landed and it tried again: not proof that nothing went out
-    { code: -32000, message: 'nonce too low' },
-    { code: -32000, message: 'nonce too low: next nonce 8, tx nonce 7' },
-    { code: -32000, message: 'replacement transaction underpriced' },
-    { code: -32003, message: 'Transaction rejected' },
-    { code: -32603, message: '' },
-    // words of a refusal next to words of a lost answer: the lost answer wins
-    { code: -32603, message: 'insufficient funds? request timed out before the wallet answered' },
-  ]) {
-    const said = W.walletSendFailure(await sendErr(answer));
-    assert.match(said, /^Your wallet didn’t confirm this/, JSON.stringify(answer));
-    assert.match(said, /It may still have gone out: check your wallet’s activity before trying again\.$/);
-    assert.equal(/Nothing was sent|revert|contract function/i.test(said), false, JSON.stringify(answer));
-    if (answer.message) assert.ok(said.includes(answer.message.replace(/\s+/g, ' ').replace(/\.$/, '').slice(0, 20)), 'with the wallet’s words');
+  ];
+  for (const send of [sendErr, sendTx]) {
+    for (const answer of answers) {
+      const e = await send(answer);
+      assert.equal(W.sendOutcome(e)?.kind, 'unconfirmed', JSON.stringify(answer));
+      const said = W.walletSendFailure(e);
+      assert.ok(said.endsWith(MAYBE), JSON.stringify(answer));
+      assert.equal(/Nothing was sent|revert|contract function|Wait a moment|try again in/i.test(said), false, JSON.stringify(answer));
+      const words = answer.message.replace(/\s+/g, ' ').replace(/\.$/, '');
+      assert.equal(said, words ? `Your wallet didn’t confirm this. It said: “${words}”. ${MAYBE}` : `Your wallet didn’t confirm this, and gave no reason. ${MAYBE}`, JSON.stringify(answer));
+    }
   }
-  assert.equal(W.walletSendFailure(await sendErr({ code: -32603, message: '' })), 'Your wallet didn’t confirm this, and gave no reason. It may still have gone out: check your wallet’s activity before trying again.');
+});
+
+test('nothing is read from the library’s wrapper text: a call whose own arguments say "Unauthorized" or "Insufficient Funds" is not a refusal', async () => {
+  const launchAbi = parseAbi(['function createLaunch(string name, string symbol) returns (address)']);
+  for (const name of ['Unauthorized', 'Insufficient Funds', 'invalid params', 'User rejected the request', 'execution reverted']) {
+    const e = await failure(writeContract(walletThat({ code: -32603, message: 'Internal JSON-RPC error.' }), { address: TOKEN, abi: launchAbi, functionName: 'createLaunch', args: [name, 'TKN'], chain: vyreMainnet, gas: 100000n }));
+    assert.ok(e.message.includes(name), 'the wrapper does repeat the argument');
+    assert.equal(W.userRejected(e), false, name);
+    assert.equal(W.realRevert(e), false, name);
+    assert.equal(W.walletSendFailure(e), `Your wallet didn’t confirm this. It said: “Internal JSON-RPC error”. ${MAYBE}`, name);
+  }
+});
+
+test('what stopped before the wallet was asked is not the wallet’s answer: the library’s own chain check, the page’s guard', async () => {
+  // the wallet is on another chain: the library stops before sending
+  const wrong = await sendTx({ code: -32603, message: 'never asked' }, 1);
+  assert.equal(W.sendOutcome(wrong), null);
+  assert.match(W.firstWords(wrong.shortMessage), /chain/i);
+  // the page's WalletConnect guard refused it (its error travels through the library's send step like a wallet's)
+  const guard = Object.assign(new Error('That transaction isn’t from the account you connected, so nothing was sent.'), { name: 'WcError', why: 'other' });
+  const e = await sendErr(guard);
+  assert.equal(W.sendOutcome(e), null);
+  assert.equal(W.ownRefusal(e), 'That transaction isn’t from the account you connected, so nothing was sent.');
+  assert.equal(W.ownRefusal(new Error('x')), null);
 });
 
 test('a real revert is not blamed on the wallet: from the page’s simulation, or from the wallet’s node at send time, with data or only in words', async () => {
@@ -126,11 +159,15 @@ test('a wallet’s words are shown as one line, without web addresses, and no lo
   assert.equal(W.tidy('ｈｔｔｐｓ：／／ｅｖｉｌ．ｅｘａｍｐｌｅ／ｐａｙ now'), 'now');
   assert.equal(W.tidy('ok\u202E\uFEFF then'), 'ok then');
   assert.equal(W.tidy('“Nothing was sent.” «really» "yes"'), 'Nothing was sent. really yes');
+  // every mark that could pass for a closing quotation mark, plain or look-alike, is taken out
+  assert.equal(W.tidy('a’b‘c❝d❞e〝f〞g‹h›i″j′k＂l＇m`n´o\'p‚q„r‟s'), 'abcdefghijklmnopqrs');
+  assert.equal(W.tidy('a\u2057b'), 'ab', 'a character that only becomes quotation-like marks when its look-alike form is folded');
+  assert.equal(/[“”]/.test(W.walletSendFailure(await sendErr({ code: -32603, message: 'x”. Nothing was sent. “y' })).replace(/It said: “.*?”\. It may/, 'It said: Q. It may')), false, 'the only quotation marks are the page’s own pair');
   // ordinary words with dots are left alone
   assert.equal(W.tidy('Internal JSON-RPC error. insufficient funds for gas * price + value'), 'Internal JSON-RPC error. insufficient funds for gas * price + value');
   assert.equal(W.tidy('nonce too low: next nonce 8, tx nonce 7.'), 'nonce too low: next nonce 8, tx nonce 7');
   assert.equal(W.tidy('a'.repeat(400)).length, 160);
-  const long = await sendErr({ code: -32000, message: `insufficient funds ${'z'.repeat(400)} https://evil.example/pay` });
+  const long = await sendErr({ code: -32602, message: `bad parameters ${'z'.repeat(400)} https://evil.example/pay` });
   const said = W.walletSendFailure(long);
   assert.equal(/https?:|evil\.example/.test(said), false, 'no address from the wallet’s text');
   assert.equal(said.length, 'Your wallet couldn’t send this. It said: “'.length + 160 + '”. Nothing was sent.'.length);
@@ -158,6 +195,15 @@ test('a refusal in the wallet is recognised from a browser wallet (4001) and fro
   // a refusal is never read as a send that failed or may have gone out
   assert.equal(W.sendOutcome(await sendErr({ code: 4001, message: 'User rejected the request.' })), null);
   assert.equal(W.walletSendFailure(await sendErr({ code: 5000, message: 'Rejected' })), null);
+  // a wallet's own words for a refusal, at any code or none (a hardware wallet behind an internal error)
+  for (const answer of [{ code: -32603, message: 'MetaMask Tx Signature: User denied transaction signature.' }, { message: 'User rejected the request.' }, { code: -32000, message: 'Rejected by user' }, { code: -32603, message: 'Ledger device: Condition of use not satisfied (denied by the user?)' }, { message: 'user cancelled' }]) {
+    for (const send of [sendErr, sendTx]) {
+      const e = await send(answer);
+      assert.equal(W.userRejected(e), true, JSON.stringify(answer));
+      assert.equal(W.sendOutcome(e), null, 'and it is not read as a send that may have gone out');
+    }
+  }
+  assert.equal(W.userRejected(await sendErr({ code: -32003, message: 'Transaction rejected' })), false, 'a node’s rejection is not the person’s');
   assert.equal(W.userRejected({ code: -32603 }), false);
   assert.equal(W.userRejected({ code: 5001 }), false);
   assert.equal(W.userRejected(null), false);
@@ -167,8 +213,10 @@ test('a sale that stops after its approval was mined says the approval went thro
   const after = (cause) => Object.assign(new Error('x', { cause }), { name: W.SALE_AFTER_APPROVAL, approvalHash: '0x' + 'ab'.repeat(32) });
   assert.equal(W.afterApprovalFailure(new Error('x')), null);
   assert.equal(W.afterApprovalFailure(null), null);
+  assert.equal(W.afterApprovalFailure(after(await sendErr({ code: 4902, message: 'Unrecognized chain' }))),
+    'The approval went through, but your wallet couldn’t send the sale. It said: “Unrecognized chain”. The sale was not sent: press Sell again.');
   assert.equal(W.afterApprovalFailure(after(await sendErr({ code: -32000, message: 'insufficient funds for gas' }))),
-    'The approval went through, but your wallet couldn’t send the sale. It said: “insufficient funds for gas”. The sale was not sent: press Sell again.');
+    'The approval went through, but your wallet didn’t confirm the sale. It said: “insufficient funds for gas”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.');
   assert.equal(W.afterApprovalFailure(after(await sendErr({ code: -32603, message: 'Request timed out' }))),
     'The approval went through, but your wallet didn’t confirm the sale. It said: “Request timed out”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.');
   assert.equal(W.afterApprovalFailure(after(await sendErr({ code: 4001, message: 'User rejected the request.' }))),
