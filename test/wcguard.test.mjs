@@ -200,3 +200,21 @@ test('a guard belongs to the session it was built for: a replaced session is not
   await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME }] }));
   assert.deepEqual(lost, [], 'a stale guard must not end the new session');
 });
+
+test('when the wallet turns a send down and the library asks again as wallet_sendTransaction, the answer is the wallet’s own first answer, and the wallet is not asked twice', async () => {
+  const { guardWc } = loadGuard();
+  const sent = [];
+  const raw = fakeRaw(sent);
+  const real = raw.request.bind(raw);
+  const said = Object.assign(new Error('insufficient funds for gas * price + value'), { code: -32000 });
+  let asks = 0;
+  raw.request = async (a, c) => { if (a.method === 'eth_sendTransaction') { asks++; throw said; } return real(a, c); };
+  const g = guardWc(raw, ME, () => {});
+  const tx = { method: 'eth_sendTransaction', params: [{ from: ME, to: OTHER }] };
+  await assert.rejects(() => g.request(tx), (e) => e === said);
+  await assert.rejects(() => g.request({ method: 'wallet_sendTransaction', params: tx.params }), (e) => e === said, 'the wallet’s words, not the guard’s');
+  assert.equal(asks, 1, 'the wallet was asked once');
+  // only that one follow-up: a wallet_sendTransaction with no refused send before it is refused in the guard's own words
+  await assert.rejects(() => g.request({ method: 'wallet_sendTransaction', params: tx.params }), /isn’t used here, so nothing was sent/);
+  assert.equal(asks, 1);
+});

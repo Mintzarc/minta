@@ -90,7 +90,7 @@ const HASH = '0x' + 'ab'.repeat(32);
  * `world.calls`: eth_call requests seen (to, data). `world.sent`: transactions the wallet was asked to send, in order.
  * `world.logs`: the receipt's logs for every sent transaction (a function of the transaction). `world.signed`: typed data signed.
  */
-function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null, saleWithPermit = 'ok', permitAlone = 'ok' } = {}) {
+function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null, saleWithPermit = 'ok', permitAlone = 'ok', sendFailsAt = null } = {}) {
   const chain = vyreMainnet;
   const world = { calls: [], sent: [], signed: [], reads: [] };
   const reads = {
@@ -144,6 +144,7 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
           if (inner[0] === 'selfPermitIfNecessary') {
             if (saleWithPermit === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: '0x08c379a0' + '00'.repeat(28) });
             if (saleWithPermit === 'down') throw Object.assign(new Error('Internal error'), { code: -32603 });
+            if (saleWithPermit === 'reverts-in-words') throw Object.assign(new Error('execution reverted: Too little received'), { code: -32000 });
           }
           return encodeFunctionResult({ abi: P.swapRouterAbi, functionName: 'multicall', result: [] });
         }
@@ -152,6 +153,8 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
         if (f.functionName === 'permit') {
           if (permitAlone === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: '0x08c379a0' + '00'.repeat(28) });
           if (permitAlone === 'down') throw new TypeError('fetch failed');
+          if (permitAlone === 'reverts-code-only') throw Object.assign(new Error('VM error'), { code: 3 });
+          if (permitAlone === 'internal') throw Object.assign(new Error('Internal error'), { code: -32603 });
         }
         if (reads[f.functionName]) return reads[f.functionName]();
         return '0x';
@@ -171,6 +174,7 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
     }
     if (method === 'eth_sendTransaction') {
       if (sendFails) throw Object.assign(new Error('stop here'), { code: 5000 });
+      if (sendFailsAt && world.sent.length === sendFailsAt.after) throw Object.assign(new Error(sendFailsAt.message), { code: sendFailsAt.code });
       world.sent.push(params[0]);
       return HASH;
     }
@@ -347,7 +351,7 @@ test('refusing to sign the permit stops the sale (it is not turned into an appro
   assert.equal(world.sent.length, 0);
 });
 
-test('refusing the permit in a WalletConnect wallet (5000) stops the sale too', async () => {
+test('refusing the permit in a WalletConnect wallet (5000) stops the sale too (the library already names it a refusal; the raw code is checked in walleterror.test.mjs)', async () => {
   const { pc, wc, world } = stand({ allowance: 0n, quote: 50n * E18, signature: 'rejected5000' });
   await assert.rejects(P.sell(wc, pc, { token: TOKEN, amountIn: 3n * E18 }));
   assert.equal(world.sent.length, 0, 'no approval is asked for after a refusal');
@@ -382,10 +386,41 @@ test('a node that fails while the permit is being checked is an error, not "the 
   const b = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'down' });
   await assert.rejects(P.sell(b.wc, b.pc, { token: TOKEN, amountIn: 3n * E18 }));
   assert.equal(b.world.sent.length, 0);
+  // ...even when the permit on its own would then revert (its turn never comes: the first answer was not a revert)
+  const b2 = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'down', permitAlone: 'reverts' });
+  await assert.rejects(P.sell(b2.wc, b2.pc, { token: TOKEN, amountIn: 3n * E18 }), /Internal error/);
+  assert.equal(b2.world.sent.length, 0);
   // the sale with the permit reverts although the permit alone is fine: the sale's own failure, no approval
   const c = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'reverts' });
   await assert.rejects(P.sell(c.wc, c.pc, { token: TOKEN, amountIn: 3n * E18 }));
   assert.equal(c.world.sent.length, 0);
+});
+
+test('a revert is a revert without hex data too (code 3 alone, or "execution reverted" in words), and an internal error is not one', async () => {
+  const a = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'reverts-in-words', permitAlone: 'reverts-code-only', logs: sellLogs(48n * E18, 3n * E18) });
+  const notes = [];
+  assert.equal((await P.sell(a.wc, a.pc, { token: TOKEN, amountIn: 3n * E18 }, (w) => notes.push(w))).approval, 'approve');
+  assert.deepEqual(notes, ['permit-refused']);
+  // the permit alone answered with the node's internal error: not a refusal by the token
+  const b = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'reverts-in-words', permitAlone: 'internal' });
+  await assert.rejects(P.sell(b.wc, b.pc, { token: TOKEN, amountIn: 3n * E18 }), /Internal error/);
+  assert.equal(b.world.sent.length, 0);
+});
+
+test('a sale that stops after its approval was mined is marked: it carries the approval’s hash and why the sale stopped', async () => {
+  const s = stand({ allowance: 0n, quote: 50n * E18, signature: 'unsupported', sendFailsAt: { after: 1, code: -32603, message: 'Request timed out' } });
+  const e = await P.sell(s.wc, s.pc, { token: TOKEN, amountIn: 3n * E18 }).then(() => null, (x) => x);
+  assert.ok(e instanceof P.SaleAfterApprovalError);
+  assert.equal(e.name, 'SaleAfterApprovalError');
+  assert.equal(e.approvalHash, HASH);
+  assert.equal(e.hash, undefined, 'it has no hash of its own: the button must not treat the approval as the sale to check');
+  assert.match(String(e.cause?.shortMessage), /approve|multicall/);
+  assert.equal(s.world.sent.length, 1, 'only the approval went out');
+  // the approval itself failing is not marked (nothing went through)
+  const first = stand({ allowance: 0n, quote: 50n * E18, signature: 'unsupported', sendFailsAt: { after: 0, code: -32603, message: 'Request timed out' } });
+  const e2 = await P.sell(first.wc, first.pc, { token: TOKEN, amountIn: 3n * E18 }).then(() => null, (x) => x);
+  assert.equal(e2 instanceof P.SaleAfterApprovalError, false);
+  assert.equal(first.world.sent.length, 0);
 });
 
 test('a sale the pool would pay nothing for is refused before anything is signed or sent', async () => {
@@ -442,7 +477,10 @@ test('the tax wallets a launch must never name: the launchpad’s contracts, and
 test('the file imports nothing but viem and the SDK, and names no network service', () => {
   const src = fs.readFileSync(new URL('../src/lib/padv2.ts', import.meta.url), 'utf8');
   const from = [...src.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(from)].sort(), ['@vyrechain/sdk', 'viem', 'viem/actions']);
+  assert.deepEqual([...new Set(from)].sort(), ['./walletError.ts', '@vyrechain/sdk', 'viem', 'viem/actions']);
+  // the one file of the app it shares its checks with imports nothing at all
+  assert.equal(/^import /m.test(fs.readFileSync(new URL('../src/lib/walletError.ts', import.meta.url), 'utf8')), false);
+  assert.equal(/const (userRejected|realRevert|hasRevertData) =|function (userRejected|realRevert|hasRevertData)\(/.test(src), false, 'one copy of the checks, in walletError.ts');
   assert.doesNotMatch(src, /fetch\(|https?:\/\//, 'no URL and no request of its own');
   assert.doesNotMatch(src, /type\(uint256\)\.max|maxUint256|2n \*\* 256n/, 'no unlimited approval');
 });

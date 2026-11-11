@@ -136,22 +136,34 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     const { pg, ctx } = await open();
     await chooseWc(pg); await pg.waitForSelector('.wc-qr'); await pg.evaluate(() => window.__pair.resolve());
     await until(pg, () => document.querySelector('#who').textContent !== 'none');
-    const sellNow = async (sendError) => {
-      await pg.evaluate((e) => { window.__sent.length = 0; window.__notes.length = 0; window.__fake.signError = true; window.__fake.sendError = e; }, sendError);
+    const sellNow = async (sendError, sendErrorAfter = 0) => {
+      await pg.evaluate(([e, n]) => { window.__sent.length = 0; window.__notes.length = 0; window.__sendsOk = 0; window.__fake.signError = true; window.__fake.sendError = e; window.__fake.sendErrorAfter = n; }, [sendError, sendErrorAfter]);
       await pg.locator('#sell button').first().click();
-      await until(pg, () => /Nothing was sent|revert|Sold\./i.test(document.querySelector('#sell .status')?.textContent || ''), null, 30000);
+      await until(pg, () => /Nothing was sent|gone out|revert|Sold\.|Press Sell again|press Sell again|pressing Sell again/i.test(document.querySelector('#sell .status')?.textContent || ''), null, 30000);
       return (await pg.locator('#sell .status').innerText()).trim();
     };
     const t = await sellNow({ code: -32603, message: 'Internal JSON-RPC error. insufficient funds for gas * price + value' });
-    ok(t === 'Your wallet couldn’t send this: Internal JSON-RPC error. insufficient funds for gas * price + value. Nothing was sent.', `the wallet’s own words are shown for a send it could not make (${t})`);
+    ok(t === 'Your wallet couldn’t send this: Internal JSON-RPC error. insufficient funds for gas * price + value. Nothing was sent.', `a refusal that proves nothing went out is shown with the wallet’s own words (${t})`);
     ok(!/revert|contract function|following reason/i.test(t), 'and nothing calls it a contract revert');
     ok(JSON.stringify(await pg.evaluate(() => window.__notes)) === '["permit-unsigned"]', 'the page was told an exact approval is asked for instead of the permit');
     const asked = await sent(pg);
     ok(asked.length === 2 && asked[0].method === 'eth_signTypedData_v4' && asked[1].method === 'eth_sendTransaction', 'the wallet was asked for the permit, then for one send (the approval)');
     ok(asked[1].params[0].to.toLowerCase() === '0x1111111111111111111111111111111111111111' && asked[1].params[0].data.startsWith('0x095ea7b3'), 'that send is approve() on the token, for the sale’s amount only');
-    const t3 = await sellNow({ code: 3, message: 'execution reverted' });
-    ok(/^Your wallet couldn’t send this: execution reverted\. Nothing was sent\.$/.test(t3), `a wallet that only says "execution reverted" with no data is still the wallet’s failure (${t3})`);
-    ok(!/contract function|following reason/i.test(t3), 'with no "contract function reverted" wording');
+    // an answer that may only have been lost (the wallet may have sent it): never "Nothing was sent"
+    const lost = await sellNow({ code: -32603, message: 'Request timed out' });
+    ok(lost === 'Your wallet didn’t confirm this: Request timed out. It may still have gone out: check your wallet’s activity before trying again.', `a lost answer says it may have gone out (${lost})`);
+    ok(!/Nothing was sent|revert/i.test(lost), 'and does not say nothing was sent');
+    // the wallet's node says it reverts (no data): a revert, not the wallet's failure
+    const t3 = await sellNow({ code: 3, message: 'execution reverted: Too little received' });
+    ok(/reverted with the following reason: execution reverted: Too little received$/.test(t3), `a revert the wallet’s node reports reads as a revert, with its reason (${t3})`);
+    ok(!/Your wallet/.test(t3), 'and is not blamed on the wallet');
+    // the approval is mined, then the wallet does not confirm the sale: the page says both
+    const after = await sellNow({ code: -32603, message: 'Request timed out' }, 1);
+    ok(after === 'The approval went through, but your wallet didn’t confirm the sale: Request timed out. The sale may still have gone out: check your wallet’s activity before pressing Sell again.', `after a mined approval the page says so, and that the sale may have gone out (${after})`);
+    const after2 = await sellNow({ code: -32000, message: 'insufficient funds for gas * price + value' }, 1);
+    ok(after2 === 'The approval went through, but your wallet couldn’t send the sale: insufficient funds for gas * price + value. The sale was not sent: press Sell again.', `and when the wallet refuses the sale outright, that the sale was not sent (${after2})`);
+    ok(!/Nothing was sent/.test(after + after2), 'neither says "Nothing was sent" (the approval was)');
+    ok((await sent(pg)).filter((x) => x.method === 'eth_sendTransaction').length === 2, 'the wallet was asked for the approval and then the sale');
     await ctx.close();
   }
 

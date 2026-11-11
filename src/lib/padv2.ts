@@ -12,17 +12,18 @@
 //  - trades go through Uniswap's SwapRouter against the pool found by the token pair and the fee key 10000; the app router of the
 //    first launchpad is not involved, and there is no app fee.
 //
-// Imports only viem and the SDK, so node runs this file in the unit tests (test/padv2.test.mjs).
+// Imports only viem, the SDK and lib/walletError.ts (which imports nothing), so node runs this file in the unit tests (test/padv2.test.mjs).
 import {
   encodeFunctionData, getAddress, isAddress, isAddressEqual, parseAbi, parseEventLogs, parseSignature, zeroAddress,
   type Address, type Hash, type Hex, type TransactionReceipt,
 } from 'viem';
 import { getChainId, readContract, signTypedData, simulateContract } from 'viem/actions';
 import {
-  isSmart, quoterV2Abi, sendCall, vyreTokenAbi,
+  OperationFailedError, SentButUnconfirmedError, TransactionReplacedError, isSmart, quoterV2Abi, sendCall, vyreTokenAbi,
   type BuyParams, type BuyResult, type Launch, type LaunchParams, type LaunchResult, type ReadClient, type SellParams, type SellResult,
   type TaxWallets, type WalletLike,
 } from '@vyrechain/sdk';
+import { SALE_AFTER_APPROVAL, realRevert, userRejected } from './walletError.ts';
 
 /** VYRE mainnet's chain ID */
 export const MAINNET_ID = 3045;
@@ -290,26 +291,22 @@ function moved(receipt: TransactionReceipt, token: Address, who: Address): { in:
 }
 const sum = (xs: bigint[]) => xs.reduce((a, x) => a + x, 0n);
 
-type Link = { code?: unknown; name?: unknown; message?: unknown; data?: unknown; cause?: unknown };
-function* links(e: unknown): Generator<Link> {
-  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 8; x = (x as Link).cause, i++) yield x as Link;
-}
-/** The person said no in their wallet: 4001 (a browser wallet), 5000 (WalletConnect), or the library's own name for it */
-const userRejected = (e: unknown): boolean => {
-  for (const x of links(e)) if (x.code === 4001 || x.code === 5000 || x.name === 'UserRejectedRequestError') return true;
-  return false;
-};
-const hasRevertData = (d: unknown): boolean =>
-  (typeof d === 'string' && /^0x[0-9a-fA-F]{8,}$/.test(d)) || (!!d && typeof d === 'object' && hasRevertData((d as { data?: unknown }).data));
-/** A call really reverted: the node answered "execution reverted" (code 3) or gave revert data. A node that could not be reached,
- *  or answered with an error of its own and nothing else, did not say the call reverts. */
-const realRevert = (e: unknown): boolean => {
-  for (const x of links(e)) {
-    if (x.code === 3 || hasRevertData(x.data) || x.name === 'ContractFunctionZeroDataError') return true;
-    if (typeof x.message === 'string' && /execution reverted/i.test(x.message) && x.name !== 'ContractFunctionExecutionError' && x.name !== 'ContractFunctionRevertedError') return true;
+/**
+ * A sale that stopped after its exact approval was mined: the approval is on the chain (`approvalHash`), the sale is not (`cause`
+ * says why). Not used for a sale that was sent and whose result is unknown: those errors carry their own hash and are passed on.
+ */
+export class SaleAfterApprovalError extends Error {
+  approvalHash: Hash;
+  constructor(approvalHash: Hash, cause: unknown) {
+    super('the approval went through, but the sale did not', { cause });
+    this.name = SALE_AFTER_APPROVAL;
+    this.approvalHash = approvalHash;
   }
-  return false;
-};
+}
+/** An error that already says a transaction went out (its own hash, a Face ID operation): the caller follows that one */
+const carriesSend = (e: unknown): boolean =>
+  e instanceof SentButUnconfirmedError || e instanceof TransactionReplacedError || e instanceof OperationFailedError
+  || (!!e && typeof e === 'object' && (typeof (e as { hash?: unknown }).hash === 'string' || (e as { userOperation?: unknown }).userOperation === true));
 
 /**
  * Sells launch tokens through the SwapRouter for native USDC (or WUSDC). If the router's allowance is short: a signed permit for
@@ -347,7 +344,13 @@ export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams
       const approved = await sendCall(wallet, client, { address: p.token, abi: vyreTokenAbi, functionName: 'approve', args: [PAD_V2.swapRouter, p.amountIn] });
       approval = 'approve';
       approvalHash = approved.hash;
-      sent = await sendCall(wallet, client, sale());
+      try {
+        sent = await sendCall(wallet, client, sale());
+      } catch (err) {
+        // the approval is mined: whatever stopped the sale, the page must not say that nothing happened
+        if (carriesSend(err)) throw err;
+        throw new SaleAfterApprovalError(approved.hash, err);
+      }
     }
   }
   const t = moved(sent.receipt, p.token, account.address);

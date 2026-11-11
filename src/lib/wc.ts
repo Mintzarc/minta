@@ -272,6 +272,7 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
       throw new WcError('other', 'The account in your wallet changed, so nothing was sent. Disconnect and connect again.');
     }
   };
+  let refusedSend: { error: unknown; at: number } | null = null;
   const request = async (given: { method: string; params?: unknown }) => {
     // read the request once: what is checked is exactly what is sent (a getter that answers differently the second time changes nothing)
     let args: { method: string; params?: unknown };
@@ -287,6 +288,14 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
     }
     if (!args || typeof args.method !== 'string') throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
     if (READS.has(args.method)) return raw.request(args as Parameters<EIP1193Provider['request']>[0]);
+    // The wallet library asks again as `wallet_sendTransaction` when a wallet turns `eth_sendTransaction` down with certain codes.
+    // That second ask never reaches the wallet (it is not on the list below), and its answer is the wallet's own first answer, so
+    // the page shows what the wallet said (not enough funds for gas, say) and not this guard's words.
+    if (args.method === 'wallet_sendTransaction' && refusedSend && Date.now() - refusedSend.at < 5000) {
+      const first = refusedSend.error;
+      refusedSend = null;
+      throw first;
+    }
     // an allow-list: anything that is not a read above or a bound signing request below never reaches the wallet
     if (!SIGNS.has(args.method)) throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
     await live();
@@ -303,6 +312,7 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
     } catch (e) {
       const text = `${(e as { message?: string })?.message ?? ''}`;
       if (LOST.test(text)) { onLost('closed'); throw new WcError('closed'); }
+      if (args.method === 'eth_sendTransaction') refusedSend = { error: e, at: Date.now() };
       throw e;
     }
   };
