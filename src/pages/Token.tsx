@@ -6,7 +6,7 @@ import type { Address } from 'viem';
 import { getPromoter, setPromoter, vyreTokenAbi, type Launch, type TaxWallets } from '@vyrechain/sdk';
 import { buy, getLaunch, getTaxWallets, quoteBuy, quoteSell, sell, tradeRouter } from '../lib/pad';
 import { EXPLORER, oneAtATime, vyre } from '../lib/chain';
-import { ago, amount, amountProblem, change, exact, iso, parse, pct, plainText, price, short, tokenText, usd, usdOf } from '../lib/format';
+import { ago, amount, amountProblem, change, exact, iso, parse, pct, plainText, price, short, shortAmount, tokenText, tradeLabel, usd, usdOf } from '../lib/format';
 import { marketOf, recentTrades, tokenBalance, usdcBalance, type Market, type Trade } from '../lib/market';
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { clearRef, href, storedRef, storedRefCode } from '../lib/router';
@@ -271,10 +271,11 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
   const sym = iso(launch.symbol);
   const outSym = side === 'buy' ? sym : 'USDC';
   const typo = amountProblem(input);
-  // the amount as it was read, on the button itself, so a misread shows before anything is signed
-  const label = tooMuch ? 'Not enough balance'
-    : side === 'buy' ? (value ? `Buy with ${exact(value)} USDC` : `Buy ${sym}`)
-    : (value ? `Sell ${exact(value)} ${sym}` : `Sell ${sym}`);
+  // the button carries the amount shortened (a balance's own format), so it fits a phone; the amount as it was read, every decimal,
+  // is written under the box, so a misread still shows before anything is signed. What is sent is `value`, never the shortened text.
+  const label = tradeLabel(side, value, sym, tooMuch);
+  const unit = side === 'buy' ? 'USDC' : sym;
+  const cut = !!value && shortAmount(value, side === 'buy' ? 4 : 2) !== exact(value);
 
   return (
     <div className="trade-card">
@@ -290,6 +291,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
           {bal && <button type="button" className="linkish small" onClick={max}>Max</button>}
         </div>
         {bal && <span className="muted small">Balance: {side === 'buy' ? `${amount(bal.usdc)} USDC` : `${amount(bal.tokens, 2)} ${sym}`}</span>}
+        {cut && <span className="muted small break exact-amount">Exactly {exact(value!)} {unit}</span>}
       </label>
       <div className="quote">
         {typo && <p className="err small" role="alert">{typo}</p>}

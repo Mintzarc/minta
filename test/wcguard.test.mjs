@@ -218,3 +218,43 @@ test('when the wallet turns a send down and the library asks again as wallet_sen
   await assert.rejects(() => g.request({ method: 'wallet_sendTransaction', params: tx.params }), /isn’t used here, so nothing was sent/);
   assert.equal(asks, 1);
 });
+
+test('the remembered refusal is for that one transaction, a few seconds, sends only, and is dropped by a send that goes through', async () => {
+  const { guardWc } = loadGuard();
+  const said = Object.assign(new Error('insufficient funds for gas * price + value'), { code: -32000 });
+  const make = () => {
+    const raw = fakeRaw([]);
+    const real = raw.request.bind(raw);
+    const state = { fail: true };
+    raw.request = async (a, c) => { if (state.fail && (a.method === 'eth_sendTransaction' || a.method === 'eth_signTypedData_v4')) throw said; return real(a, c); };
+    return { g: guardWc(raw, ME, () => {}), state };
+  };
+  const tx = (to) => [{ from: ME, to }];
+  const own = /isn’t used here, so nothing was sent/;
+  // another transaction's follow-up gets the guard's own refusal
+  let { g } = make();
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: tx(OTHER) }), (e) => e === said);
+  await assert.rejects(() => g.request({ method: 'wallet_sendTransaction', params: tx(ME) }), own);
+  // after 5 seconds it is forgotten (and just before, it is not)
+  const now = Date.now;
+  try {
+    for (const [later, kept] of [[4900, true], [5100, false]]) {
+      ({ g } = make());
+      const t0 = now();
+      Date.now = () => t0;
+      await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: tx(OTHER) }), (e) => e === said);
+      Date.now = () => t0 + later;
+      await assert.rejects(() => g.request({ method: 'wallet_sendTransaction', params: tx(OTHER) }), kept ? (e) => e === said : own, `${later} ms later`);
+    }
+  } finally { Date.now = now; }
+  // a refused signature is not remembered
+  ({ g } = make());
+  await assert.rejects(() => g.request({ method: 'eth_signTypedData_v4', params: [ME, VYRE_TYPED] }), (e) => e === said);
+  await assert.rejects(() => g.request({ method: 'wallet_sendTransaction', params: [ME, VYRE_TYPED] }), own);
+  // a later send that goes through clears it
+  const m = make();
+  await assert.rejects(() => m.g.request({ method: 'eth_sendTransaction', params: tx(OTHER) }), (e) => e === said);
+  m.state.fail = false;
+  assert.equal(await m.g.request({ method: 'eth_sendTransaction', params: tx(OTHER) }), '0xok');
+  await assert.rejects(() => m.g.request({ method: 'wallet_sendTransaction', params: tx(OTHER) }), own);
+});

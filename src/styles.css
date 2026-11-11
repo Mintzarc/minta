@@ -400,6 +400,8 @@ td.sell { color: var(--sell); font-weight: 700; }
 .prefix input { border: 0 !important; background: transparent !important; padding-left: 4px !important; }
 .presets { display: flex; flex-wrap: wrap; margin-top: 12px; }
 .btn-wide { width: 100%; }
+/* a trade button's words wrap inside the card on a narrow phone (a long amount or ticker never runs past the edges) */
+.trade-card .btn { white-space: normal; height: auto; min-height: 46px; max-width: 100%; padding-top: 8px; padding-bottom: 8px; text-align: center; overflow-wrap: anywhere; line-height: 1.25; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin: 14px 0 0; }
 .facts dt { color: var(--muted); font-size: 12px; }
 .facts dd { margin: 2px 0 0; font-weight: 700; overflow-wrap: anywhere; }

@@ -90,7 +90,7 @@ const HASH = '0x' + 'ab'.repeat(32);
  * `world.calls`: eth_call requests seen (to, data). `world.sent`: transactions the wallet was asked to send, in order.
  * `world.logs`: the receipt's logs for every sent transaction (a function of the transaction). `world.signed`: typed data signed.
  */
-function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null, saleWithPermit = 'ok', permitAlone = 'ok', sendFailsAt = null } = {}) {
+function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null, saleWithPermit = 'ok', permitAlone = 'ok', sendFailsAt = null, receiptLostAfter = null } = {}) {
   const chain = vyreMainnet;
   const world = { calls: [], sent: [], signed: [], reads: [] };
   const reads = {
@@ -112,6 +112,8 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
       case 'eth_getBlockByNumber': return { number: '0x10', hash: '0x' + '0c'.repeat(32), timestamp: '0x6000', baseFeePerGas: '0x1', gasLimit: '0x1c9c380', transactions: [] };
       case 'eth_getTransactionByHash': return { hash: HASH, from: ME, nonce: '0x1', blockNumber: '0x5', input: '0x', to: P.PAD_V2.swapRouter, value: '0x0', gas: '0x1', gasPrice: '0x1', type: '0x0', blockHash: '0x' + '0b'.repeat(32), transactionIndex: '0x0', r: '0x1', s: '0x1', v: '0x1b' };
       case 'eth_getTransactionReceipt': {
+        // the node stops answering about a transaction that did go out (the sale, after the approval's receipt was read)
+        if (receiptLostAfter !== null && world.sent.length > receiptLostAfter) throw Object.assign(new Error('Internal error'), { code: -32603 });
         const tx = world.sent.at(-1);
         return { transactionHash: HASH, transactionIndex: '0x0', blockHash: '0x' + '0b'.repeat(32), blockNumber: '0x5', from: ME, to: tx.to, cumulativeGasUsed: '0x1', gasUsed: '0x1', effectiveGasPrice: '0x1', status: '0x1', type: '0x0', contractAddress: null, logsBloom: '0x' + '00'.repeat(256), logs: logs(tx) };
       }
@@ -421,6 +423,23 @@ test('a sale that stops after its approval was mined is marked: it carries the a
   const e2 = await P.sell(first.wc, first.pc, { token: TOKEN, amountIn: 3n * E18 }).then(() => null, (x) => x);
   assert.equal(e2 instanceof P.SaleAfterApprovalError, false);
   assert.equal(first.world.sent.length, 0);
+});
+
+test('a sale that did go out after the approval, with its result unread, is passed on as it is (its own hash to check), not as "sell again"', async () => {
+  const s = stand({ allowance: 0n, quote: 50n * E18, signature: 'unsupported', receiptLostAfter: 1 });
+  const e = await P.sell(s.wc, s.pc, { token: TOKEN, amountIn: 3n * E18 }).then(() => null, (x) => x);
+  assert.equal(e?.name, 'SentButUnconfirmedError');
+  assert.equal(e instanceof P.SaleAfterApprovalError, false);
+  assert.equal(e.hash, HASH, 'the sale’s own hash, for the button to check');
+  assert.equal(s.world.sent.length, 2, 'the approval and the sale both went out');
+});
+
+test('only a sale whose result is unknown is passed on after a mined approval: one cancelled or replaced in the wallet is marked like any other that did not happen', () => {
+  // (a replacement cannot be staged with the stand-in node, so this reads the rule itself; what the page then says is checked in walleterror.test.mjs)
+  const src = fs.readFileSync(new URL('../src/lib/padv2.ts', import.meta.url), 'utf8');
+  const rule = src.slice(src.indexOf('const saleMayBeOut'), src.indexOf(';', src.indexOf('const saleMayBeOut')));
+  assert.match(rule, /SentButUnconfirmedError/);
+  assert.equal(/TransactionReplacedError|OperationFailedError|\.hash/.test(rule), false);
 });
 
 test('a sale the pool would pay nothing for is refused before anything is signed or sent', async () => {

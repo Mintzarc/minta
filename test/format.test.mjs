@@ -21,3 +21,21 @@ test('a supply with a fraction is shown with its fraction (what is sent)', () =>
   assert.equal(exact(parse('1000000.9')), '1,000,000.9');
   assert.equal(exact(parse('1000000000')), '1,000,000,000');
 });
+
+test('the trade button shows a shortened amount (a balance’s format), never 18 decimals, and never "0" for an amount that is not', async () => {
+  const { tradeLabel, shortAmount } = await import('../src/lib/format.ts');
+  const big = parse('11714096.582707705307803293');
+  assert.equal(exact(big), '11,714,096.582707705307803293');
+  assert.equal(tradeLabel('sell', big, 'MINTA'), 'Sell 11,714,096.58 MINTA');
+  assert.equal(tradeLabel('buy', parse('1000.123456789'), 'MINTA'), 'Buy with 1,000.1234 USDC');
+  assert.equal(tradeLabel('buy', parse('50'), 'TOK'), 'Buy with 50 USDC');
+  assert.equal(tradeLabel('sell', parse('5'), 'TOK'), 'Sell 5 TOK');
+  assert.equal(tradeLabel('sell', null, 'TOK'), 'Sell TOK');
+  assert.equal(tradeLabel('buy', null, 'TOK'), 'Buy TOK');
+  assert.equal(tradeLabel('sell', big, 'TOK', true), 'Not enough balance');
+  // too small for the short form: shown in full rather than as 0
+  assert.equal(tradeLabel('sell', 1n, 'TOK'), 'Sell 0.000000000000000001 TOK');
+  assert.equal(shortAmount(parse('0.004'), 2), '0.004');
+  assert.equal(shortAmount(0n, 2), '0');
+  for (const v of [big, parse('1000.123456789'), 1n]) assert.ok(tradeLabel('sell', v, 'MINTA').length <= 40);
+});

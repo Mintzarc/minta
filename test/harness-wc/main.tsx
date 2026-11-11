@@ -9,6 +9,7 @@ import { createPublicClient, custom, decodeFunctionData, encodeFunctionResult, t
 import { quoterV2Abi, vyreTokenAbi } from '@vyrechain/sdk';
 import * as v2 from '../../src/lib/padv2';
 import { PERMIT_REFUSED_NOTE, PERMIT_UNSIGNED_NOTE } from '../../src/lib/walletError';
+import { exact, parse, tradeLabel } from '../../src/lib/format';
 import { WalletProvider, useWallet } from '../../src/lib/wallet';
 import { ConnectButton, TxButton } from '../../src/components/ui';
 import WalletConnectSheet from '../../src/components/WalletConnectSheet';
@@ -132,6 +133,11 @@ function Page() {
           });
           return { hash: r.hash, text: 'Sold.' };
         }} />
+      </div>
+      {/* the trade panel's button on a narrow phone: the label the page makes for a long amount, and a worst case (every decimal, a long ticker) */}
+      <div className="trade-card" id="narrow">
+        <TxButton label={tradeLabel('sell', parse('11714096.582707705307803293'), 'MINTA')} run={async () => ({ text: 'x' })} />
+        <TxButton label={`Sell ${exact(parse('11714096.582707705307803293')!)} ${'W'.repeat(28)}`} run={async () => ({ text: 'x' })} />
       </div>
       <div id="other">
         <TxButton label="Send from another account" run={async () => {

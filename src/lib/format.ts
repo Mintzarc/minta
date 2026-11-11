@@ -82,6 +82,19 @@ export function amountProblem(input: string): string {
 /** A typed amount as it was read, every decimal kept, for buttons like "Buy with 1,000.5 USDC" */
 export const exact = (v: bigint) => amount(v, 18);
 
+/** An amount short enough for a button: `places` decimals at most (the way a balance is shown), but never "0" for something that isn't */
+export const shortAmount = (v: bigint, places: number): string => {
+  const s = amount(v, places);
+  return s === '0' && v !== 0n ? exact(v) : s;
+};
+
+/** The trade button's words. The amount is shortened for reading only (2 decimals of a token, 4 of USDC): what is sent is the amount typed */
+export function tradeLabel(side: 'buy' | 'sell', value: bigint | null | undefined, sym: string, tooMuch = false): string {
+  if (tooMuch) return 'Not enough balance';
+  if (side === 'buy') return value ? `Buy with ${shortAmount(value, 4)} USDC` : `Buy ${sym}`;
+  return value ? `Sell ${shortAmount(value, 2)} ${sym}` : `Sell ${sym}`;
+}
+
 export function ago(unix?: number): string {
   if (!unix) return '';
   const s = Math.max(0, Math.floor(Date.now() / 1000 - unix));

@@ -46,17 +46,25 @@ export function realRevert(e: unknown): boolean {
   return false;
 }
 
-/** One line of someone else's words: no web addresses (a wallet's text is not ours to link), no line breaks, a length limit */
+/** One line of someone else's words: no web addresses or bare site names (a wallet's text is not ours to link), no hidden or
+ *  look-alike characters, no quotation marks of its own, no line breaks, a length limit */
 export const tidy = (t: string, max = 160): string =>
-  t.replace(/\b(?:https?:\/\/|wss?:\/\/|www\.)\S+/gi, '').replace(/\s+/g, ' ').trim().replace(/[.:;,\s]+$/, '').slice(0, max).trim();
+  t.normalize('NFKC')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u00AD]/g, '')
+    .replace(/\b(?:https?:\/\/|wss?:\/\/|www\.)\S+/gi, '')
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?(?=$|[\s,;:!?)])/gi, '')
+    .replace(/[“”„‟"«»]/g, '')
+    .replace(/\s+/g, ' ').trim().replace(/[.:;,\s]+$/, '').slice(0, max).trim();
 
-// An answer that can mean "it was sent and the answer was lost": never proof that nothing went out
-const MAYBE_SENT = /tim(?:e|ed)[ -]?out|timeout|expired|web ?socket|socket|closed|\b1006\b|failed to fetch|fetch failed|network|connection|disconnect|no response|relay|already known|known transaction|already imported/i;
+// An answer that can mean "it was sent and the answer was lost": never proof that nothing went out. A node that says "nonce too
+// low", "replacement transaction underpriced" or "already known" is one of these: that is what a wallet hears when its first
+// broadcast landed and it tried again.
+const MAYBE_SENT = /tim(?:e|ed)[ -]?out|timeout|expired|web ?socket|socket|closed|\b1006\b|failed to fetch|fetch failed|network|connection|disconnect|no response|relay|already known|known transaction|already imported|nonce too low|nonce has already been used|replacement/i;
 // What a wallet or its node says when it turns a transaction down before it goes anywhere
-const NOT_SENT = /insufficient funds|insufficient balance|not enough (?:funds|balance|gas)|nonce too (?:low|high)|underpriced|fee cap|max fee per gas less than|max priority fee|tip (?:above|higher than)|intrinsic gas|gas limit|exceeds block gas|gas required exceeds|transaction type not supported|invalid (?:params|parameters|input|argument|sender|chain)|method not (?:found|supported|available)|unsupported method|not supported|chain (?:id )?mismatch|unrecognized chain|unknown chain|does not match the target chain|unauthorized|not authorized/i;
-// The codes for the same: bad request or parameters, unknown method, transaction rejected by the node, unauthorized, unsupported
-// method, unknown chain. (-32603, "internal error", says nothing either way.)
-const NOT_SENT_CODES: ReadonlySet<unknown> = new Set([-32600, -32601, -32602, -32003, 4100, 4200, 4902]);
+const NOT_SENT = /insufficient funds|insufficient balance|not enough (?:funds|balance|gas)|nonce too high|underpriced|fee cap|max fee per gas less than|max priority fee|tip (?:above|higher than)|intrinsic gas|gas limit|exceeds block gas|gas required exceeds|transaction type not supported|invalid (?:params|parameters|input|argument|sender|chain)|method not (?:found|supported|available)|unsupported method|not supported|chain (?:id )?mismatch|unrecognized chain|unknown chain|does not match the target chain|unauthorized|not authorized/i;
+// The codes for the same: bad request or parameters, unknown method, unauthorized, unsupported method, unknown chain. (-32603,
+// "internal error", and -32003, "transaction rejected", say nothing either way: a node rejects a second copy of a transaction too.)
+const NOT_SENT_CODES: ReadonlySet<unknown> = new Set([-32600, -32601, -32602, 4100, 4200, 4902]);
 
 /** The wallet's own words in an error from a send, or '' */
 function wordsOf(e: unknown): string {
@@ -77,7 +85,7 @@ function wordsOf(e: unknown): string {
 export function sendOutcome(e: unknown): { kind: 'refused' | 'unconfirmed'; words: string } | null {
   let fromSend = false;
   for (const x of links(e)) if (x.docsPath === '/docs/contract/writeContract') fromSend = true;
-  if (!fromSend || realRevert(e)) return null;
+  if (!fromSend || realRevert(e) || userRejected(e)) return null;
   const raw = wordsOf(e);
   let refused = false;
   let maybe = MAYBE_SENT.test(raw);
@@ -94,8 +102,8 @@ const MAY_BE_OUT = 'It may still have gone out: check your wallet’s activity b
 export function walletSendFailure(e: unknown): string | null {
   const o = sendOutcome(e);
   if (!o) return null;
-  if (o.kind === 'refused') return o.words ? `Your wallet couldn’t send this: ${o.words}. Nothing was sent.` : 'Your wallet couldn’t send this. Nothing was sent.';
-  return o.words ? `Your wallet didn’t confirm this: ${o.words}. ${MAY_BE_OUT}` : `Your wallet didn’t confirm this, and gave no reason. ${MAY_BE_OUT}`;
+  if (o.kind === 'refused') return o.words ? `Your wallet couldn’t send this. It said: “${o.words}”. Nothing was sent.` : 'Your wallet couldn’t send this. Nothing was sent.';
+  return o.words ? `Your wallet didn’t confirm this. It said: “${o.words}”. ${MAY_BE_OUT}` : `Your wallet didn’t confirm this, and gave no reason. ${MAY_BE_OUT}`;
 }
 
 /** The first line of a message, and the line after it when the first only announces it ("... reverted with the following reason:") */
@@ -124,12 +132,13 @@ export function afterApprovalFailure(e: unknown): string | null {
   const went = 'The approval went through';
   if (userRejected(inner)) return `${went}. You cancelled the sale in your wallet: press Sell again when you’re ready.`;
   const o = sendOutcome(inner);
-  if (o?.kind === 'refused') return `${went}, but your wallet couldn’t send the sale${o.words ? `: ${o.words}` : ''}. The sale was not sent: press Sell again.`;
-  if (o) return `${went}, but your wallet didn’t confirm the sale${o.words ? `: ${o.words}` : ''}. The sale may still have gone out: check your wallet’s activity before pressing Sell again.`;
+  const quoted = o?.words ? ` It said: “${o.words}”.` : '';
+  if (o?.kind === 'refused') return `${went}, but your wallet couldn’t send the sale.${quoted} The sale was not sent: press Sell again.`;
+  if (o) return `${went}, but your wallet didn’t confirm the sale.${quoted} The sale may still have gone out: check your wallet’s activity before pressing Sell again.`;
   const x = inner as { shortMessage?: unknown; message?: unknown } | null;
   const m = x && typeof x === 'object' ? (typeof x.shortMessage === 'string' ? x.shortMessage : typeof x.message === 'string' ? x.message : '') : '';
   const said = tidy(firstWords(m), 200);
-  return `${went}, but the sale did not${said ? `: ${said}` : ''}. Press Sell again.`;
+  return `${went}, but the sale did not${said ? `: “${said}”` : ''}. Press Sell again.`;
 }
 
 /** What the trade panel says when a sale could not use a signed permit and asks for an exact approval instead (two confirmations) */

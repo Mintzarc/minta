@@ -19,7 +19,7 @@ import {
 } from 'viem';
 import { getChainId, readContract, signTypedData, simulateContract } from 'viem/actions';
 import {
-  OperationFailedError, SentButUnconfirmedError, TransactionReplacedError, isSmart, quoterV2Abi, sendCall, vyreTokenAbi,
+  SentButUnconfirmedError, isSmart, quoterV2Abi, sendCall, vyreTokenAbi,
   type BuyParams, type BuyResult, type Launch, type LaunchParams, type LaunchResult, type ReadClient, type SellParams, type SellResult,
   type TaxWallets, type WalletLike,
 } from '@vyrechain/sdk';
@@ -293,7 +293,7 @@ const sum = (xs: bigint[]) => xs.reduce((a, x) => a + x, 0n);
 
 /**
  * A sale that stopped after its exact approval was mined: the approval is on the chain (`approvalHash`), the sale is not (`cause`
- * says why). Not used for a sale that was sent and whose result is unknown: those errors carry their own hash and are passed on.
+ * says why). Not used for a sale that was sent and whose result is unknown: that error carries the sale's own hash and is passed on.
  */
 export class SaleAfterApprovalError extends Error {
   approvalHash: Hash;
@@ -303,10 +303,11 @@ export class SaleAfterApprovalError extends Error {
     this.approvalHash = approvalHash;
   }
 }
-/** An error that already says a transaction went out (its own hash, a Face ID operation): the caller follows that one */
-const carriesSend = (e: unknown): boolean =>
-  e instanceof SentButUnconfirmedError || e instanceof TransactionReplacedError || e instanceof OperationFailedError
-  || (!!e && typeof e === 'object' && (typeof (e as { hash?: unknown }).hash === 'string' || (e as { userOperation?: unknown }).userOperation === true));
+/** The sale itself went out and its result is not known (a transaction to check, a Face ID operation): the caller follows that one,
+ *  and must not be told to sell again. Everything else after a mined approval (a sale cancelled or replaced in the wallet, one that
+ *  was mined and failed, one never sent) is a sale that did not happen. */
+const saleMayBeOut = (e: unknown): boolean =>
+  e instanceof SentButUnconfirmedError || (!!e && typeof e === 'object' && (e as { userOperation?: unknown }).userOperation === true);
 
 /**
  * Sells launch tokens through the SwapRouter for native USDC (or WUSDC). If the router's allowance is short: a signed permit for
@@ -348,7 +349,7 @@ export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams
         sent = await sendCall(wallet, client, sale());
       } catch (err) {
         // the approval is mined: whatever stopped the sale, the page must not say that nothing happened
-        if (carriesSend(err)) throw err;
+        if (saleMayBeOut(err)) throw err;
         throw new SaleAfterApprovalError(approved.hash, err);
       }
     }

@@ -183,17 +183,19 @@ export function faceIdReason(e: unknown): string | null {
 
 export function reason(e: unknown): string {
   if (e === null || e === undefined) return 'It stopped without saying why: check your wallet before trying again.';
-  const face = faceIdReason(e);
-  if (face) return face;
-  const err = e as { code?: number; shortMessage?: string; message?: string; cause?: { code?: number } };
-  if (wasCancelledByCheck(e)) return 'Cancelled. Nothing was sent.';
-  // a sale that stopped after its approval was mined: say that the approval went through, and what became of the sale
+  // a sale that stopped after its approval was mined: the approval is always mentioned, whatever stopped the sale (a busy network too)
   const afterApproval = afterApprovalFailure(e);
   if (afterApproval) return afterApproval;
-  if (userRejected(e) || /user rejected|denied/i.test(err?.message || '')) return 'Cancelled in your wallet.';
-  // the wallet could not send something the page had just simulated: its own words, and never "the contract reverted"
+  const err = e as { code?: number; shortMessage?: string; message?: string; cause?: { code?: number } };
+  if (wasCancelledByCheck(e)) return 'Cancelled. Nothing was sent.';
+  if (userRejected(e)) return 'Cancelled in your wallet.';
+  // an error from the send step (the page had just simulated it): what the wallet's answer proves decides the words, before any
+  // other reading of them ("already known" means it may have gone out, not "wait a moment, then try again")
   const unsent = walletSendFailure(e);
   if (unsent) return unsent;
+  const face = faceIdReason(e);
+  if (face) return face;
+  if (/user rejected|denied/i.test(err?.message || '')) return 'Cancelled in your wallet.';
   const m = err?.shortMessage || err?.message || String(e);
   return firstWords(m);
 }
