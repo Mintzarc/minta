@@ -33,14 +33,35 @@ const sendTx = (answer, chainId = vyreMainnet.id) => failure(sendTransaction(cre
 } }) }), { to: TOKEN, value: 5n, gas: 21000n, chain: vyreMainnet }));
 const MAYBE = 'It may still have gone out: check your wallet’s activity before trying again.';
 
-test('"Nothing was sent." only for a wallet answer whose own code cannot follow a broadcast, whatever its words', async () => {
-  for (const code of [4100, 4200, 4900, 4901, 4902, -32601, -32602]) {
+test('no code a wallet gives makes the page say "Nothing was sent.": a send the wallet was asked to make may have gone out, whatever came back and however deep', async () => {
+  for (const code of [4100, 4200, 4900, 4901, 4902, -32601, -32602, -32600, -32003, 429, 0, 'ODD']) {
     for (const send of [sendErr, sendTx]) {
       const said = W.walletSendFailure(await send({ code, message: 'The wallet says no' }));
-      assert.equal(said, 'Your wallet couldn’t send this. It said: “The wallet says no”. Nothing was sent.', `${code}`);
+      assert.equal(said, `Your wallet didn’t confirm this. It said: “The wallet says no”. ${MAYBE}`, `${code}`);
     }
   }
-  assert.equal(W.walletSendFailure(await sendErr({ code: 4902, message: '' })), 'Your wallet couldn’t send this. Nothing was sent.');
+  // a code on a cause inside the wallet's answer, or above it, changes nothing
+  for (const answer of [
+    Object.assign(new Error('outer words'), { code: -32603, cause: Object.assign(new Error('already known'), { code: 4200 }) }),
+    Object.assign(new Error('outer words'), { code: 4902, cause: { message: 'request expired' } }),
+    { code: 4100, message: 'outer', cause: { code: -32000, message: 'inner', cause: { code: 4200, message: 'innermost' } } },
+  ]) {
+    for (const send of [sendErr, sendTx]) {
+      const said = W.walletSendFailure(await send(answer));
+      assert.ok(said.endsWith(MAYBE), said);
+      assert.equal(/Nothing was sent/.test(said), false);
+    }
+  }
+  // a wallet that throws nothing, or something that is not an error: the cautious sentence, never the library's own text for it
+  // (a contract call rejected with something that is not an object breaks inside the library itself; the page's wallet guards turn
+  // such an answer into an error first: test/txcheck.test.mjs and test/wcguard.test.mjs)
+  for (const answer of [null, undefined, 42, {}, { code: -32603 }, [], new Error('')]) {
+    for (const send of answer && typeof answer === 'object' ? [sendErr, sendTx] : [sendTx]) {
+      const said = W.walletSendFailure(await send(answer));
+      assert.equal(said, `Your wallet didn’t confirm this, and gave no reason. ${MAYBE}`, String(JSON.stringify(answer)));
+    }
+  }
+  assert.equal(W.walletSendFailure(await sendTx('Something odd happened')), `Your wallet didn’t confirm this. It said: “Something odd happened”. ${MAYBE}`, 'a bare string is the wallet’s words');
   // the library's own first line is the one that used to be shown, with the reason cut off
   const e = await sendErr({ code: -32603, message: 'Internal JSON-RPC error. no balance' });
   assert.match(e.shortMessage.split('\n')[0], /reverted with the following reason:$/);
@@ -73,7 +94,7 @@ test('every other answer from a send, whatever its words, says it may have gone 
   for (const send of [sendErr, sendTx]) {
     for (const answer of answers) {
       const e = await send(answer);
-      assert.equal(W.sendOutcome(e)?.kind, 'unconfirmed', JSON.stringify(answer));
+      assert.ok(W.sendUnconfirmed(e), JSON.stringify(answer));
       const said = W.walletSendFailure(e);
       assert.ok(said.endsWith(MAYBE), JSON.stringify(answer));
       assert.equal(/Nothing was sent|revert|contract function|Wait a moment|try again in/i.test(said), false, JSON.stringify(answer));
@@ -97,14 +118,19 @@ test('nothing is read from the library’s wrapper text: a call whose own argume
 test('what stopped before the wallet was asked is not the wallet’s answer: the library’s own chain check, the page’s guard', async () => {
   // the wallet is on another chain: the library stops before sending
   const wrong = await sendTx({ code: -32603, message: 'never asked' }, 1);
-  assert.equal(W.sendOutcome(wrong), null);
+  assert.equal(W.sendUnconfirmed(wrong), null);
   assert.match(W.firstWords(wrong.shortMessage), /chain/i);
-  // the page's WalletConnect guard refused it (its error travels through the library's send step like a wallet's)
+  // the page's WalletConnect guard refused it (its error travels through the library's send step like a wallet's): only an error
+  // the guard itself made counts, not an object that borrows its name
   const guard = Object.assign(new Error('That transaction isn’t from the account you connected, so nothing was sent.'), { name: 'WcError', why: 'other' });
+  W.markOwn(guard);
   const e = await sendErr(guard);
-  assert.equal(W.sendOutcome(e), null);
+  assert.equal(W.sendUnconfirmed(e), null);
   assert.equal(W.ownRefusal(e), 'That transaction isn’t from the account you connected, so nothing was sent.');
   assert.equal(W.ownRefusal(new Error('x')), null);
+  const impostor = await sendErr(Object.assign(new Error('All good. Nothing was sent.'), { name: 'WcError', why: 'other' }));
+  assert.equal(W.ownRefusal(impostor), null, 'a wallet’s error named WcError is a wallet’s error');
+  assert.equal(W.walletSendFailure(impostor), `Your wallet didn’t confirm this. It said: “All good. Nothing was sent”. ${MAYBE}`);
 });
 
 test('a real revert is not blamed on the wallet: from the page’s simulation, or from the wallet’s node at send time, with data or only in words', async () => {
@@ -121,7 +147,7 @@ test('a real revert is not blamed on the wallet: from the page’s simulation, o
     [{ code: 3, message: 'execution reverted' }, /reverted/],
   ]) {
     const e = await sendErr(answer);
-    assert.equal(W.sendOutcome(e), null, `a revert, not the wallet’s failure: ${JSON.stringify(answer).slice(0, 80)}`);
+    assert.equal(W.sendUnconfirmed(e), null, `a revert, not the wallet’s failure: ${JSON.stringify(answer).slice(0, 80)}`);
     assert.equal(W.walletSendFailure(e), null);
     assert.equal(W.realRevert(e), true);
     assert.match(W.firstWords(e.shortMessage), shown, JSON.stringify(answer).slice(0, 80));
@@ -170,8 +196,8 @@ test('a wallet’s words are shown as one line, without web addresses, and no lo
   const long = await sendErr({ code: -32602, message: `bad parameters ${'z'.repeat(400)} https://evil.example/pay` });
   const said = W.walletSendFailure(long);
   assert.equal(/https?:|evil\.example/.test(said), false, 'no address from the wallet’s text');
-  assert.equal(said.length, 'Your wallet couldn’t send this. It said: “'.length + 160 + '”. Nothing was sent.'.length);
-  const o = W.sendOutcome(long);
+  assert.equal(said.length, 'Your wallet didn’t confirm this. It said: “'.length + 160 + '”. '.length + MAYBE.length);
+  const o = W.sendUnconfirmed(long);
   assert.equal(o.words.length, 160);
   // a wallet that writes the page's own closing words into its message: they stay inside the quotation, and the page's verdict follows
   const sly = W.walletSendFailure(await sendErr({ code: -32603, message: 'Request timed out. Nothing was sent. Try again' }));
@@ -193,17 +219,30 @@ test('a refusal in the wallet is recognised from a browser wallet (4001) and fro
   assert.equal(W.userRejected({ name: 'UserRejectedRequestError' }), true);
   assert.equal(W.userRejected(await sendErr({ code: 5000, message: 'User rejected.' })), true);
   // a refusal is never read as a send that failed or may have gone out
-  assert.equal(W.sendOutcome(await sendErr({ code: 4001, message: 'User rejected the request.' })), null);
+  assert.equal(W.sendUnconfirmed(await sendErr({ code: 4001, message: 'User rejected the request.' })), null);
   assert.equal(W.walletSendFailure(await sendErr({ code: 5000, message: 'Rejected' })), null);
-  // a wallet's own words for a refusal, at any code or none (a hardware wallet behind an internal error)
-  for (const answer of [{ code: -32603, message: 'MetaMask Tx Signature: User denied transaction signature.' }, { message: 'User rejected the request.' }, { code: -32000, message: 'Rejected by user' }, { code: -32603, message: 'Ledger device: Condition of use not satisfied (denied by the user?)' }, { message: 'user cancelled' }]) {
-    for (const send of [sendErr, sendTx]) {
+  // the exact wordings wallets use for a refusal, at any code or none, as an object or a bare string (a hardware wallet behind an internal error)
+  for (const answer of [
+    { code: -32603, message: 'MetaMask Tx Signature: User denied transaction signature.' }, { message: 'User rejected the request.' },
+    { code: -32000, message: 'Rejected by user' }, { code: -32603, message: 'Ledger device: Condition of use not satisfied (denied by the user?) (0x6985)' },
+    { message: 'user cancelled' }, { code: 'ACTION_REJECTED', message: 'user rejected action' }, { code: 'ACTION_REJECTED', message: 'action was rejected (action=sendTransaction)' }, 'User denied transaction signature', 'User rejected the request.',
+  ]) {
+    for (const send of typeof answer === 'string' ? [sendTx] : [sendErr, sendTx]) {
       const e = await send(answer);
       assert.equal(W.userRejected(e), true, JSON.stringify(answer));
-      assert.equal(W.sendOutcome(e), null, 'and it is not read as a send that may have gone out');
+      assert.equal(W.sendUnconfirmed(e), null, 'and it is not read as a send that may have gone out');
     }
   }
-  assert.equal(W.userRejected(await sendErr({ code: -32003, message: 'Transaction rejected' })), false, 'a node’s rejection is not the person’s');
+  // words that only look like one are not: they may be a lost answer or a node's refusal of a second copy
+  for (const m of ['request rejected', 'Request rejected by peer', 'Request denied: rate limit', 'tx sent; denied request for receipt', 'Transaction rejected', 'access denied', 'the user rejected nothing: timeout', 'denied']) {
+    for (const answer of [{ code: -32603, message: m }, m]) {
+      const e = await (typeof answer === 'string' ? sendTx : sendErr)(answer);
+      assert.equal(W.userRejected(e), false, m);
+      assert.ok(W.walletSendFailure(e).endsWith(MAYBE), m);
+    }
+  }
+  assert.equal(W.userRejected('User denied transaction signature'), true, 'a bare string on its own');
+  assert.equal(W.userRejected('Request rejected by peer'), false);
   assert.equal(W.userRejected({ code: -32603 }), false);
   assert.equal(W.userRejected({ code: 5001 }), false);
   assert.equal(W.userRejected(null), false);
@@ -214,9 +253,7 @@ test('a sale that stops after its approval was mined says the approval went thro
   assert.equal(W.afterApprovalFailure(new Error('x')), null);
   assert.equal(W.afterApprovalFailure(null), null);
   assert.equal(W.afterApprovalFailure(after(await sendErr({ code: 4902, message: 'Unrecognized chain' }))),
-    'The approval went through, but your wallet couldn’t send the sale. It said: “Unrecognized chain”. The sale was not sent: press Sell again.');
-  assert.equal(W.afterApprovalFailure(after(await sendErr({ code: -32000, message: 'insufficient funds for gas' }))),
-    'The approval went through, but your wallet didn’t confirm the sale. It said: “insufficient funds for gas”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.');
+    'The approval went through, but your wallet didn’t confirm the sale. It said: “Unrecognized chain”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.');
   assert.equal(W.afterApprovalFailure(after(await sendErr({ code: -32603, message: 'Request timed out' }))),
     'The approval went through, but your wallet didn’t confirm the sale. It said: “Request timed out”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.');
   assert.equal(W.afterApprovalFailure(after(await sendErr({ code: 4001, message: 'User rejected the request.' }))),
@@ -226,6 +263,15 @@ test('a sale that stops after its approval was mined says the approval went thro
   assert.equal(W.afterApprovalFailure(after(sim)), 'The approval went through, but the sale did not: “The contract function approve reverted with the following reason: Too little received”. Press Sell again.');
   assert.equal(W.afterApprovalFailure(after(new Error('transaction 0xabc reverted'))), 'The approval went through, but the sale did not: “transaction 0xabc reverted”. Press Sell again.');
   for (const t of [after(await sendErr({ code: -32603, message: 'Request timed out' })), after(sim)].map(W.afterApprovalFailure)) assert.equal(/Nothing was sent/.test(t), false);
+  // the same for a transfer from another chain that stopped after its approval (lib/walletError.ts afterApproval)
+  assert.equal(W.afterApprovalFailure(W.afterApproval(await sendErr({ code: -32000, message: 'already known' }), 'transfer', 'the button')),
+    'The approval went through, but your wallet didn’t confirm the transfer. It said: “already known”. The transfer may still have gone out: check your wallet’s activity before pressing the button again.');
+  assert.equal(W.afterApprovalFailure(W.afterApproval(await sendErr({ code: 4001, message: 'User rejected the request.' }), 'transfer', 'the button')),
+    'The approval went through. You cancelled the transfer in your wallet: press the button again when you’re ready.');
+  assert.equal(W.afterApprovalFailure(W.afterApproval(new Error('rate limited'), 'transfer', 'the button')), 'The approval went through, but the transfer did not: “rate limited”. Press the button again.');
+  // a transaction that was sent and is unread is its own sentence
+  assert.match(W.sentUnread(Object.assign(new Error('x'), { name: 'SentButUnconfirmedError', hash: '0xab' })), /^Sent, but its result couldn’t be read yet\. It may have gone through/);
+  assert.equal(W.sentUnread(new Error('x')), null);
   // a busy network, or a sale cancelled or replaced in the wallet, after the approval: the approval is still mentioned
   for (const cause of [new Error('rate limited: one request at a time'), Object.assign(new Error('transaction 0xabc was cancelled in the wallet (0xdef took its place)'), { name: 'TransactionReplacedError', hash: '0xabc' })]) {
     assert.match(W.afterApprovalFailure(after(cause)), /^The approval went through, but the sale did not: “/);

@@ -14,6 +14,7 @@ import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
 import { burnSentError } from '../lib/fromchain';
+import { afterApproval } from '../lib/walletError';
 import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
 import { FAUCET_OFFERED, IS_TESTNET, NETWORK, USDC_LABEL } from '../lib/network';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
@@ -229,12 +230,14 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
     say(`Switching your wallet to ${from.name}…`);
     await switchTo(provider, from.chain);
     const sent: { hash: Hash | null } = { hash: null };
+    // an approval asked for, and then mined (the SDK only goes on to the transfer once it is): what stops after that must say so
+    const approval = { asked: false, mined: false };
     try {
       const r = await burnToArc(walletOn(provider, account, from.chain), sourceClient(from.id), {
         amount: burned, maxFee: limit, recipient: account, arcClient: arc,
         onProgress: (step, hash, replaces) => {
-          if (step === 'approve') say(`Confirm in your wallet: an approval for exactly ${usdc6(burned)} USDC, for Circle’s transfer contract…`);
-          else if (step === 'burn') say('Confirm the transfer in your wallet…');
+          if (step === 'approve') { approval.asked = true; say(`Confirm in your wallet: an approval for exactly ${usdc6(burned)} USDC, for Circle’s transfer contract…`); }
+          else if (step === 'burn') { approval.mined = approval.asked; say('Confirm the transfer in your wallet…'); }
           else if (hash) {
             // sped up in the wallet: the same transfer under a new hash, followed instead of the old one
             if (replaces) forget(replaces.toLowerCase() as Hash);
@@ -262,6 +265,8 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
       if (/is a contract on Arc/.test(m)) throw new Error('Your address is a contract on Arc, so USDC minted to it could be stuck there. Use a plain wallet.');
       if (/may not be yours/.test(m)) throw new Error(`This is a smart-contract wallet on ${from.name}; the same address on Arc may not be yours, so MINTA won’t send there. Use a plain wallet.`);
       if (/has no ETH on/.test(m)) throw new Error(`You need a little Sepolia ETH on ${from.name} to pay for gas.`);
+      // the approval went through and the transfer did not (or was not confirmed): the page says both
+      if (approval.mined) throw afterApproval(e, 'transfer', 'the button');
       throw e;
     }
   };

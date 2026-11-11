@@ -9,6 +9,7 @@
 // The connection is for VYRE's chain only.
 import type { EIP1193Provider } from 'viem';
 import { VYRE_CHAIN } from './chain';
+import { markOwn } from './walletError';
 import { SITE_URL } from './twa';
 import {
   WC_EVENTS, WC_OPTIONAL_METHODS, WC_RELAY_TIMEOUT_MS, WC_RELAY_URL, WC_REQUIRED_METHODS,
@@ -33,7 +34,8 @@ export interface WcDriver {
 }
 
 export class WcError extends Error {
-  constructor(public why: WcFailure, message?: string) { super(message ?? wcMessage(why)); this.name = 'WcError'; }
+  // (registered as the page's own refusal: lib/walletError.ts shows only these in their own words, never an object that borrows the name)
+  constructor(public why: WcFailure, message?: string) { super(message ?? wcMessage(why)); this.name = 'WcError'; markOwn(this); }
 }
 
 const PROJECT_ID = wcProjectId(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID);
@@ -314,7 +316,9 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
       const answer = await (raw.request as (a: unknown, chain?: string) => Promise<unknown>)(args, CAIP);
       if (args.method === 'eth_sendTransaction') refusedSend = null; // a send that went through: nothing of an earlier refusal is kept
       return answer;
-    } catch (e) {
+    } catch (thrown) {
+      // (a wallet may reject with a bare string or with nothing: made an error the wallet library can read, with those words or none)
+      const e: unknown = thrown && typeof thrown === 'object' ? thrown : new Error(typeof thrown === 'string' ? thrown : '');
       const text = `${(e as { message?: string })?.message ?? ''}`;
       if (LOST.test(text)) { onLost('closed'); throw new WcError('closed'); }
       // remembered for the library's one follow-up (see above): a refused send only, never a signature

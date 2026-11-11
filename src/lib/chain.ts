@@ -1,7 +1,7 @@
 // The chains the app talks to, and the browser wallet.
 // Reads go to VYRE's public RPC through Multicall3 (the RPC serves one request at a time per visitor, so reads made
 // together travel as one). Writes go through the visitor's wallet, and every one is simulated first (the SDK does it).
-import { afterApprovalFailure, firstWords, ownRefusal, userRejected, walletSendFailure } from './walletError';
+import { afterApprovalFailure, firstWords, fromSendStep, ownRefusal, sentUnread, userRejected, walletSendFailure } from './walletError';
 import {
   createPublicClient,
   createWalletClient,
@@ -183,7 +183,10 @@ export function faceIdReason(e: unknown): string | null {
 
 export function reason(e: unknown): string {
   if (e === null || e === undefined) return 'It stopped without saying why: check your wallet before trying again.';
-  // a sale that stopped after its approval was mined: the approval is always mentioned, whatever stopped the sale (a busy network too)
+  // sent, with its result unread (a caller that did not keep it to check): never "nothing was sent", whatever its cause says
+  const unread = sentUnread(e);
+  if (unread) return unread;
+  // something that stopped after its approval was mined: the approval is always mentioned, whatever stopped the rest (a busy network too)
   const afterApproval = afterApprovalFailure(e);
   if (afterApproval) return afterApproval;
   const err = e as { shortMessage?: string; message?: string };
@@ -191,14 +194,14 @@ export function reason(e: unknown): string {
   // the page's own guard stopped it before the wallet was asked: its words, as they are
   const own = ownRefusal(e);
   if (own) return own;
-  // a refusal in the wallet, by its code or by the wallet's own words for it (a hardware wallet's "User denied" behind any code)
+  // a refusal in the wallet, by its code or by one of the exact wordings wallets use for it
   if (userRejected(e)) return 'Cancelled in your wallet.';
-  // an error from the send step (the page had just simulated it): what the wallet's answer proves decides the words, before any
-  // other reading of them ("already known" means it may have gone out, not "wait a moment, then try again")
-  const unsent = walletSendFailure(e);
-  if (unsent) return unsent;
+  const m = typeof e === 'string' ? e : err?.shortMessage || err?.message || String(e);
+  // An error from the send step ends here, whatever words or data it carries: the wallet did not confirm it (it may have gone out),
+  // or it is a revert with its reason, or the library stopped before asking. It never reaches the readings below, which would turn
+  // "already known" into "wait a moment, then try again", or a busy node into "nothing was sent".
+  if (fromSendStep(e)) return walletSendFailure(e) ?? firstWords(m);
   const face = faceIdReason(e);
   if (face) return face;
-  const m = err?.shortMessage || err?.message || String(e);
   return firstWords(m);
 }

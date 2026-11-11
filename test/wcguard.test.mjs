@@ -17,6 +17,13 @@ function loadGuard() {
   }).outputText;
   const wmod = { exports: {} };
   new Function('require', 'module', 'exports', ws)(() => { throw new Error('no imports'); }, wmod, wmod.exports);
+  // the real lib/walletError.ts (it imports nothing): the guard registers its own refusals there
+  const we = ts.transpileModule(fs.readFileSync(new URL('../src/lib/walletError.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const wemod = { exports: {} };
+  new Function('require', 'module', 'exports', we)(() => { throw new Error('no imports'); }, wemod, wemod.exports);
+  const walletError = wemod.exports;
   const js = ts.transpileModule(fs.readFileSync(new URL('../src/lib/wc.ts', import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText.replace(/import\.meta\.env\.VITE_WALLETCONNECT_PROJECT_ID/g, 'undefined');
@@ -24,7 +31,7 @@ function loadGuard() {
     viem: {},
     './chain': { VYRE_CHAIN: { id: 3045, name: 'VYRE', rpcUrls: { default: { http: ['https://rpc.example'] } } } },
     './twa': { SITE_URL: 'https://minta.vyrechain.com' },
-    './wcstate': wmod.exports,
+    './wcstate': wmod.exports, './walletError': walletError,
   };
   globalThis.localStorage = {
     store: Object.create(null),
@@ -37,7 +44,7 @@ function loadGuard() {
     if (!(id in stubs)) throw new Error(`unexpected import ${id}`);
     return stubs[id];
   }, module, module.exports);
-  return module.exports;
+  return { ...module.exports, walletError };
 }
 
 function fakeRaw(sent) {
@@ -257,4 +264,25 @@ test('the remembered refusal is for that one transaction, a few seconds, sends o
   m.state.fail = false;
   assert.equal(await m.g.request({ method: 'eth_sendTransaction', params: tx(OTHER) }), '0xok');
   await assert.rejects(() => m.g.request({ method: 'wallet_sendTransaction', params: tx(OTHER) }), own);
+});
+
+test('a wallet that rejects with a bare string or with nothing is passed on as an error with those words, or none', async () => {
+  const { guardWc } = loadGuard();
+  for (const [thrown, message] of [['User denied transaction signature', 'User denied transaction signature'], [null, ''], [undefined, ''], [7, '']]) {
+    const raw = fakeRaw([]);
+    const real = raw.request.bind(raw);
+    raw.request = async (a, c) => { if (a.method === 'eth_sendTransaction') throw thrown; return real(a, c); };
+    const g = guardWc(raw, ME, () => {});
+    await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME, to: OTHER }] }), (e) => e instanceof Error && e.message === message, JSON.stringify(thrown));
+  }
+});
+
+test('the guard’s own refusals are registered as the page’s own words (and only those are: an error merely named like them is not)', async () => {
+  const { guardWc, WcError, walletError } = loadGuard();
+  const g = guardWc(fakeRaw([]), ME, () => {});
+  const e = await g.request({ method: 'eth_sendTransaction', params: [{ from: OTHER, to: OTHER }] }).then(() => null, (x) => x);
+  assert.ok(e instanceof WcError);
+  assert.equal(walletError.ownRefusal(e), e.message);
+  assert.equal(walletError.ownRefusal({ cause: { cause: e } }), e.message, 'wherever it sits in an error');
+  assert.equal(walletError.ownRefusal(Object.assign(new Error('Nothing was sent.'), { name: 'WcError' })), null);
 });
