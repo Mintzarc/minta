@@ -1,6 +1,7 @@
 // The chains the app talks to, and the browser wallet.
 // Reads go to VYRE's public RPC through Multicall3 (the RPC serves one request at a time per visitor, so reads made
 // together travel as one). Writes go through the visitor's wallet, and every one is simulated first (the SDK does it).
+import { firstWords, userRejected, walletSendFailure } from './walletError';
 import {
   createPublicClient,
   createWalletClient,
@@ -186,7 +187,10 @@ export function reason(e: unknown): string {
   if (face) return face;
   const err = e as { code?: number; shortMessage?: string; message?: string; cause?: { code?: number } };
   if (wasCancelledByCheck(e)) return 'Cancelled. Nothing was sent.';
-  if (err?.code === 4001 || err?.cause?.code === 4001 || /user rejected|denied/i.test(err?.message || '')) return 'Cancelled in your wallet.';
+  if (userRejected(e) || /user rejected|denied/i.test(err?.message || '')) return 'Cancelled in your wallet.';
+  // the wallet could not send something the page had just simulated: its own words, and never "the contract reverted"
+  const unsent = walletSendFailure(e);
+  if (unsent) return unsent;
   const m = err?.shortMessage || err?.message || String(e);
-  return m.split('\n')[0].slice(0, 220);
+  return firstWords(m);
 }

@@ -130,6 +130,31 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     await ctx.close();
   }
 
+  // ---- a sale whose permit the wallet cannot sign asks for an exact approval instead and says so; when the wallet then answers the
+  // send with an error of its own (the page's simulation had passed), the wallet's words are shown and nothing claims a contract revert
+  {
+    const { pg, ctx } = await open();
+    await chooseWc(pg); await pg.waitForSelector('.wc-qr'); await pg.evaluate(() => window.__pair.resolve());
+    await until(pg, () => document.querySelector('#who').textContent !== 'none');
+    const sellNow = async (sendError) => {
+      await pg.evaluate((e) => { window.__sent.length = 0; window.__notes.length = 0; window.__fake.signError = true; window.__fake.sendError = e; }, sendError);
+      await pg.locator('#sell button').first().click();
+      await until(pg, () => /Nothing was sent|revert|Sold\./i.test(document.querySelector('#sell .status')?.textContent || ''), null, 30000);
+      return (await pg.locator('#sell .status').innerText()).trim();
+    };
+    const t = await sellNow({ code: -32603, message: 'Internal JSON-RPC error. insufficient funds for gas * price + value' });
+    ok(t === 'Your wallet couldn’t send this: Internal JSON-RPC error. insufficient funds for gas * price + value. Nothing was sent.', `the wallet’s own words are shown for a send it could not make (${t})`);
+    ok(!/revert|contract function|following reason/i.test(t), 'and nothing calls it a contract revert');
+    ok(JSON.stringify(await pg.evaluate(() => window.__notes)) === '["permit-unsigned"]', 'the page was told an exact approval is asked for instead of the permit');
+    const asked = await sent(pg);
+    ok(asked.length === 2 && asked[0].method === 'eth_signTypedData_v4' && asked[1].method === 'eth_sendTransaction', 'the wallet was asked for the permit, then for one send (the approval)');
+    ok(asked[1].params[0].to.toLowerCase() === '0x1111111111111111111111111111111111111111' && asked[1].params[0].data.startsWith('0x095ea7b3'), 'that send is approve() on the token, for the sale’s amount only');
+    const t3 = await sellNow({ code: 3, message: 'execution reverted' });
+    ok(/^Your wallet couldn’t send this: execution reverted\. Nothing was sent\.$/.test(t3), `a wallet that only says "execution reverted" with no data is still the wallet’s failure (${t3})`);
+    ok(!/contract function|following reason/i.test(t3), 'with no "contract function reverted" wording');
+    await ctx.close();
+  }
+
   // ---- eth_accounts and the session name different accounts on VYRE: refused at connect, nothing connected
   {
     const { pg, ctx } = await open(() => {});

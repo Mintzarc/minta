@@ -290,10 +290,23 @@ function moved(receipt: TransactionReceipt, token: Address, who: Address): { in:
 }
 const sum = (xs: bigint[]) => xs.reduce((a, x) => a + x, 0n);
 
+type Link = { code?: unknown; name?: unknown; message?: unknown; data?: unknown; cause?: unknown };
+function* links(e: unknown): Generator<Link> {
+  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 8; x = (x as Link).cause, i++) yield x as Link;
+}
+/** The person said no in their wallet: 4001 (a browser wallet), 5000 (WalletConnect), or the library's own name for it */
 const userRejected = (e: unknown): boolean => {
-  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 6; x = (x as { cause?: unknown }).cause, i++) {
-    const o = x as { code?: unknown; name?: unknown };
-    if (o.code === 4001 || o.name === 'UserRejectedRequestError') return true;
+  for (const x of links(e)) if (x.code === 4001 || x.code === 5000 || x.name === 'UserRejectedRequestError') return true;
+  return false;
+};
+const hasRevertData = (d: unknown): boolean =>
+  (typeof d === 'string' && /^0x[0-9a-fA-F]{8,}$/.test(d)) || (!!d && typeof d === 'object' && hasRevertData((d as { data?: unknown }).data));
+/** A call really reverted: the node answered "execution reverted" (code 3) or gave revert data. A node that could not be reached,
+ *  or answered with an error of its own and nothing else, did not say the call reverts. */
+const realRevert = (e: unknown): boolean => {
+  for (const x of links(e)) {
+    if (x.code === 3 || hasRevertData(x.data) || x.name === 'ContractFunctionZeroDataError') return true;
+    if (typeof x.message === 'string' && /execution reverted/i.test(x.message) && x.name !== 'ContractFunctionExecutionError' && x.name !== 'ContractFunctionRevertedError') return true;
   }
   return false;
 };
@@ -301,9 +314,11 @@ const userRejected = (e: unknown): boolean => {
 /**
  * Sells launch tokens through the SwapRouter for native USDC (or WUSDC). If the router's allowance is short: a signed permit for
  * exactly `amountIn` (VyreToken supports EIP-2612) in the same transaction, or an exact approval sent first when the wallet can't
- * sign one (a smart-contract wallet) or the token refuses it. Never an open-ended approval.
+ * sign one (a smart-contract wallet) or the token refuses it. Never an open-ended approval. `note` hears when the permit could not
+ * be used and an exact approval is about to be asked for instead, so the page can say so before the wallet opens again.
  */
-export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams): Promise<SellResult> {
+export type SellNote = 'permit-unsigned' | 'permit-refused';
+export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams, note?: (what: SellNote) => void): Promise<SellResult> {
   if (p.amountIn <= 0n) throw new Error('amountIn must be more than 0');
   const account = accountOf(wallet);
   noRecipient(p.recipient, account.address);
@@ -324,8 +339,8 @@ export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams
     sent = await sendCall(wallet, client, sale());
   } else {
     if (p.permit !== false && !isSmart(wallet)) {
-      sent = await sellWithPermit(wallet, client, account.address, p, deadline, sale);
-      if (sent) approval = 'permit';
+      const tried = await sellWithPermit(wallet, client, account.address, p, deadline, sale);
+      if (typeof tried === 'string') { try { note?.(tried); } catch { /* the caller's own failure */ } } else { sent = tried; approval = 'permit'; }
     }
     if (!sent) {
       // an approval for exactly this sale, mined before the sale is simulated (the simulation needs it)
@@ -346,11 +361,12 @@ export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams
   };
 }
 
-/** Signs a permit for exactly the sale and sells with it in one transaction; null when the permit can't be used (the caller approves instead) */
+/** Signs a permit for exactly the sale and sells with it in one transaction; when the permit can't be used, says why (the caller
+ *  approves instead): the wallet could not sign it, or the token itself refuses it. A node that cannot be reached is an error, not a refusal. */
 async function sellWithPermit(
   wallet: WalletLike, client: ReadClient, owner: Address, p: SellParams, deadline: bigint,
   sale: Sale,
-): Promise<{ hash: Hash; receipt: TransactionReceipt } | null> {
+): Promise<{ hash: Hash; receipt: TransactionReceipt } | SellNote> {
   const [name, nonce, chainId] = await Promise.all([
     readContract(client, { address: p.token, abi: vyreTokenAbi, functionName: 'name' }),
     readContract(client, { address: p.token, abi: vyreTokenAbi, functionName: 'nonces', args: [owner] }),
@@ -371,23 +387,27 @@ async function sellWithPermit(
     });
   } catch (err) {
     if (userRejected(err)) throw err;
-    return null;
+    return 'permit-unsigned';
   }
   let sig;
-  try { sig = parseSignature(signature); } catch { return null; }
+  try { sig = parseSignature(signature); } catch { return 'permit-unsigned'; }
   const v = sig.v !== undefined ? Number(sig.v) : 27 + (sig.yParity ?? 0);
   const permit = encodeFunctionData({ abi: swapRouterAbi, functionName: 'selfPermitIfNecessary', args: [p.token, p.amountIn, deadline, v, sig.r, sig.s] });
   try {
     await simulateContract(client, { account: wallet.account!, ...sale([permit]) });
   } catch (err) {
+    // the node could not be asked (or answered with an error of its own): that says nothing about the permit, so it is the error
+    if (!realRevert(err)) throw err;
     // Was it the permit? Tried on its own: if the token takes it, the sale failed for another reason (the price moved past the
-    // minimum, say) and an approval wouldn't help
+    // minimum, say) and an approval wouldn't help. Only a real revert of the permit alone means the token refuses it.
+    let alone: unknown = null;
     const permitWorks = await simulateContract(client, {
       account: wallet.account!, address: p.token, abi: vyreTokenAbi, functionName: 'permit',
       args: [owner, PAD_V2.swapRouter, p.amountIn, deadline, v, sig.r, sig.s],
-    }).then(() => true, () => false);
+    }).then(() => true, (e: unknown) => { alone = e; return false; });
     if (permitWorks) throw err;
-    return null;
+    if (!realRevert(alone)) throw alone;
+    return 'permit-refused';
   }
   return sendCall(wallet, client, sale([permit]));
 }

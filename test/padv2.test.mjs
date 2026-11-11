@@ -90,7 +90,7 @@ const HASH = '0x' + 'ab'.repeat(32);
  * `world.calls`: eth_call requests seen (to, data). `world.sent`: transactions the wallet was asked to send, in order.
  * `world.logs`: the receipt's logs for every sent transaction (a function of the transaction). `world.signed`: typed data signed.
  */
-function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null } = {}) {
+function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null, saleWithPermit = 'ok', permitAlone = 'ok' } = {}) {
   const chain = vyreMainnet;
   const world = { calls: [], sent: [], signed: [], reads: [] };
   const reads = {
@@ -138,9 +138,21 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
           if (f.functionName === 'createLaunch') return encodeFunctionResult({ abi: P.padV2Abi, functionName: 'createLaunch', result: [TOKEN, POOL, 0n] });
           return '0x';
         }
-        if (eq(to, P.PAD_V2.swapRouter)) return encodeFunctionResult({ abi: P.swapRouterAbi, functionName: 'multicall', result: [] });
+        if (eq(to, P.PAD_V2.swapRouter)) {
+          // a sale that carries a permit can be made to revert, or the node to fail, to see what the fallback does
+          const inner = decodeFunctionData({ abi: P.swapRouterAbi, data: input }).args[0].map((d) => decodeFunctionData({ abi: P.swapRouterAbi, data: d }).functionName);
+          if (inner[0] === 'selfPermitIfNecessary') {
+            if (saleWithPermit === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: '0x08c379a0' + '00'.repeat(28) });
+            if (saleWithPermit === 'down') throw Object.assign(new Error('Internal error'), { code: -32603 });
+          }
+          return encodeFunctionResult({ abi: P.swapRouterAbi, functionName: 'multicall', result: [] });
+        }
         // the token (name, symbol, supply, allowance, nonce, permit, approve)
         const f = decodeFunctionData({ abi: vyreTokenAbi, data: input });
+        if (f.functionName === 'permit') {
+          if (permitAlone === 'reverts') throw Object.assign(new Error('execution reverted'), { code: 3, data: '0x08c379a0' + '00'.repeat(28) });
+          if (permitAlone === 'down') throw new TypeError('fetch failed');
+        }
         if (reads[f.functionName]) return reads[f.functionName]();
         return '0x';
       }
@@ -153,6 +165,7 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
     if (method === 'eth_signTypedData_v4') {
       world.signed.push(JSON.parse(params[1]));
       if (signature === 'rejected') throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
+      if (signature === 'rejected5000') throw Object.assign(new Error('User rejected.'), { code: 5000 });
       if (signature === 'unsupported') throw Object.assign(new Error('method not supported'), { code: -32601 });
       return '0x' + '11'.repeat(32) + '22'.repeat(32) + '1b';
     }
@@ -332,6 +345,47 @@ test('refusing to sign the permit stops the sale (it is not turned into an appro
   const { pc, wc, world } = stand({ allowance: 0n, quote: 50n * E18, signature: 'rejected' });
   await assert.rejects(P.sell(wc, pc, { token: TOKEN, amountIn: 3n * E18 }));
   assert.equal(world.sent.length, 0);
+});
+
+test('refusing the permit in a WalletConnect wallet (5000) stops the sale too', async () => {
+  const { pc, wc, world } = stand({ allowance: 0n, quote: 50n * E18, signature: 'rejected5000' });
+  await assert.rejects(P.sell(wc, pc, { token: TOKEN, amountIn: 3n * E18 }));
+  assert.equal(world.sent.length, 0, 'no approval is asked for after a refusal');
+});
+
+test('the page is told when an approval is asked for instead of a permit: the wallet could not sign it, or the token refuses it', async () => {
+  const unsigned = stand({ allowance: 0n, quote: 50n * E18, signature: 'unsupported', logs: sellLogs(48n * E18, 3n * E18) });
+  const notes = [];
+  const r = await P.sell(unsigned.wc, unsigned.pc, { token: TOKEN, amountIn: 3n * E18 }, (w) => { notes.push([w, unsigned.world.sent.length]); });
+  assert.equal(r.approval, 'approve');
+  assert.deepEqual(notes, [['permit-unsigned', 0]], 'said once, before the wallet is asked for the approval');
+  const refused = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'reverts', permitAlone: 'reverts', logs: sellLogs(48n * E18, 3n * E18) });
+  const notes2 = [];
+  const r2 = await P.sell(refused.wc, refused.pc, { token: TOKEN, amountIn: 3n * E18 }, (w) => { notes2.push(w); });
+  assert.equal(r2.approval, 'approve');
+  assert.deepEqual(notes2, ['permit-refused']);
+  // a sale that uses the permit says nothing, and a note that throws does not stop the sale
+  const fine = stand({ allowance: 0n, quote: 50n * E18, logs: sellLogs(48n * E18, 3n * E18) });
+  const notes3 = [];
+  assert.equal((await P.sell(fine.wc, fine.pc, { token: TOKEN, amountIn: 3n * E18 }, (w) => notes3.push(w))).approval, 'permit');
+  assert.deepEqual(notes3, []);
+  const loud = stand({ allowance: 0n, quote: 50n * E18, signature: 'unsupported', logs: sellLogs(48n * E18, 3n * E18) });
+  assert.equal((await P.sell(loud.wc, loud.pc, { token: TOKEN, amountIn: 3n * E18 }, () => { throw new Error('the page broke'); })).approval, 'approve');
+});
+
+test('a node that fails while the permit is being checked is an error, not "the token refuses the permit": no approval is asked for', async () => {
+  // the sale with the permit reverts, and the check of the permit on its own cannot reach the node
+  const a = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'reverts', permitAlone: 'down' });
+  await assert.rejects(P.sell(a.wc, a.pc, { token: TOKEN, amountIn: 3n * E18 }), /fetch failed/);
+  assert.equal(a.world.sent.length, 0);
+  // the node answers the sale's own simulation with an error of its own (not a revert)
+  const b = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'down' });
+  await assert.rejects(P.sell(b.wc, b.pc, { token: TOKEN, amountIn: 3n * E18 }));
+  assert.equal(b.world.sent.length, 0);
+  // the sale with the permit reverts although the permit alone is fine: the sale's own failure, no approval
+  const c = stand({ allowance: 0n, quote: 50n * E18, saleWithPermit: 'reverts' });
+  await assert.rejects(P.sell(c.wc, c.pc, { token: TOKEN, amountIn: 3n * E18 }));
+  assert.equal(c.world.sent.length, 0);
 });
 
 test('a sale the pool would pay nothing for is refused before anything is signed or sent', async () => {

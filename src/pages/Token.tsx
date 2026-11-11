@@ -22,6 +22,8 @@ import { isHidden } from '../lib/hidden';
 import { LIQUIDITY_FACT } from '../lib/facts';
 import { ReportToken } from '../components/ReportToken';
 
+import { PERMIT_REFUSED_NOTE, PERMIT_UNSIGNED_NOTE } from '../lib/walletError';
+
 // kept back from a "max" buy so the wallet can still pay gas
 const GAS_RESERVE = 10n ** 16n; // 0.01 USDC
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC: less than this left, a buy can't pay its fee
@@ -323,7 +325,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
               const r = await buy(wallet, vyre, { token: launch.token, usdcIn: value!, minTokensOut: min });
               return { hash: r.hash, text: `Bought ${amount(r.tokensOut, 2)} ${sym}.` };
             }
-            const r = await sell(wallet, vyre, { token: launch.token, amountIn: value!, minUsdcOut: min });
+            const r = await sell(wallet, vyre, { token: launch.token, amountIn: value!, minUsdcOut: min }, (what) => say(what === 'permit-unsigned' ? PERMIT_UNSIGNED_NOTE : PERMIT_REFUSED_NOTE));
             return { hash: r.hash, text: `Sold for ${amount(r.usdcOut, 4)} USDC.` };
           }}
         />
