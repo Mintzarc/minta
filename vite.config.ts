@@ -12,8 +12,14 @@ const shim = (name: string) => fileURLToPath(new URL(`./src/lib/shims/${name}.ts
 const siteUrl = (process.env.VITE_SITE_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/$/, '');
 // A mainnet build (VITE_NETWORK=mainnet, or a production build that names none: see src/lib/network.ts) carries its own, narrower
 // content policy in its index.html (scripts/csp.mjs says why and which hosts)
-const forMainnet = process.env.VITE_NETWORK === 'mainnet' || !process.env.VITE_NETWORK;
-const mainnetPolicyInHtml: Plugin = { name: 'mainnet-policy-in-html', apply: 'build', transformIndexHtml: { order: 'pre', handler: (html) => (forMainnet ? withMainnetPolicy(html) : html) } };
+// The network is read from the very value the app gets as import.meta.env.VITE_NETWORK (the process environment or an .env file),
+// so the policy and the app can never be for different networks.
+let builtFor: unknown;
+const mainnetPolicyInHtml: Plugin = {
+  name: 'mainnet-policy-in-html', apply: 'build',
+  configResolved(config) { builtFor = config.env.VITE_NETWORK; },
+  transformIndexHtml: { order: 'pre', handler: (html) => (builtFor === 'mainnet' || builtFor === undefined || builtFor === '' ? withMainnetPolicy(html) : html) },
+};
 const siteUrlInHtml: Plugin = { name: 'site-url-in-html', transformIndexHtml: (html) => html.replaceAll('__SITE_URL__', siteUrl) };
 
 // Circle's web SDK (email sign-in, @circle-fin/w3s-pw-web-sdk) is loaded only when someone signs in with email. Three

@@ -8,6 +8,7 @@ import { LAUNCH_LIMITS, checkLaunchParams, getLaunch, launch, vyrePadAbi } from 
 import { getAddress, isAddress, isAddressEqual, parseEventLogs, type Hash, type TransactionReceipt } from 'viem';
 import { EXPLORER, reason, vyre } from '../lib/chain';
 import { AFTER_CHECK_MS, createLabel, sendUnconfirmed } from '../lib/walletError';
+import { unsureStore } from '../lib/unsure';
 import { amountProblem, exact, iso, parse, pct, percentBps, plainText, price, short, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
@@ -76,10 +77,13 @@ let unconfirmed: Sent | null = null;
 type Launched = { token: Address; hash: string; symbol: string };
 let launched: Launched | null = null;
 let inWallet = false;
-/** Wallets that were asked to send a launch and did not confirm it (it may have gone out), with the words shown for it. Kept here,
- * outside the dialog, per creator wallet: closing the dialog (Escape, a click outside, Back to details) and opening it again does
- * not forget it. Cleared only by the person saying it isn't in their wallet, or by a launch from that wallet being sent or confirmed. */
-const unsureLaunch = new Map<string, string>();
+/** Wallets that were asked to send a launch and did not confirm it (it may have gone out), with the words shown for it. Kept
+ * outside the dialog, per creator wallet, for the tab (lib/unsure.ts): closing the dialog (Escape, a click outside, Back to details)
+ * and opening it again, or reloading the page, does not forget it. Cleared only by the person saying it isn't in their wallet or
+ * that it went out, or by a launch from that wallet being sent or confirmed. */
+const unsureLaunch = unsureStore(() => { try { return window.sessionStorage; } catch { return null; } }, scoped('minta.unsureLaunch'));
+/** Until when, per creator wallet, the launch button stays off after "It isn't in my wallet" (kept outside the dialog: reopening it does not shorten the pause) */
+const pausedUntil = new Map<string, number>();
 /** A Face ID launch put aside on this page (checked from another wallet): it may still go through, so the form says so
  * and asks before launching again */
 type Aside = { symbol: string; sender: string };
@@ -255,13 +259,15 @@ export default function Launch() {
 
   const isLast = step === STEP_LABELS.length - 1;
   const ready = !problem && reached >= STEP_LABELS.length - 1;
-  const imgSet = meta.useOwn ? !!meta.own.trim() : hasPicture(meta);
+  // (a file of the creator's own counts only where the pages read one: lib/network.ts outsideFiles)
+  const ownFile = NETWORK.outsideFiles && meta.useOwn;
+  const imgSet = ownFile ? !!meta.own.trim() : !meta.useOwn && hasPicture(meta);
   const linkCount = meta.useOwn ? 0 : Object.values(meta.file.links || {}).filter((v) => v?.trim()).length;
   const linkSet = linkCount > 0;
   const checks: [string, boolean][] = [
     ['Token details filled in', !!tokenText(name) && !!tokenText(symbol) && !stepProblems[0]],
     ['Logo added', imgSet],
-    ['Social links added', linkSet || (meta.useOwn && !!meta.own.trim())],
+    ['Social links added', linkSet || (ownFile && !!meta.own.trim())],
     ['Launch settings configured', reached >= 2 && !stepProblems[1]],
     ['Tokenomics set', reached >= 3 && !stepProblems[2]],
     ['Ready to launch', ready],
@@ -527,8 +533,19 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   // until the person says it isn't in their wallet (a separate button), and for a moment after that press
   const who = creator.toLowerCase();
   const [unsure, setUnsure] = useState(() => unsureLaunch.has(who));
-  const [cooling, setCooling] = useState(false);
-  const coolUntil = useRef(0);
+  const [cooling, setCooling] = useState(() => (pausedUntil.get(who) ?? 0) > Date.now());
+  // "It isn't in my wallet" was pressed while this dialog is open: its button stays where it is (off) until the dialog closes, so
+  // the launch button never moves under a pointer that is about to press again
+  const [answered, setAnswered] = useState(false);
+  const [again, setAgain] = useState(false);
+  const launchButton = useRef<HTMLButtonElement>(null);
+  // the pause ends (also one that was running when the dialog was opened): the launch button is on again, focused, and it is said
+  useEffect(() => {
+    if (!cooling) return;
+    const t = setTimeout(() => { setCooling(false); setAgain(true); }, Math.max(0, (pausedUntil.get(who) ?? 0) - Date.now()));
+    return () => clearTimeout(t);
+  }, [cooling, who]);
+  useEffect(() => { if (again && !cooling && !unsure) launchButton.current?.focus(); }, [again, cooling, unsure]);
   const [err, setErr] = useState(() => unsureLaunch.get(who) ?? '');
   // an earlier Face ID transaction found to have gone through: its link, beside the message
   const [earlierHash, setEarlierHash] = useState('');
@@ -550,8 +567,9 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   // in the wallet, going through, or sent and not confirmed: Escape and clicks outside don't close it
   const locked = step === 'confirm' || (step === 'wait' && (!err || (!!sent && !done)));
 
+  // (the dialog takes the focus when it opens, once: not again at every draw, which would take it back from a button)
+  useEffect(() => { box.current?.focus(); }, []);
   useEffect(() => {
-    box.current?.focus();
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !locked) onClose(); };
     window.addEventListener('keydown', esc);
     document.body.style.overflow = 'hidden';
@@ -643,19 +661,21 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
 
   /** The deliberate press: the wallet was looked at and the launch isn't there. The launch button comes back, after a moment. */
   const notInWallet = () => {
-    if (cooling) return;
+    if (cooling || answered) return;
     unsureLaunch.delete(who);
     setUnsure(false);
-    // the words and this button stay where they are for that moment, so a second press lands on nothing else
-    coolUntil.current = Date.now() + AFTER_CHECK_MS;
+    setAnswered(true);
+    // the words and this button stay where they are, so a second press lands on nothing else
+    pausedUntil.set(who, Date.now() + AFTER_CHECK_MS);
     setCooling(true);
-    setTimeout(() => setCooling(false), AFTER_CHECK_MS);
   };
+  /** The other answer: it did go out. Nothing is sent; the dialog closes, and the page looks for the launch as after any reload. */
+  const wentOut = () => { unsureLaunch.delete(who); onClose(); };
 
   const create = async (withFile = true) => {
     if (!params || inWallet) return;
     // a launch this wallet may already have sent, or a press that came with the one that cleared it: nothing is sent
-    if (unsureLaunch.has(who) || Date.now() < coolUntil.current) return;
+    if (unsureLaunch.has(who) || Date.now() < (pausedUntil.get(who) ?? 0)) return;
     // with a launch sent and not confirmed, only one taking its place (and only from the wallet that sent it)
     const place = replacing && sent?.op ? { sender: sent.op.sender as Address, nonce: BigInt(sent.op.nonce), fromBlock: BigInt(sent.op.fromBlock) } : null;
     if (sent && !place) return;
@@ -686,7 +706,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
         if (p.state !== 'pending') { setReplacing(false); setStep('wait'); await checkSent(sent); return; }
       }
       let metadataURI: string | undefined;
-      if (meta.useOwn) metadataURI = meta.own.trim() || undefined;
+      if (meta.useOwn && NETWORK.outsideFiles) metadataURI = meta.own.trim() || undefined;
       else if (withFile && (hasContent(meta.file) || meta.picture)) {
         setNote(meta.picture ? 'Uploading the picture…' : 'Saving the picture and links…');
         try {
@@ -740,7 +760,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
       }
       setStep((s) => (s === 'wait' ? s : 'review'));
       setErr(reason(e));
-      if (sendUnconfirmed(e)) { unsureLaunch.set(who, reason(e)); setUnsure(true); }
+      if (sendUnconfirmed(e)) { unsureLaunch.set(who, reason(e)); setUnsure(true); setAnswered(false); setAgain(false); }
       if (x && x.earlier === true && typeof x.hash === 'string') {
         setEarlierHash(x.hash);
         // it was a launch (from another tab, say): shown rather than another created (read before it was crossed out)
@@ -789,16 +809,19 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
             {replacing && sent && <p className="note small">This takes the place of your launch of $<bdi>{tokenText(sent.symbol)}</bdi> that hasn’t gone through: the same place in your wallet’s sequence, so only one of the two can ever run.</p>}
             <p className="small muted">The taxes can be lowered later, never raised. {LIQUIDITY_FACT} Check the details before you create it.</p>
             {switched && <p className="err small" role="alert">Your wallet changed to {short(account!)}. Go back and review again with the wallet you mean to create it from.</p>}
-            {err && <p className="err small" role="alert">{err}{fileFailed || faceId ? '' : ' If your wallet shows the launch as sent, check it on the explorer before trying again.'}
+            {err && <p className="err small" role="alert">{err}{fileFailed || faceId ? '' : <> If your wallet shows the launch as sent, check it on the explorer before trying again (<a href={`${EXPLORER}/address/${creator}`} target="_blank" rel="noopener noreferrer">this wallet on the explorer</a>).</>}
               {earlierHash && <> <a href={`${EXPLORER}/tx/${earlierHash}`} target="_blank" rel="noopener noreferrer">See what went through</a>.</>}</p>}
             {fileFailed && <p className="small">You can create it now without them, and add the picture, description and links later on its Manage page.</p>}
+            {/* (these lines keep their place once shown, and the spoken line takes no room: nothing in the dialog moves under a pointer) */}
+            {(unsure || answered) && <p className="small unsure-went-out">If it is there: <button type="button" className="linkish small went-out" onClick={wentOut} disabled={!unsure}>it went out</button> (this closes the review and sends nothing).</p>}
+            <p className="spoken-only launch-again" role="status" aria-live="polite">{again && !unsure && !cooling ? 'You can create the token again now.' : ''}</p>
             <div className="row dialog-actions">
               <button type="button" className="btn btn-line" onClick={() => onClose()}>Back to details</button>
               {fileFailed && <button type="button" className="btn btn-line" onClick={() => create(false)} disabled={switched || !params || unsure || cooling}>Create without picture and links{devBuy}</button>}
               {/* after a send the wallet did not confirm, the launch button is off and says to check the wallet; a separate button
                   says it isn't there, and the launch button comes back a moment later (so no double press can send) */}
-              {(unsure || cooling) && <button type="button" className="btn btn-line not-in-wallet" onClick={notInWallet} disabled={cooling}>It isn’t in my wallet</button>}
-              <button type="button" className="btn btn-accent create-launch" onClick={() => create()} disabled={switched || !params || unsure || cooling}>{createLabel({ replacing, unsure, failed: !!err && !earlierHash })}{devBuy}</button>
+              {(unsure || cooling || answered) && <button type="button" className="btn btn-line not-in-wallet" onClick={notInWallet} disabled={cooling || answered}>It isn’t in my wallet</button>}
+              <button ref={launchButton} type="button" className="btn btn-accent create-launch" onClick={() => create()} disabled={switched || !params || unsure || cooling}>{createLabel({ replacing, unsure, failed: !!err && !earlierHash })}{devBuy}</button>
             </div>
           </>
         )}

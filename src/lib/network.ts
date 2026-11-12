@@ -40,6 +40,8 @@ interface NetworkSettings {
   emailSignIn: boolean;
   /** MINTA's own token here, or null where there is none: the one token that may carry the name without a "Not MINTA's token" note */
   mintaToken: `0x${string}` | null;
+  /** The network's own token, if one exists as a launch here (none yet): the one token that may carry the name VYRE without a note */
+  vyreToken: `0x${string}` | null;
   /** Whether a launch's file on another site is read by the pages (false: only a file the app API keeps is read; another is named by its host) */
   outsideFiles: boolean;
 }
@@ -54,6 +56,7 @@ const SETTINGS: Record<NetworkName, NetworkSettings> = {
     withdrawal: 'usually under half an hour on the testnet',
     emailSignIn: true,
     mintaToken: null,
+    vyreToken: null,
     outsideFiles: true,
   },
   mainnet: {
@@ -65,6 +68,7 @@ const SETTINGS: Record<NetworkName, NetworkSettings> = {
     withdrawal: 'a withdrawal takes about a day',
     emailSignIn: false,
     mintaToken: '0x59F54CEd2A5C2Ee4DF39E0e1A1A49BA46858335a',
+    vyreToken: null,
     outsideFiles: false,
   },
 };

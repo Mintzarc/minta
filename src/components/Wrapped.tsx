@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Address } from 'viem';
 import { vyre } from '../lib/chain';
-import { amount, exact } from '../lib/format';
+import { exact, shortAmount } from '../lib/format';
 import { useWallet } from '../lib/wallet';
 import { unwrap, wrappedBalance } from '../lib/wrapped';
 import { TxButton } from './ui';
@@ -27,7 +27,8 @@ export function WrappedUsdc({ account, again = 0, onDone }: { account: Address; 
   return (
     <div className="card wrapped-usdc">
       <h2 className="h3">Wrapped USDC</h2>
-      <p className="small">This wallet holds <b>{amount(held)} WUSDC</b>. {WRAPPED_FACT}</p>
+      <p className="small">This wallet holds <b className="break">{shortAmount(held, 4)} WUSDC</b>. {WRAPPED_FACT} Unwrapping is a transaction, so it needs a little USDC on VYRE for the network fee.</p>
+      {email && <p className="small muted wrapped-email">An email wallet can’t send transactions on VYRE yet, so it can’t unwrap here.</p>}
       {!email && (
         <TxButton className="btn btn-line" label={`Unwrap ${exact(held)} WUSDC to USDC`} keepAs={`unwrap:${account.toLowerCase()}`}
           onDone={() => { read(); onDone?.(); }}

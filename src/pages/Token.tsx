@@ -53,7 +53,7 @@ export default function Token({ token }: { token: Address }) {
   const { account, onVyre } = useWallet();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [market, setMarket] = useState<Market | null>(null);
-  const [trades, setTrades] = useState<Trade[] | null>(null);
+  const [trades, setTrades] = useState<(Trade[] & { windowed?: boolean }) | null>(null);
   const [bal, setBal] = useState<{ usdc: bigint; tokens: bigint } | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [holders, setHolders] = useState<number | null>(null);
@@ -166,7 +166,7 @@ export default function Token({ token }: { token: Address }) {
           <a className="btn btn-line btn-sm" href={href({ page: 'manage', token })}>Manage</a>
         )}
       </div>
-      {outsideFile(launch.metadataURI) !== null && <p className="muted small outside-file">This token’s picture, description and links are kept on another site{outsideFile(launch.metadataURI) ? <> (<bdi>{outsideFile(launch.metadataURI)}</bdi>)</> : ''}, so they aren’t loaded here.</p>}
+      {outsideFile(launch.metadataURI) !== null && <p className="muted small outside-file">This token’s picture, description and links are kept on another site{outsideFile(launch.metadataURI) ? <> (<bdi className="break">{outsideFile(launch.metadataURI)}</bdi>)</> : ''}, so they aren’t loaded here.</p>}
       {meta?.description && plainText(meta.description) && <p className="description" dir="auto">{plainText(meta.description)}</p>}
       <ReportToken token={launch.token} sym={sym} />
       <HideToken token={launch.token} creator={launch.creator} />
@@ -192,7 +192,7 @@ export default function Token({ token }: { token: Address }) {
         <div className="left-col">
         {readErr && <p className="err small">{readErr}{market ? ' The figures shown are the last ones read.' : ''}</p>}
         <PriceChart trades={tradesErr && !trades ? [] : trades} current={market?.price ?? 0} failed={tradesErr && !trades}
-          open={stats?.openPrice ? { price: stats.openPrice, time: launch.createdAt } : undefined} cut={trades && trades.length >= MAX_TRADES ? MAX_TRADES : undefined} />
+          open={stats?.openPrice ? { price: stats.openPrice, time: launch.createdAt } : undefined} cut={trades && trades.length >= MAX_TRADES ? MAX_TRADES : undefined} recentOnly={!!trades?.windowed} />
         <div className="stats-card">
           <h2 className="h3 span-all">Settings</h2>
           <div><span>Buy tax</span><b>{pct(launch.buyTaxBps)}</b></div>

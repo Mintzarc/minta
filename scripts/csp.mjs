@@ -3,7 +3,9 @@
 // vercel.json sends one policy header for every build of this repository, and the test network's build needs a wide one (other
 // chains' RPCs for transfers, the faucet, Circle's email sign-in frame, launch files on any site). A browser applies a page's
 // header policy AND its meta policy together, so a mainnet page is held to both: this one lists the only hosts a mainnet page
-// talks to, draws pictures from, or frames. A script that ended up in the bundle could send nothing anywhere else.
+// may fetch from or open a socket to, draw pictures from, or frame. What it does not cover: a page can still be navigated
+// elsewhere (a link, window.open, location), and the listed hosts themselves take requests. It narrows where a script that ended
+// up in the bundle could send things; it does not close every way out.
 export const MAINNET_CONNECT = [
   "'self'",
   'https://rpc.vyrechain.com', // the chain

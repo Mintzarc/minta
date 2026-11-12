@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Address } from 'viem';
 import { getLaunchCount } from '../lib/pad';
 import { vyre } from '../lib/chain';
-import { price, shortAmount, tokenText, usd } from '../lib/format';
+import { price, shortAmount, tickerText, tokenText, usd } from '../lib/format';
 import { listLaunches, tokenBalance, usdcBalance, type Listed } from '../lib/market';
 import { href } from '../lib/router';
 import { useWallet } from '../lib/wallet';
-import { ConnectButton, Loading, TokenPic } from '../components/ui';
+import { ConnectButton, Loading, NotThat, TokenPic } from '../components/ui';
 import { useBlocklistState } from '../components/Hidden';
 import { pairVisible, visibleLaunches } from '../lib/hidden';
 
@@ -77,7 +77,7 @@ export default function Portfolio() {
             <li key={h.launch.token}>
               <a className="row-link" href={href({ page: 'token', token: h.launch.token })}>
                 <TokenPic uri={h.launch.metadataURI} symbol={h.launch.symbol} token={h.launch.token} size={36} />
-                <span className="grow"><b><bdi>{tokenText(h.launch.symbol)}</bdi></b> <span className="muted small">{shortAmount(h.balance, 2)}</span></span>
+                <span className="grow"><b>$<bdi>{tickerText(h.launch.symbol, h.launch.token)}</bdi></b> <NotThat l={h.launch} /> <span className="muted small">{shortAmount(h.balance, 2)}</span></span>
                 <span className="right"><b>{usd(h.value)}</b><br /><span className="muted small">{h.launch.market ? price(h.launch.market.price) : ''}</span></span>
               </a>
             </li>
@@ -94,7 +94,7 @@ export default function Portfolio() {
               <li key={l.token}>
                 <a className="row-link" href={href({ page: 'manage', token: l.token })}>
                   <TokenPic uri={l.metadataURI} symbol={l.symbol} token={l.token} size={36} />
-                  <span className="grow"><b><bdi>{tokenText(l.symbol)}</bdi></b> <bdi className="muted small">{tokenText(l.name)}</bdi></span>
+                  <span className="grow"><b>$<bdi>{tickerText(l.symbol, l.token)}</bdi></b> <bdi className="muted small">{tokenText(l.name)}</bdi> <NotThat l={l} /></span>
                   <span className="right small">Manage →</span>
                 </a>
               </li>

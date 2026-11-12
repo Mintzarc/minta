@@ -636,7 +636,8 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
   useEffect(() => { setRows(null); setReadErr(false); load(); }, [account, back]);
   // check again every minute while one is waiting
   const waiting = !!rows?.some((w) => w.state === 'waiting');
-  useEffect(() => { if (!waiting) return; const t = setInterval(load, 60_000); return () => clearInterval(t); }, [waiting, account]);
+  // (`back` too: the load this timer calls must be the one that looks as far back as the list now shows)
+  useEffect(() => { if (!waiting) return; const t = setInterval(load, 60_000); return () => clearInterval(t); }, [waiting, account, back]);
 
   return (
     <div className="card">
@@ -671,7 +672,8 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
               {w.state === undefined && <span className="muted small">Checking…</span>}
               {w.state === 'ready' && !isEmail && viaWc && <span className="small wc-claim-here">{WC_CLAIM_HERE}</span>}
               {w.state === 'ready' && !isEmail && !viaWc && (
-                <TxButton key={`claim:${w.position}:${account.toLowerCase()}`} keepAs={`claim:${w.position}:${account.toLowerCase()}`} className="btn btn-accent btn-sm" label="Claim on Arc" onDone={() => { load(); onDone(); }}
+                <TxButton key={`claim:${w.position}:${account.toLowerCase()}`} keepAs={`claim:${w.position}:${account.toLowerCase()}`} className="btn btn-accent btn-sm" label="Claim on Arc"
+                  onDone={() => { setRows((rs) => rs && rs.map((r) => (keyOf(r) === keyOf(w) ? { ...r, state: 'claimed' as const } : r))); load(); onDone(); }}
                   run={async (say) => {
                     if (!provider) throw new Error('Connect a wallet first.');
                     say(`Switching your wallet to ${ARC_CHAIN.name}…`);

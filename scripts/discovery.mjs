@@ -169,7 +169,7 @@ Source of these addresses: MINTA's own code (${REFERENCE_CODE}: PAD_V2) and the 
 
 - Name 1 to ${f.maxNameBytes} bytes, symbol 1 to ${f.maxSymbolBytes} bytes.
 - totalSupply from ${f.minSupplyWhole} to ${f.maxSupplyWhole} whole tokens, written with 18 decimals.
-- startingMarketCap must be exactly ${f.openingMarketCapUsdc} USDC (${f.openingMarketCapUsdc}e18): every launch opens at that market cap.
+- startingMarketCap must be exactly ${f.openingMarketCapUsdc} USDC (${f.openingMarketCapUsdc}e18): the pool opens within about 1% of that market cap (its opening price is rounded to the pool's price grid).
 - buyTaxBps and sellTaxBps: whole numbers from ${f.minTaxBps} to ${f.maxTaxBps} (${f.minTaxPct}% to ${f.maxTaxPct}%), set separately.
 - metadataURI: at most ${f.maxMetadataBytes} bytes (the link to the token's picture and details; may be empty).
 - No partner fee and no promoter share.

@@ -19,7 +19,7 @@ import {
 } from 'viem';
 import { getBlock, getChainId, readContract, signTypedData, simulateContract } from 'viem/actions';
 import {
-  SentButUnconfirmedError, decodeLaunchFeeConfig, isSmart, launchFeeBpsAt, quoterV2Abi, sendCall, vyrePoolAbi, vyreTokenAbi,
+  SentButUnconfirmedError, decodeLaunchFeeConfig, getAddresses, isSmart, launchFeeBpsAt, quoterV2Abi, sendCall, vyrePoolAbi, vyreTokenAbi,
   type BuyParams, type BuyResult, type Launch, type LaunchParams, type LaunchResult, type ReadClient, type SellParams, type SellResult,
   type TaxWallets, type WalletLike,
 } from '@vyrechain/sdk';
@@ -451,7 +451,11 @@ async function sellWithPermit(
  * pool deployer, the SwapRouter (anyone can take what is sent to it), QuoterV2, TickLens and WUSDC. (A launch's own pool and token,
  * every other launch's, and the chain's Multicall3 are added by the caller; the pad itself refuses the existing pools and tokens.)
  */
-export const padV2Contracts = (): Address[] => [PAD_V2.pad, PAD_V2.poolFactory, PAD_V2.poolDeployer, PAD_V2.swapRouter, PAD_V2.quoter, PAD_V2.tickLens, PAD_V2.wusdc];
+export const padV2Contracts = (): Address[] => [
+  PAD_V2.pad, PAD_V2.poolFactory, PAD_V2.poolDeployer, PAD_V2.swapRouter, PAD_V2.quoter, PAD_V2.tickLens, PAD_V2.wusdc,
+  // and every contract of the first deployment (the SDK keeps it under `legacy`): tax sent to one of those is as lost
+  ...Object.values((getAddresses(MAINNET_ID) as { legacy?: Record<string, unknown> }).legacy ?? {}).filter((a): a is Address => typeof a === 'string' && isAddress(a)),
+];
 
 /**
  * Whether each address is some launch's pool or token on the new pad (read from the pad): tax sent there could never move again.

@@ -5,7 +5,8 @@
 // lib/feed.ts); on a failure or with nothing to show it says what MINTA is rather than showing nothing.
 import { useEffect, useRef, useState } from 'react';
 import { feedItems, loadFeed, type FeedItem, type FeedState } from '../lib/feed';
-import { ago, tokenText, usd } from '../lib/format';
+import { ago, tickerText, usd } from '../lib/format';
+import { NotThat } from './ui';
 import { href } from '../lib/router';
 import { NETWORK } from '../lib/network';
 import type { Address } from 'viem';
@@ -32,13 +33,13 @@ function Item({ it }: { it: FeedItem }) {
   if (it.kind === 'launch') {
     return (
       <a className="tk-item tk-launch" href={link} tabIndex={tab}>
-        <span className="tk-tag">New</span> <b>$<bdi>{tokenText(it.symbol)}</bdi></b> <span className="muted">launched{it.time ? ` · ${ago(it.time)}` : ''}</span>
+        <span className="tk-tag">New</span> <b>$<bdi>{tickerText(it.symbol, it.token)}</bdi></b> <NotThat l={{ symbol: it.symbol, name: it.name, token: it.token }} /> <span className="muted">launched{it.time ? ` · ${ago(it.time)}` : ''}</span>
       </a>
     );
   }
   return (
     <a className={`tk-item tk-${it.side}`} href={link} tabIndex={tab}>
-      <span className="tk-dot" aria-hidden="true" /> <span>{it.side === 'buy' ? 'Bought' : 'Sold'}</span> <b>{usd(it.usdc)}</b> <span>of</span> <b>$<bdi>{tokenText(it.symbol)}</bdi></b>
+      <span className="tk-dot" aria-hidden="true" /> <span>{it.side === 'buy' ? 'Bought' : 'Sold'}</span> <b>{usd(it.usdc)}</b> <span>of</span> <b>$<bdi>{tickerText(it.symbol, it.token)}</bdi></b> <NotThat l={{ symbol: it.symbol, name: '', token: it.token }} />
       {it.time ? <span className="muted"> · {ago(it.time)}</span> : null}
     </a>
   );

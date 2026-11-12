@@ -81,9 +81,16 @@ function library() {
   return loaded;
 }
 
+// `defaultChain`: the library otherwise takes its default chain from the FIRST account a wallet lists, so a wallet that lists another
+// chain's account before VYRE's would answer eth_chainId with that chain and be refused as "not on VYRE"
 const namespaceOf = (methods: readonly string[]) => ({
-  chains: [CAIP], methods: [...methods], events: [...WC_EVENTS], rpcMap: { [CHAIN_ID]: VYRE_CHAIN.rpcUrls.default.http[0] },
+  chains: [CAIP], methods: [...methods], events: [...WC_EVENTS], rpcMap: { [CHAIN_ID]: VYRE_CHAIN.rpcUrls.default.http[0] }, defaultChain: String(CHAIN_ID),
 });
+
+/** Points the library at VYRE whatever order the session lists its accounts in (a session made before `defaultChain` was sent has none stored). In the chain's full form: the library ignores a bare number. */
+function pinToVyre(p: WcProvider): void {
+  try { (p as { setDefaultChain?: (chain: string, rpcUrl?: string) => void }).setDefaultChain?.(CAIP, VYRE_CHAIN.rpcUrls.default.http[0]); } catch { /* an older library: the guard's own check still refuses another chain */ }
+}
 
 /** The accounts the saved/new session lists on VYRE's chain: null when it lists none (so it's refused) */
 function vyreAccount(p: WcProvider): string | null {
@@ -164,6 +171,7 @@ function begin(p: Lib): Inflight {
     }
     // whatever the wallet agreed to, it must list an account on VYRE: if not, end it
     if (!vyreAccount(p)) { await endAttempt(p, f.pairing); fail(new WcError('chain')); return; }
+    pinToVyre(p);
     liveSession = p.session ?? null;
     for (const w of f.waiters) { if (w === waiting) w.resolve(p); else w.reject(new WcError('other')); }
   })();
@@ -190,6 +198,7 @@ const realDriver: WcDriver = {
     let p: Awaited<ReturnType<typeof library>>;
     try { p = await withTimeout(library(), WC_RELAY_TIMEOUT_MS, 'relay'); } catch { return null; }
     if (!vyreAccount(p)) { await p.disconnect?.().catch(() => {}); return null; }
+    pinToVyre(p);
     liveSession = p.session ?? null;
     return p;
   },

@@ -47,20 +47,31 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
   /** `launchesOpen`: true, false, or 'unreadable' (the read fails). Returns the page, the hosts asked and the errors */
   const open = async (hash, launchesOpen, viewport = { width: 1440, height: 900 }, init = null) => {
     const ctx = await b.newContext({ viewport });
-    if (init) await ctx.addInitScript(init.script, init.arg);
+    if (init?.script) await ctx.addInitScript(init.script, init.arg);
+    // the team's list of hidden tokens and creators, when the test gives one (else the built file: empty)
+    if (init?.blocklist) await ctx.route('**/blocklist.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(init.blocklist) }));
     await ctx.addInitScript(() => { try { window.localStorage.setItem('minta.splash', String(Date.now())); } catch { /* none */ } });
     const hosts = new Set();
     // launchesReads: how many times the page has asked the stand-in whether launches are open; wrapped: the wrapped USDC every account
     // holds; mined: the transaction hashes the stand-in chain has a receipt for
-    const probe = { launchesReads: 0, wrapped: 0n, mined: new Set(), symbol: 'FEE', code: {} }; // symbol: the stand-in token's ticker; code: address (lower case) -> its code
+    const probe = { launchesReads: 0, wrapped: 0n, wrappedOf: {}, mined: new Set(), symbol: 'FEE', code: {}, balances: {}, held: new Set(), waiting: [], launchCount: 0n, launchLogs: [], head: '0x31', heldWrapped: new Set(), waitingWrapped: [], failWithdrawals: false }; // balances / wrappedOf: per account (lower case); held: accounts whose balance answer waits in `waiting`; launchLogs: what eth_getLogs answers for the pad // symbol: the stand-in token's ticker; code: address (lower case) -> its code
     const wusdc = viem.parseAbi(['function balanceOf(address) view returns (uint256)', 'function withdraw(uint256 wad)']);
     const answerCall = (to, data) => {
-      if (to.toLowerCase() === multicall && data.startsWith('0x4d2301cc')) return viem.encodeAbiParameters([{ type: 'uint256' }], [init ? 100n * 10n ** 18n : 0n]); // getEthBalance
+      if (to.toLowerCase() === multicall && data.startsWith('0x4d2301cc')) { // getEthBalance(address)
+        const who = ('0x' + data.slice(-40)).toLowerCase();
+        const value = viem.encodeAbiParameters([{ type: 'uint256' }], [who in probe.balances ? probe.balances[who] : init ? 100n * 10n ** 18n : 0n]);
+        // an answer the test holds back (a slow read for that account) until it lets it go
+        return probe.held.has(who) ? new Promise((r) => probe.waiting.push(() => r(value))) : value;
+      }
       if (to.toLowerCase() === multicall) {
         const calls = viem.decodeFunctionData({ abi: m3, data }).args[0];
         const results = calls.map((c) => {
           try { return { success: true, returnData: answerCall(c.target, c.callData) }; } catch { return { success: false, returnData: '0x' }; }
         });
+        // (an answer the test holds back holds the whole batch back, as a slow node would)
+        if (results.some((r) => typeof r.returnData?.then === 'function')) {
+          return Promise.all(results.map(async (r) => ({ success: r.success, returnData: await r.returnData }))).then((done) => viem.encodeFunctionResult({ abi: m3, functionName: 'aggregate3', result: done }));
+        }
         return viem.encodeFunctionResult({ abi: m3, functionName: 'aggregate3', result: results });
       }
       if (to.toLowerCase() === pad) {
@@ -70,16 +81,22 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
           if (launchesOpen === 'unreadable') throw new Error('unreadable');
           return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchesOpen', result: launchesOpen });
         }
-        if (call.functionName === 'launchCount') return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchCount', result: 0n });
+        if (call.functionName === 'launchCount') return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchCount', result: probe.launchCount });
         // the page's own simulation of a launch passes (whatever stops it after that is the wallet's doing)
         if (call.functionName === 'createLaunch') return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'createLaunch', result: [TOKEN, POOL, 0n] });
       }
       if (to.toLowerCase() === v2.PAD_V2.wusdc.toLowerCase()) {
         const call = viem.decodeFunctionData({ abi: wusdc, data });
-        if (call.functionName === 'balanceOf') return viem.encodeFunctionResult({ abi: wusdc, functionName: 'balanceOf', result: probe.wrapped });
+        if (call.functionName === 'balanceOf') {
+          const who = String(call.args[0]).toLowerCase();
+          const value = viem.encodeFunctionResult({ abi: wusdc, functionName: 'balanceOf', result: probe.wrappedOf[who] ?? probe.wrapped });
+          return probe.heldWrapped.has(who) ? new Promise((r) => probe.waitingWrapped.push(() => r(value))) : value;
+        }
         // unwrapping passes only for no more than is held
-        if (call.functionName === 'withdraw') { if (call.args[0] > probe.wrapped) throw new Error('more than held'); return '0x'; }
+        if (call.functionName === 'withdraw') { if (call.args[0] > probe.wrapped && !Object.values(probe.wrappedOf).some((v) => call.args[0] <= v)) throw new Error('more than held'); return '0x'; }
       }
+      // the chain's own withdrawal contract: the page's simulation of a move to Arc passes
+      if (/^0x0{38}64$/.test(to.toLowerCase())) return viem.encodeAbiParameters([{ type: 'uint256' }], [1n]);
       // a launch on the new pad, to show a token page and a Manage page
       const t = TOKEN.toLowerCase();
       if (to.toLowerCase() === pad) {
@@ -113,16 +130,19 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       const id = req.id;
       try {
         if (req.method === 'eth_chainId') return { jsonrpc: '2.0', id, result: '0xbe5' };
-        if (req.method === 'eth_blockNumber') return { jsonrpc: '2.0', id, result: '0x31' };
-        if (req.method === 'eth_getLogs') return { jsonrpc: '2.0', id, result: [] };
+        if (req.method === 'eth_blockNumber') return { jsonrpc: '2.0', id, result: probe.head };
+        // (the chain's withdrawal contract's events: the Wallet page's list of withdrawals; the test can make that read fail)
+        if (req.method === 'eth_getLogs' && probe.failWithdrawals && /^0x0{38}64$/.test(String(req.params[0].address || '').toLowerCase())) return { jsonrpc: '2.0', id, error: { code: -32000, message: 'server busy' } };
+        if (req.method === 'eth_getLogs') return { jsonrpc: '2.0', id, result: String(req.params[0].address || '').toLowerCase() === pad ? probe.launchLogs : [] };
         if (req.method === 'eth_getBlockByNumber') return { jsonrpc: '2.0', id, result: { number: '0x31', hash: '0x' + '0b'.repeat(32), timestamp: '0x6000', transactions: [], gasLimit: '0x1c9c380', baseFeePerGas: '0x1' } };
         if (req.method === 'eth_getBalance') return { jsonrpc: '2.0', id, result: init ? '0x56bc75e2d63100000' : '0x0' };
         if (req.method === 'eth_estimateGas') return { jsonrpc: '2.0', id, result: '0x7a120' };
         if (req.method === 'eth_getTransactionCount') return { jsonrpc: '2.0', id, result: '0x1' };
         if (req.method === 'eth_gasPrice' || req.method === 'eth_maxPriorityFeePerGas') return { jsonrpc: '2.0', id, result: '0x1' };
         if (req.method === 'eth_getCode') return { jsonrpc: '2.0', id, result: probe.code[String(req.params[0]).toLowerCase()] || '0x' };
+        if (req.method === 'eth_getTransactionReceipt' && probe.mined.has(req.params[0]) && probe.whenMined) { probe.whenMined(); probe.whenMined = null; } // (what the transaction did, done by the time its receipt is read)
         if (req.method === 'eth_getTransactionReceipt') return { jsonrpc: '2.0', id, result: probe.mined.has(req.params[0]) ? { transactionHash: req.params[0], transactionIndex: '0x0', blockHash: '0x' + '0b'.repeat(32), blockNumber: '0x31', from: '0x' + '3c'.repeat(20), to: v2.PAD_V2.wusdc, cumulativeGasUsed: '0x5208', gasUsed: '0x5208', effectiveGasPrice: '0x1', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x1', type: '0x2' } : null };
-        if (req.method === 'eth_call') return { jsonrpc: '2.0', id, result: answerCall(req.params[0].to, req.params[0].data || req.params[0].input) };
+        if (req.method === 'eth_call') { const result = answerCall(req.params[0].to, req.params[0].data || req.params[0].input); return typeof result?.then === 'function' ? result.then((v) => ({ jsonrpc: '2.0', id, result: v })) : { jsonrpc: '2.0', id, result }; }
       } catch { /* falls through to the error */ }
       return { jsonrpc: '2.0', id, error: { code: -32601, message: 'not answered' } };
     };
@@ -132,7 +152,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       hosts.add(u.host);
       if (u.host === 'rpc.vyrechain.com' && route.request().method() === 'POST') {
         const body = JSON.parse(route.request().postData() || 'null');
-        const out = Array.isArray(body) ? body.map(answer) : answer(body);
+        const out = Array.isArray(body) ? await Promise.all(body.map(answer)) : await answer(body);
         return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, body: JSON.stringify(out) });
       }
       if (u.host === 'rpc.vyrechain.com') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } });
@@ -155,19 +175,25 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     window.__sends = 0;
     window.__asked = [];
     window.__answer = { code: -32603, message: 'Request timed out' };
+    window.__account = who;
+    const listeners = {};
     const provider = {
       request: async ({ method, params }) => {
-        if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [who];
+        if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [window.__account];
         if (method === 'eth_chainId') return '0xbe5';
         if (method === 'eth_sendTransaction' || method === 'wallet_sendTransaction') {
           window.__sends++; window.__asked.push(params && params[0]);
           if (window.__answer.hash) return window.__answer.hash;
+          // held: the wallet has the request open until the test answers it (window.__release(hash))
+          if (window.__answer.hold) return new Promise((r) => { window.__release = r; });
           throw Object.assign(new Error(window.__answer.message), { code: window.__answer.code });
         }
         return null;
       },
-      on() {}, removeListener() {},
+      on(e, f) { (listeners[e] ||= new Set()).add(f); }, removeListener(e, f) { listeners[e]?.delete(f); },
     };
+    // the person picks another account in the wallet
+    window.__switch = (to) => { window.__account = to; (listeners.accountsChanged || []).forEach((f) => f([to])); };
     window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'w', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test.wallet' }, provider } })));
   };
 
@@ -218,7 +244,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     // an amount typed with a comma says how it was read; "0,125" is refused
     const move = pg.locator('.card', { hasText: 'Move to Arc' });
     await move.locator('input').fill('1,000.5');
-    ok((await move.locator('.read-as').innerText()).trim() === 'read as 1,000.5', 'an amount typed with a comma says how it was read');
+    ok((await move.locator('.read-as').innerText()).trim() === 'read as 1000.5', 'an amount typed with a comma says how it was read, without commas');
     await move.locator('input').fill('0,125');
     ok(await move.locator('.read-as').count() === 0 && /Use a point for decimals, like 0\.125/.test(await move.innerText()) && await move.locator('button', { hasText: /Start the move|Move / }).isDisabled(), '“0,125” is refused, with the point it should be typed with');
     await move.locator('input').fill('');
@@ -248,9 +274,9 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     const HASH = '0x' + 'aa'.repeat(32);
     await pg.evaluate((h) => { window.__answer = { hash: h }; }, HASH);
     probe.mined.add(HASH);
+    probe.whenMined = () => { probe.wrapped = 0n; };
     await btn.click();
     ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 2), 'a press asks the wallet');
-    probe.wrapped = 0n;
     ok(await soon(async () => (await card.count()) === 0), 'once unwrapped, the card is gone (the wallet holds none)');
     const second = await pg.evaluate(() => window.__asked[1]);
     ok(second.data === viem.encodeFunctionData({ abi: viem.parseAbi(['function withdraw(uint256 wad)']), functionName: 'withdraw', args: [10n ** 18n] }), 'for exactly the amount on the button');
@@ -342,6 +368,125 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await ctx.close();
   }
 
+  // ---- the account changes in the wallet while a balance read and a transaction are on their way: nothing of the first account shows under the second
+  {
+    const A = '0x' + '3c'.repeat(20), B = '0x' + '4d'.repeat(20);
+    const { pg, ctx, errs, probe } = await open('#/wallet', true, { width: 1440, height: 900 }, { arg: A, script: standInWallet });
+    const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 20000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+    probe.balances[A] = 100n * 10n ** 18n; probe.balances[B] = 7n * 10n ** 18n;
+    probe.wrappedOf[A] = 10n ** 18n; probe.wrappedOf[B] = 2n * 10n ** 18n;
+    await pg.goto('about:blank'); await pg.goto(base + '#/wallet'); // (read again, now that the stand-in chain has these)
+    const onVyre = async () => ((await pg.locator('.card.row-between .big').first().innerText().catch(() => '')).trim());
+    ok(await soon(async () => (await onVyre()) === '100 USDC'), 'A is connected and its balance shown');
+    const card = pg.locator('.wrapped-usdc');
+    ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'with A’s wrapped USDC');
+    // A presses Unwrap and the wallet keeps the request open; A's next balance read is slow
+    await pg.evaluate(() => { window.__answer = { hold: true }; });
+    await card.locator('button').click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1), 'A’s unwrap is in the wallet');
+    probe.held.add(A);
+    await pg.goto('about:blank'); await pg.goto(base + '#/wallet');
+    ok(await soon(async () => probe.waiting.length > 0), 'A’s balance read is on its way');
+    ok((await onVyre()) === '… USDC', 'and nothing is shown for it yet');
+    // the wallet changes to B
+    await pg.evaluate((b) => window.__switch(b), B);
+    ok(await soon(async () => (await onVyre()) === '7 USDC'), 'after the change, B’s balance is shown');
+    ok(await soon(async () => /Unwrap 2 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'and B’s wrapped USDC');
+    // A's slow answer arrives now: it is dropped
+    probe.held.clear(); for (const go of probe.waiting.splice(0)) go();
+    await pg.waitForTimeout(800);
+    ok((await onVyre()) === '7 USDC', 'A’s late balance is not shown under B');
+    // the wallet changes to A, whose wrapped USDC is slow to read this time: B's amount is gone at once, not left standing under A
+    probe.heldWrapped.add(A);
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => probe.waitingWrapped.length > 0) && await soon(async () => (await card.count()) === 0), 'after a change, the last account’s wrapped USDC is not shown while the new one’s is being read');
+    probe.heldWrapped.clear(); for (const go of probe.waitingWrapped.splice(0)) go();
+    ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'then the new account’s own');
+    await pg.evaluate((b) => window.__switch(b), B);
+    ok(await soon(async () => /Unwrap 2 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'and back');
+    // a run pressed as B that ends after the change back to A: its result is not shown or held under A
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; });
+    await card.locator('button').click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1), 'B’s unwrap is in the wallet');
+    ok(await soon(async () => /Working/.test(await card.locator('button').innerText().catch(() => ''))) && /Confirm in your wallet/.test(await card.innerText()), 'and B’s own button shows it (a run is shown under the account it was pressed for)');
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'the wallet changes back to A: A’s card');
+    const HASH = '0x' + 'bb'.repeat(32);
+    probe.mined.add(HASH);
+    await pg.evaluate((h) => window.__release(h), HASH);
+    await pg.waitForTimeout(1500);
+    const text = await card.innerText();
+    ok(!/Unwrapped 2 WUSDC|Working|Confirm in your wallet/.test(text) && /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText()) && await card.locator('button').isEnabled(), `B’s result is not shown under A, and A’s button is A’s own (${text.replace(/\s+/g, ' ').slice(-120)})`);
+    ok(await pg.evaluate((a) => sessionStorage.getItem(`minta.held.mainnet.unwrap:${a}`), A) === null, 'and nothing is held under A’s name');
+    // the same for a button that stays on the page through the change (Move to Arc): A starts a move, the wallet changes to B, then A's answer comes
+    const moveCard = pg.locator('.card', { hasText: 'Move to Arc' });
+    await moveCard.locator('input').fill('1');
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; });
+    await moveCard.locator('.tx > button').click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1) && await soon(async () => /Working/.test(await moveCard.locator('.tx > button').innerText())), 'A’s move to Arc is in the wallet, and A’s button shows it');
+    probe.failWithdrawals = true;
+    await pg.evaluate((b) => window.__switch(b), B);
+    ok(await soon(async () => /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText())), 'the wallet changes to B: the button is B’s, not busy');
+    ok(await soon(async () => (await moveCard.locator('.withdrawals-unread').count()) === 1), 'B’s own list of withdrawals is read for B (here it fails, and says so)');
+    probe.failWithdrawals = false;
+    const HASH2 = '0x' + 'cc'.repeat(32);
+    probe.mined.add(HASH2);
+    await pg.evaluate((h) => window.__release(h), HASH2);
+    await pg.waitForTimeout(2500);
+    ok(await moveCard.locator('.status').count() === 0 && /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText()), 'A’s result (whatever it was) is not shown under B: ' + (await moveCard.locator('.status').innerText().catch(() => 'no status')).slice(0, 120));
+    await pg.evaluate((a) => window.__switch(a), A);
+    await soon(async () => /Unwrap/.test(await card.locator('button').innerText().catch(() => '')));
+    // a phone: the unwrap button's words fit, and the page does not scroll sideways
+    probe.wrappedOf[A] = 12345678901234567890n; // 12.34567890123456789
+    for (const width of [360, 320]) {
+      await pg.setViewportSize({ width, height: 740 });
+      await pg.goto('about:blank'); await pg.goto(base + '#/wallet');
+      ok(await soon(async () => /Unwrap 12\.34567890123456789 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), `at ${width} px the card shows the full amount`);
+      const fit = await pg.evaluate(() => {
+        const b = document.querySelector('.wrapped-usdc button'); const r = b.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(b); const t = range.getBoundingClientRect();
+        return { inside: t.left >= r.left - 0.5 && t.right <= r.right + 0.5 && r.right <= window.innerWidth + 0.5, sideways: document.documentElement.scrollWidth - window.innerWidth, at: `button ${Math.round(r.left)}..${Math.round(r.right)}, words ${Math.round(t.left)}..${Math.round(t.right)}` };
+      });
+      ok(fit.inside && fit.sideways <= 1, `at ${width} px the unwrap button’s words stay inside it and the page does not scroll sideways (${fit.at}, ${fit.sideways} px over)`);
+    }
+    ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+
+  // ---- a blocked creator's token stays hidden after it was handed to another wallet (who launched it is read from the launch events)
+  {
+    const BAD = '0x' + 'ba'.repeat(20);
+    const ev = v2.padV2Abi.find((x) => x.type === 'event' && x.name === 'LaunchCreated');
+    const plain = ev.inputs.filter((i) => !i.indexed);
+    const value = (t) => (t === 'string' ? 'x' : t === 'address' ? viem.zeroAddress : /^u?int(8|16|24|32)$/.test(t) ? 1 : 1n);
+    // the launch event names BAD as the creator; the launchpad now names CREATOR (the launch was handed over)
+    const launchLog = {
+      address: v2.PAD_V2.pad, topics: viem.encodeEventTopics({ abi: v2.padV2Abi, eventName: 'LaunchCreated', args: { token: TOKEN, creator: BAD, pool: POOL } }),
+      data: viem.encodeAbiParameters(plain, plain.map((i) => value(i.type))), blockNumber: '0x80', blockHash: '0x' + '0b'.repeat(32), transactionHash: '0x' + 'c1'.repeat(32), transactionIndex: '0x0', logIndex: '0x0', removed: false,
+    };
+    const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 20000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+    for (const [logs, hidden] of [[[launchLog], true], [[], false]]) {
+      const { pg, ctx, errs, probe } = await open('#/docs', true, { width: 1440, height: 900 }, { blocklist: { version: 1, tokens: [], creators: [BAD] } });
+      probe.launchCount = 1n; probe.launchLogs = logs; probe.head = '0x100'; // (past the launchpad's first block, so its events are read)
+      await pg.goto('about:blank'); await pg.goto(base + `#/token/${TOKEN}`);
+      if (hidden) {
+        ok(await soon(async () => /MINTA hides this token because it was reported/.test(await body(pg))), 'a token launched by a blocked creator and handed to another wallet: its page shows the hidden notice');
+        ok(!/FEE|Fee Check/.test(await body(pg)), 'and neither its ticker nor its name');
+        await pg.goto('about:blank'); await pg.goto(base + '#/');
+        await pg.waitForSelector('.top');
+        await pg.waitForTimeout(3000);
+        ok(await pg.locator(`a[href*="${TOKEN}"]`).count() === 0 && !/\$FEE/.test(await body(pg)), 'and it is not in the list of tokens');
+      } else {
+        // the same launch, same list, when no launch event names the blocked creator: shown (so the check above is the event's doing)
+        ok(await soon(async () => (await pg.locator('.token-title').count()) === 1) && /\$FEE/.test(await pg.locator('.token-title').innerText()), 'the same token when the blocked creator did not launch it: shown');
+        await pg.goto('about:blank'); await pg.goto(base + '#/');
+        ok(await soon(async () => (await pg.locator(`a[href*="${TOKEN}"]`).count()) > 0), 'and listed');
+      }
+      ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
+      await ctx.close();
+    }
+  }
+
   // ---- the docs
   {
     const { pg, ctx, errs } = await open('#/docs', true);
@@ -420,13 +565,20 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       await pg.click('.wz-step button[type=submit]:has-text("Review")', { timeout: 5000 });
       await pg.waitForSelector('[role=dialog][aria-labelledby=review-title]', { timeout: 5000 });
     };
-    await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
-    await pg.fill('.wz-step input[placeholder="MYT"]', 'MYT');
-    await pg.click('.wz-next');
-    await pg.fill('.wz-step input[placeholder="0"]', '1'); // a dev buy, so the button's words carry it
-    for (let i = 0; i < 3; i++) await pg.click('.wz-next');
-    await pg.check('.accept-terms input');
-    await toReview();
+    let ownFileOffered = 0;
+    const fill = async (devBuy = '1') => {
+      await pg.waitForSelector('.wz', { timeout: 30000 });
+      await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
+      await pg.fill('.wz-step input[placeholder="MYT"]', 'MYT');
+      await pg.click('.wz-next');
+      await pg.fill('.wz-step input[placeholder="0"]', devBuy); // a dev buy, so the button's words carry it
+      for (let i = 0; i < 3; i++) { ownFileOffered += await pg.locator('text=/Your own file/i').count(); await pg.click('.wz-next'); }
+      ownFileOffered += await pg.locator('text=/Your own file/i').count();
+      await pg.check('.accept-terms input');
+      await toReview();
+    };
+    await fill();
+    ok(ownFileOffered === 0, 'the mainnet wizard offers no “Your own file” at any step (a file on another site is not loaded here)');
     const dlg = pg.locator('[role=dialog][aria-labelledby=review-title]');
     const main = dlg.locator('button.create-launch');
     const notThere = dlg.locator('button.not-in-wallet');
@@ -463,13 +615,51 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(await dlg.count() === 1 && await notThere.isDisabled() && /didn’t confirm this/.test(await dlg.innerText()), 'the dialog, the words and that button stay in place for a moment (the second press lands on nothing else)');
     ok(/^Try again with a 1 USDC dev buy$/.test((await main.innerText()).trim()), `the launch button's words change at once, dev buy and all (${await main.innerText()})`);
     ok(await main.isDisabled(), 'and the launch button is off for a moment after that press');
+    const spot = await notThere.boundingBox();
     ok(await soon(async () => main.isEnabled()), 'then it is on again');
-    ok(await notThere.count() === 0, 'and the “It isn’t in my wallet” button is gone');
+    ok(await notThere.count() === 1 && await notThere.isDisabled(), 'the “It isn’t in my wallet” button stays where it was, off, while the dialog is open');
+    ok(await soon(async () => /You can create the token again now\./.test(await dlg.locator('[role=status]').textContent())), 'the dialog says the token can be created again');
+    ok(await soon(async () => pg.evaluate(() => document.activeElement?.classList.contains('create-launch'))), 'and the launch button has the focus');
+    // one more press where “It isn’t in my wallet” was, after the pause: it lands on that same button (off), not on the launch button
+    await pg.mouse.click(spot.x + spot.width / 2, spot.y + spot.height / 2);
+    await pg.waitForTimeout(400);
+    const under = await pg.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className || '', [spot.x + spot.width / 2, spot.y + spot.height / 2]);
+    ok(await sends() === 1 && /not-in-wallet/.test(under), `a press at the same place after the pause asks the wallet for nothing (under the pointer: ${under})`);
     await pg.evaluate(() => { window.__answer = { code: 4001, message: 'User rejected the request.' }; });
     await main.click();
     ok(await soon(async () => (await sends()) === 2), 'a deliberate press on the launch button after that asks the wallet again');
     ok(await soon(async () => /Cancelled in your wallet/.test(await dlg.innerText().catch(() => ''))), 'a refusal reads as a cancel');
-    ok(await notThere.count() === 0 && await main.isEnabled() && /^Try again/.test((await main.innerText()).trim()), 'and after a plain cancel the button is an ordinary “Try again” (nothing may have gone out)');
+    ok(await main.isEnabled() && /^Try again/.test((await main.innerText()).trim()), 'and after a plain cancel the button is an ordinary “Try again” (nothing may have gone out)');
+    // unsettled again, then a reload: the tab still knows, and the review still says to check the wallet first
+    await pg.evaluate(() => { window.__answer = { code: -32603, message: 'Request timed out' }; });
+    await main.click();
+    ok(await soon(async () => (await sends()) === 3) && await soon(async () => /^Check your wallet first/.test((await main.innerText()).trim())), 'a later send the wallet does not confirm is unsettled again');
+    ok(await notThere.isEnabled(), 'and its “It isn’t in my wallet” button is on again');
+    await pg.reload();
+    await fill('25.5');
+    ok(await sends() === 0 && await main.isDisabled() && (await main.innerText()).trim() === 'Check your wallet first with a 25.5 USDC dev buy' && /didn’t confirm this/.test(await dlg.innerText()), `after a reload the review still says to check the wallet first (${await main.innerText()})`);
+    // on phones the words of every button in the review stay inside it and inside the dialog, dev buy and all
+    for (const width of [360, 320]) {
+      await pg.setViewportSize({ width, height: 740 });
+      await pg.waitForTimeout(200);
+      const fit = await pg.evaluate(() => {
+        const d = document.querySelector('[role=dialog][aria-labelledby=review-title]').getBoundingClientRect();
+        const out = [];
+        for (const b of document.querySelectorAll('[role=dialog] .dialog-actions .btn')) {
+          const r = b.getBoundingClientRect();
+          const range = document.createRange(); range.selectNodeContents(b); const t = range.getBoundingClientRect();
+          if (r.left < d.left - 0.5 || r.right > d.right + 0.5 || t.left < r.left - 0.5 || t.right > r.right + 0.5 || b.scrollWidth > b.clientWidth + 1) out.push(`${b.textContent}: button ${Math.round(r.left)}..${Math.round(r.right)}, words ${Math.round(t.left)}..${Math.round(t.right)}, dialog ${Math.round(d.left)}..${Math.round(d.right)}`);
+        }
+        return { out, sideways: document.documentElement.scrollWidth > window.innerWidth + 1 };
+      });
+      ok(fit.out.length === 0 && !fit.sideways, `at ${width} px no button’s words are cut off in the review` + (fit.out.length ? ': ' + fit.out.join(' | ') : ''));
+    }
+    await pg.setViewportSize({ width: 1440, height: 900 });
+    // the other answer: it did go out. The review closes, nothing is sent, and the state is cleared
+    await dlg.locator('button.went-out').click();
+    ok(await soon(async () => (await dlg.count()) === 0) && await sends() === 0, '“it went out” closes the review and sends nothing');
+    await toReview();
+    ok(await soon(async () => main.isEnabled()) && /^Create token with a 25\.5 USDC dev buy$/.test((await main.innerText()).trim()), 'and the review is an ordinary one again');
     ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }

@@ -12,10 +12,11 @@ export function amount(v: bigint, places = 4): string {
   return `${w.startsWith('-') ? '-' : ''}${whole}${frac ? `.${frac}` : ''}`;
 }
 
-// `n` cut (never rounded up) to `d` decimals; the toPrecision pass keeps 1.15 from being read as 1.1499999
+// `n` cut (not rounded) to `d` decimals. The toPrecision pass keeps 1.15 from being read as 1.1499999; its price is that a figure
+// within about a million-millionth of the next step is shown as that step (1.9999999999999 as 2.00)
 const cut = (n: number, d: number) => Math.trunc(Number((n * 10 ** d).toPrecision(12))) / 10 ** d;
 
-/** USDC with a $ sign; tiny amounts keep their significant digits. Always cut, never rounded up: a total is never shown as more
+/** USDC with a $ sign; tiny amounts keep their significant digits. Cut, not rounded up: a total is not shown as more
  * than it is ($1,995.01 is "$1.99K", not "$2K"), and nothing is printed as an exponent (below a millionth: "<$0.000001") */
 export function usd(n: number): string {
   if (!isFinite(n)) return '—';
@@ -24,9 +25,11 @@ export function usd(n: number): string {
   if (a >= 1000) {
     const units: [number, string][] = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
     const [size, letter] = units.find(([u]) => a >= u)!;
-    return `${sign}$${cut(a / size, 2).toLocaleString('en-US', { maximumFractionDigits: 2 })}${letter}`;
+    // (a figure a hair under the next unit stays in this one: 999.99B, never "1,000B")
+    const v = letter === 'T' ? cut(a / size, 2) : Math.min(cut(a / size, 2), 999.99);
+    return `${sign}$${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}${letter}`;
   }
-  if (a >= 1) return `${sign}$${cut(a, 2).toFixed(2)}`;
+  if (a >= 1) return `${sign}$${Math.min(cut(a, 2), 999.99).toFixed(2)}`;
   if (a >= 0.01) return `${sign}$${cut(a, 4).toFixed(4)}`;
   if (a < 1e-6) return `${sign}<$0.000001`;
   // three significant digits, written out
@@ -93,10 +96,11 @@ export function amountProblem(input: string): string {
   return 'Type a plain number, like 12.5.';
 }
 
-/** Under an amount box: how a typed amount with a comma in it was read ("read as 1,000.5"), or '' when no comma was typed or it can't be read */
+/** Under an amount box: how a typed amount with a comma in it was read ("read as 1000.5"), or '' when no comma was typed or it can't be read.
+ * Written without commas, so "1,125" (typed for one and an eighth by someone who writes decimals with a comma) visibly reads as 1125. */
 export function readAs(input: string): string {
   const v = input.includes(',') ? parse(input) : null;
-  return v === null ? '' : `read as ${amount(v, 18)}`;
+  return v === null ? '' : `read as ${formatUnits(v, 18)}`;
 }
 
 /** A typed amount as it was read, every decimal kept, for buttons like "Buy with 1,000.5 USDC" */
@@ -158,6 +162,9 @@ const LOOKS_LIKE: Record<string, string> = {
   // Armenian, Cherokee and other common stand-ins
   'Ս': 'U', 'Ꮪ': 'S', 'Ꭰ': 'D', 'Ꮯ': 'C', 'Ꮇ': 'M', 'Ꭲ': 'T', 'Ꭺ': 'A', 'Ꮩ': 'V', 'Ꭱ': 'R', 'Ꭼ': 'E', 'Ꮃ': 'W', 'ꓴ': 'U', 'ꓢ': 'S', 'ꓓ': 'D', 'ꓚ': 'C', 'ꓟ': 'M', 'ꓲ': 'I', 'ꓠ': 'N', 'ꓔ': 'T', 'ꓮ': 'A', 'ꓦ': 'V', 'ꓬ': 'Y', 'ꓣ': 'R', 'ꓰ': 'E', 'ꓪ': 'W',
   'ı': 'I', 'ł': 'L', 'Ð': 'D', 'Đ': 'D', 'đ': 'D', '$': 'S', '§': 'S', '€': 'E', '¥': 'Y', '@': 'A',
+  // a lower-case L and an upright bar draw like a capital I; Latin small capitals draw like the capitals
+  'l': 'I', '|': 'I', 'ǀ': 'I', '∣': 'I',
+  'ᴀ': 'A', 'ᴄ': 'C', 'ᴅ': 'D', 'ᴇ': 'E', 'ɪ': 'I', 'ᴍ': 'M', 'ɴ': 'N', 'ʀ': 'R', 'ꜱ': 'S', 'ᴛ': 'T', 'ᴜ': 'U', 'ᴠ': 'V', 'ᴡ': 'W', 'ʏ': 'Y',
   // digits
   '0': 'O', '1': 'I', '3': 'E', '4': 'A', '5': 'S', '7': 'T',
 };
@@ -170,15 +177,22 @@ export function plainLook(s: string): string {
   return Array.from(base).map((c) => LOOKS_LIKE[c] ?? c).join('').toUpperCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
+/** The words of a name or ticker (split at anything that is not a letter, digit or accent), each reduced as plainLook reduces it */
+export function plainWords(s: string): string[] {
+  return s.normalize('NFKC').replace(HIDDEN, '').split(/[^\p{L}\p{N}\p{M}$|§€¥@]+/u).map(plainLook).filter(Boolean);
+}
+
 /**
  * A plain note for a token whose ticker or name reads as one of the names people trust here: "Not USDC" (USDC, WUSDC),
  * "Not MINTA’s token" (MINTA, unless the token is `realMinta`), "Not VYRE’s token" (VYRE). '' for every other token.
  */
-export function lookalikeNote(l: { symbol: string; name: string; token?: string | null }, realMinta?: string | null): string {
-  const looks = [plainLook(l.symbol), plainLook(l.name)];
-  if (looks.some((x) => x === 'USDC' || x === 'WUSDC' || x === 'USDCOIN' || x === 'WRAPPEDUSDC')) return 'Not USDC';
-  if (looks.includes('MINTA')) return realMinta && l.token && l.token.toLowerCase() === realMinta.toLowerCase() ? '' : 'Not MINTA’s token';
-  if (looks.includes('VYRE')) return 'Not VYRE’s token';
+export function lookalikeNote(l: { symbol: string; name: string; token?: string | null }, realMinta?: string | null, realVyre?: string | null): string {
+  // the whole ticker or name ("U S D C"), and each word of it ("USDC Token", "Real USDC", "USDC.e"); not a longer word ("USDCAT")
+  const looks = new Set([l.symbol, l.name].flatMap((s) => [plainLook(s), ...plainWords(s)]));
+  const is = (real?: string | null) => !!real && !!l.token && l.token.toLowerCase() === real.toLowerCase();
+  if (['USDC', 'WUSDC', 'USDCOIN', 'WRAPPEDUSDC'].some((x) => looks.has(x))) return 'Not USDC';
+  if (looks.has('MINTA')) return is(realMinta) ? '' : 'Not MINTA’s token';
+  if (looks.has('VYRE')) return is(realVyre) ? '' : 'Not VYRE’s token';
   return '';
 }
 

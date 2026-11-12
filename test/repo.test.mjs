@@ -152,7 +152,7 @@ test('every workflow has read-only permissions at the top, runs on a named image
     assert.equal((t.match(/^\s*permissions:/gm) || []).length, 1, `${f}: no job widens them`);
     assert.doesNotMatch(t, /pull_request_target|workflow_run/, f);
     const images = [...t.matchAll(/^\s*runs-on:\s*(\S+)/gm)].map((m) => m[1]);
-    assert.ok(images.length > 0 && images.every((i) => /^ubuntu-\d\d\.\d\d$/.test(i)), `${f}: a named image, not "latest" (a new image once stopped the browser tests): ${images}`);
+    assert.ok(images.length > 0 && images.every((i) => i === 'ubuntu-24.04'), `${f}: the image the pinned browser-test tool supports, not "latest" or a newer one (a new image once stopped the browser tests): ${images}`);
   }
   const ci = text('.github/workflows/ci.yml');
   for (const step of ['npm ci', 'npm run typecheck', 'npm run build', 'npm test', 'npx playwright install --with-deps chromium', 'npm run test:browser']) assert.ok(ci.includes(`- run: ${step}\n`), `CI runs ${step}`);
@@ -180,7 +180,9 @@ test('a mainnet build adds a policy that lists the only hosts it talks to, draws
   assert.ok(html.indexOf('http-equiv="Content-Security-Policy"') < html.indexOf('charset'), 'first in the head');
   assert.throws(() => csp.withMainnetPolicy('<html></html>'), /no <head>/);
   const cfg = text('vite.config.ts');
-  assert.match(cfg, /const forMainnet = process\.env\.VITE_NETWORK === 'mainnet' \|\| !process\.env\.VITE_NETWORK;/);
+  // decided from the value the app itself is built with (the process environment or an .env file), never from the process environment alone
+  assert.match(cfg, /configResolved\(config\) \{ builtFor = config\.env\.VITE_NETWORK; \}/);
+  assert.doesNotMatch(cfg, /process\.env\.VITE_NETWORK/);
   assert.match(cfg, /plugins: \[react\(\), siteUrlInHtml, mainnetPolicyInHtml\]/);
-  assert.match(cfg, /apply: 'build', transformIndexHtml: \{ order: 'pre', handler: \(html\) => \(forMainnet \? withMainnetPolicy\(html\) : html\) \}/);
+  assert.match(cfg, /handler: \(html\) => \(builtFor === 'mainnet' \|\| builtFor === undefined \|\| builtFor === '' \? withMainnetPolicy\(html\) : html\)/);
 });

@@ -6,12 +6,12 @@ import { getFaceIdAddresses, sendCall, type Launch, type WalletLike } from '@vyr
 import { getLaunch, LAUNCH_LIMITS, launchContractsAmong, launchpadContracts, vyrePadAbi } from '../lib/pad';
 import { vyre } from '../lib/chain';
 import { NETWORK } from '../lib/network';
-import { isAddr, pct, short, tokenText } from '../lib/format';
+import { isAddr, pct, short, tickerText, tokenText } from '../lib/format';
 import { addresses, readLaunchFile, type Meta } from '../lib/market';
 import { codeKey, loweredTaxes, refusedForSplit, splitBps, taxSplitProblem, taxWalletsWithCode } from '../lib/taxsplit';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
-import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton } from '../components/ui';
+import { AddressLink, ConnectButton, EmailTradeNote, Loading, NotThat, TokenPic, TxButton } from '../components/ui';
 import { BlockedToken, useTokenGate } from '../components/Hidden';
 import { WrappedUsdc } from '../components/Wrapped';
 import { LaunchFileFields, emptyLaunchFile, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
@@ -95,7 +95,7 @@ export default function Manage({ token }: { token: Address }) {
         <TokenPic uri={launch.metadataURI} symbol={launch.symbol} token={launch.token} size={56} />
         <div>
           <p className="eyebrow">Manage</p>
-          <h1 className="token-title"><bdi>{tokenText(launch.name)}</bdi> <span className="muted">$<bdi>{tokenText(launch.symbol)}</bdi></span></h1>
+          <h1 className="token-title"><bdi>{tokenText(launch.name)}</bdi> <span className="muted">$<bdi>{tickerText(launch.symbol, launch.token)}</bdi></span> <NotThat l={launch} /></h1>
           <p className="small muted">Creator <AddressLink address={launch.creator} /> · <a href={href({ page: 'token', token })}>Trade page</a></p>
         </div>
       </div>
@@ -249,7 +249,8 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
       return { file: { description: m.description, image: m.imageLink, links }, own: ours ? '' : uri, useOwn: false };
     };
     // a file that isn't one of ours and can't be read here stays the creator's own: its link is kept as it is
-    const asOwn = () => ({ ...emptyLaunchFile(), own: uri, useOwn: true });
+    // (where the pages don't read a file on another site, there is no "own file" mode: the fields start empty and the note below says what saving does)
+    const asOwn = () => ({ ...emptyLaunchFile(), own: uri, useOwn: NETWORK.outsideFiles });
     setRead('reading');
     readLaunchFile(uri, attempt > 0).then(
       (m) => { if (!live) return; setState(m ? fromFile(m) : uri && !ours ? asOwn() : emptyLaunchFile()); setRead('ready'); },
@@ -280,7 +281,7 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
           {uri && !ours && !state.useOwn && (
             <p className="small muted">This launch’s file is kept on another site ({/^https:\/\//.test(uri)
               ? <a className="mono break" href={uri} target="_blank" rel="noopener noreferrer">{uri}</a>
-              : <span className="mono break">{uri}</span>}). Saving the fields puts a new file in its place, kept by the service that keeps launch files; to keep using your own file, change it there and save its link under “Your own file (advanced)”.</p>
+              : <span className="mono break">{uri}</span>}). Saving the fields puts a new file in its place, kept by the service that keeps launch files{NETWORK.outsideFiles ? '; to keep using your own file, change it there and save its link under “Your own file (advanced)”' : ': MINTA does not load a file from another site here, so its picture, description and links are not shown until you save them in the fields'}.</p>
           )}
           <LaunchFileFields value={state} onChange={(v) => { setTouched(true); setState(v); }} />
           {uri && !state.useOwn && emptied && <p className="small">Nothing here would be kept in a file, so saving removes the launch’s picture, description and links.</p>}

@@ -16,7 +16,13 @@ export function receiptNotFound(e: unknown): boolean {
   return false;
 }
 
-/** Whether "start over" may be offered for a held transaction: the last read said "not found", and it was sent long enough ago */
-export function mayStartOver(h: { at?: number; notFound?: boolean } | null | undefined, now: number): boolean {
-  return !!h && h.notFound === true && typeof h.at === 'number' && Number.isFinite(h.at) && now - h.at >= START_OVER_AFTER_MS;
+/**
+ * Whether "start over" may be offered for a held transaction: the last read of its receipt said "not found", and that answer
+ * itself came long enough after the send (`notFoundAt`: when the chain gave it). An answer from right after the send is not
+ * enough however much later it is looked at: the transaction may have been picked up since.
+ */
+export function mayStartOver(h: { at?: number; notFound?: boolean; notFoundAt?: number } | null | undefined, now: number): boolean {
+  if (!h || h.notFound !== true) return false;
+  if (typeof h.at !== 'number' || !Number.isFinite(h.at) || typeof h.notFoundAt !== 'number' || !Number.isFinite(h.notFoundAt)) return false;
+  return h.notFoundAt - h.at >= START_OVER_AFTER_MS && now >= h.notFoundAt;
 }

@@ -93,7 +93,8 @@ export interface Trade {
 const blockTimes = new Map<bigint, number>();
 
 /** The pool's latest swaps (every router), newest first, with block times */
-export async function recentTrades(launch: Launch, quoteIsToken0: boolean, blocksBack = 200_000n, max = 25): Promise<Trade[]> {
+/** `windowed` on the answer: the read began after the launch was made (a chain longer than `blocksBack`), so older trades may be missing */
+export async function recentTrades(launch: Launch, quoteIsToken0: boolean, blocksBack = 200_000n, max = 25): Promise<Trade[] & { windowed?: boolean }> {
   const latest = await vyre.getBlockNumber();
   const fromBlock = latest > blocksBack ? latest - blocksBack : 0n;
   const logs = await readLogsSplitting((lo, hi) => vyre.getLogs({ address: launch.pool, event: swapEvent, fromBlock: lo, toBlock: hi }), fromBlock, latest);
@@ -114,7 +115,13 @@ export async function recentTrades(launch: Launch, quoteIsToken0: boolean, block
   const times = await Promise.all(blocks.map((b) => blockTimes.get(b) ?? vyre.getBlock({ blockNumber: b })
     .then((x) => { const t = Number(x.timestamp); blockTimes.set(b, t); return t; }).catch(() => undefined)));
   const at = new Map(blocks.map((b, i) => [b, times[i]]));
-  return trades.map((t) => ({ ...t, time: at.get(t.block) }));
+  const out: Trade[] & { windowed?: boolean } = trades.map((t) => ({ ...t, time: at.get(t.block) }));
+  if (fromBlock > 0n) {
+    // did the window start after the launch? (unknown counts as yes: the chart then claims no opening point)
+    const began = await vyre.getBlock({ blockNumber: fromBlock }).then((x) => Number(x.timestamp)).catch(() => null);
+    out.windowed = began === null || began > launch.createdAt;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

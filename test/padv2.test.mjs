@@ -537,3 +537,14 @@ test('inside an early-buy fee window a buy that names no minimum is not sent; on
   // not a launch: no fee to read (the quote says what is wrong)
   assert.equal(await P.earlyBuyFee(inside.pc, getAddress('0x9999999999999999999999999999999999999999')), null);
 });
+
+// Tax sent to a contract of either deployment is lost: the list the tax-split form refuses holds the first launchpad's too.
+test('the contracts a tax split must never name are those of this deployment and of the first one', () => {
+  const refused = P.padV2Contracts().map((a) => a.toLowerCase());
+  const sdk = getAddresses(3045);
+  const first = Object.values(sdk.legacy).filter((v) => typeof v === 'string' && isAddress(v));
+  assert.ok(first.length >= 9, 'the first deployment’s contracts');
+  for (const a of first) assert.ok(refused.includes(a.toLowerCase()), `${a} of the first deployment`);
+  for (const k of ['pad', 'poolFactory', 'poolDeployer', 'swapRouter', 'quoter', 'tickLens', 'wusdc']) assert.ok(refused.includes(P.PAD_V2[k].toLowerCase()), k);
+  for (const k of ['feeSplitter', 'appRouter', 'referrals']) assert.ok(refused.includes(sdk.legacy[k].toLowerCase()), `the first ${k}`);
+});

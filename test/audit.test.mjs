@@ -9,6 +9,7 @@ import { START_OVER_AFTER_MS, mayStartOver, receiptNotFound } from '../src/lib/h
 import { codeKey, taxWalletsWithCode } from '../src/lib/taxsplit.ts';
 import { usd } from '../src/lib/format.ts';
 import { carryStates, listWithdrawals, WITHDRAWALS_SHOWN } from '../src/lib/moves.ts';
+import { parseUnsure, unsureStore } from '../src/lib/unsure.ts';
 import { PLATFORM_WALLET_UNREAD, platformWalletShown } from '../src/lib/platformShown.ts';
 import { SOURCE_ON_EXPLORER, sourceSentence, unpublished } from '../src/lib/verified.ts';
 import { NO_BLOCKS, isHidden, setFirstCreators, visibleFeed, visibleLaunches } from '../src/lib/hidden.ts';
@@ -32,9 +33,11 @@ test('"0,125" is never read as 125: a grouped number can’t start with a group 
 });
 
 test('when a comma was typed, the box says how the amount was read; without one (or unread) it says nothing', () => {
-  assert.equal(readAs('1,000.5'), 'read as 1,000.5');
-  assert.equal(readAs(' 12,345 '), 'read as 12,345');
-  assert.equal(readAs('1,000.000000000000000001'), 'read as 1,000.000000000000000001');
+  // written without commas: "1,125" (one and an eighth, to someone who writes decimals with a comma) visibly reads as 1125
+  assert.equal(readAs('1,125'), 'read as 1125');
+  assert.equal(readAs('1,000.5'), 'read as 1000.5');
+  assert.equal(readAs(' 12,345 '), 'read as 12345');
+  assert.equal(readAs('1,000.000000000000000001'), 'read as 1000.000000000000000001');
   for (const s of ['', '1000.5', '0,125', '1,5', 'abc', '12.5']) assert.equal(readAs(s), '', s);
 });
 
@@ -54,13 +57,19 @@ test('every amount box shows it: buy and sell, send, deposit, withdraw, send bac
 test('"start over" only when the chain answered "no such transaction", and only minutes after the send', () => {
   const sent = 1_000_000;
   const late = sent + START_OVER_AFTER_MS;
-  assert.ok(START_OVER_AFTER_MS >= 3 * 60_000, 'some minutes');
-  assert.equal(mayStartOver({ at: sent, notFound: true }, late), true);
-  assert.equal(mayStartOver({ at: sent, notFound: true }, late - 1), false, 'too soon');
-  assert.equal(mayStartOver({ at: sent, notFound: false }, late * 10), false, 'the read failed for another reason');
-  assert.equal(mayStartOver({ at: sent }, late * 10), false, 'never read');
-  assert.equal(mayStartOver({ notFound: true }, late * 10), false, 'no send time');
-  assert.equal(mayStartOver({ at: NaN, notFound: true }, late), false);
+  assert.equal(START_OVER_AFTER_MS, 5 * 60_000, 'five minutes');
+  // the answer "not found" must itself have come five minutes after the send
+  assert.equal(mayStartOver({ at: sent, notFound: true, notFoundAt: late }, late), true);
+  assert.equal(mayStartOver({ at: sent, notFound: true, notFoundAt: late }, late + 60_000), true);
+  assert.equal(mayStartOver({ at: sent, notFound: true, notFoundAt: late - 1 }, late * 10), false, 'an answer from before the five minutes, however much later it is looked at');
+  assert.equal(mayStartOver({ at: sent, notFound: true, notFoundAt: sent + 10_000 }, sent + 10 * 60_000), false, 'a check ten seconds after the send, read again ten minutes later (a reload, a redraw): not offered');
+  assert.equal(mayStartOver({ at: sent, notFound: true }, late * 10), false, 'no time kept for the answer');
+  assert.equal(mayStartOver({ at: sent, notFound: false, notFoundAt: late }, late * 10), false, 'the read failed for another reason');
+  assert.equal(mayStartOver({ at: sent, notFoundAt: late }, late * 10), false, 'never read');
+  assert.equal(mayStartOver({ notFound: true, notFoundAt: late }, late * 10), false, 'no send time');
+  assert.equal(mayStartOver({ at: NaN, notFound: true, notFoundAt: late }, late), false);
+  assert.equal(mayStartOver({ at: sent, notFound: true, notFoundAt: NaN }, late), false);
+  assert.equal(mayStartOver({ at: sent, notFound: true, notFoundAt: late + 5 }, late), false, 'an answer dated after now');
   assert.equal(mayStartOver(null, late), false);
 });
 
@@ -77,11 +86,13 @@ test('only viem’s "receipt not found" counts as not found: a busy, rate-limite
 test('the button keeps the send time and what the last read said, and offers "start over" only through that rule', () => {
   const ui = read('src/components/ui.tsx');
   assert.match(ui, /setHeld\(\{ hash: e\.hash, chainId: e\.chainId, looked: false, at: Date\.now\(\),/, 'the send time is kept');
-  assert.match(ui, /catch \(e\) \{\n\s*const notFound = receiptNotFound\(e\);\n\s*setHeld\(\{ \.\.\.h, looked: true, notFound \}\);/, 'the read’s answer is kept');
   assert.match(ui, /: mayStartOver\(held, Date\.now\(\)\)\n\s*\? <p className="small muted start-over">/);
   assert.equal((ui.match(/start over<\/button>/g) || []).length, 2, 'offered there, and for a deposit that went through on Arc');
+  assert.match(ui, /setHeld\(\{ \.\.\.rest, looked: true, notFound, \.\.\.\(notFound \? \{ notFoundAt: Date\.now\(\) \} : \{\}\) \}\);/, 'when the chain answered is kept, and dropped by a read that failed');
+  assert.match(ui, /onClick=\{\(\) => startOver\(held\)\}>start over<\/button>/, 'pressing it reads the chain once more first');
+  assert.match(ui, /if \(receiptNotFound\(e\)\) \{ setHeld\(null\); setSt\(\{ kind: 'idle' \}\); return; \}/);
   assert.match(ui, /\{held\?\.looked && st\.kind === 'err' && \(held\.deposit && held\.confirmed\n/, 'a deposit’s own line only once its receipt on Arc was read');
-  assert.match(ui, /setHeld\(\{ \.\.\.h, looked: true, notFound: false, confirmed: true \}\);/);
+  assert.match(ui, /setHeld\(\{ \.\.\.h, looked: true, notFound: false, notFoundAt: undefined, confirmed: true \}\);/);
   assert.doesNotMatch(ui, /Not on the explorer after a few minutes\? It never reached the chain/);
   assert.match(ui, /Couldn’t read it just now/, 'a failed read is said as that, not as "not confirmed"');
 });
@@ -160,7 +171,18 @@ test('the note and the ticker are drawn on the cards, the lists, the search, the
   assert.match(page, /const sym = tickerText\(launch\.symbol, launch\.token\);/);
   assert.match(page, /<h1 className="token-title">[^\n]*<NotThat l=\{launch\} \/><\/h1>/);
   assert.match(page, /<div className="trade-card">\n\s*<NotThat l=\{launch\} className="block" \/>/);
-  assert.match(read('src/components/ui.tsx'), /const note = lookalikeNote\(l, NETWORK\.mintaToken\);/);
+  assert.match(read('src/components/ui.tsx'), /const note = lookalikeNote\(l, NETWORK\.mintaToken, NETWORK\.vyreToken\);/);
+  // and wherever else a ticker is shown: the portfolio's holdings and launches, the ticker strip, the Manage title
+  const pf = read('src/pages/Portfolio.tsx');
+  assert.match(pf, /\$<bdi>\{tickerText\(h\.launch\.symbol, h\.launch\.token\)\}<\/bdi><\/b> <NotThat l=\{h\.launch\} \/>/);
+  assert.match(pf, /\$<bdi>\{tickerText\(l\.symbol, l\.token\)\}<\/bdi><\/b>[^\n]*<NotThat l=\{l\} \/>/);
+  const strip = read('src/components/Ticker.tsx');
+  assert.equal((strip.match(/\{tickerText\(it\.symbol, it\.token\)\}<\/bdi><\/b> <NotThat l=\{\{ symbol: it\.symbol, name: (?:it\.name|''), token: it\.token \}\} \/>/g) || []).length, 2, 'a new launch and a trade');
+  assert.match(read('src/pages/Manage.tsx'), /\$<bdi>\{tickerText\(launch\.symbol, launch\.token\)\}<\/bdi><\/span> <NotThat l=\{launch\} \/><\/h1>/);
+  // no page shows a ticker through tokenText alone any more
+  for (const f of ['src/pages/Portfolio.tsx', 'src/components/Ticker.tsx', 'src/pages/Manage.tsx', 'src/components/TokenCard.tsx', 'src/pages/Explore.tsx', 'src/components/Search.tsx', 'src/components/TopTokens.tsx']) {
+    assert.doesNotMatch(read(f), /<bdi>\{tokenText\([a-z.]*symbol\)\}<\/bdi>/, `${f} shows a ticker without the empty-ticker fallback`);
+  }
 });
 
 // ---- a hidden creator's tokens after a handover ----
@@ -307,8 +329,9 @@ test('a small token amount is never shown as 0: the quote, the minimum, the bala
 
 test('the chart starts "All" at the launch’s opening price when every trade is there, and says so when only the latest were read', () => {
   const chart = read('src/components/PriceChart.tsx');
-  assert.match(chart, /if \(open && open\.price > 0 && !cut && \(!all\.length \|\| open\.time <= all\[0\]\.t\)\) all\.unshift\(\{ t: open\.time, p: open\.price, start: true \}\);/);
-  assert.match(chart, /\{cut \? <p className="muted small chart-cut">Latest \{cut\} trades<\/p> : null\}/);
+  assert.match(chart, /if \(open && open\.price > 0 && !cut && !recentOnly && \(!all\.length \|\| open\.time <= all\[0\]\.t\)\) all\.unshift\(\{ t: open\.time, p: open\.price, start: true \}\);/);
+  assert.match(chart, /\{cut \? <p className="muted small chart-cut">Latest \{cut\} trades<\/p> : recentOnly \? <p className="muted small chart-cut">Recent trades only<\/p> : null\}/);
+  assert.match(read('src/lib/market.ts'), /out\.windowed = began === null \|\| began > launch\.createdAt;/, 'a read that began after the launch says so');
   const token = read('src/pages/Token.tsx');
   assert.match(token, /open=\{stats\?\.openPrice \? \{ price: stats\.openPrice, time: launch\.createdAt \} : undefined\} cut=\{trades && trades\.length >= MAX_TRADES \? MAX_TRADES : undefined\}/);
   assert.match(read('src/lib/stats.ts'), /openPrice: openPrice\.get\(k\),/);
@@ -415,9 +438,109 @@ test('words that were the test network’s, or wider than the facts, are gone fr
     const t = read(f);
     assert.match(t, /<meta name="robots" content="noindex">/, `${f} is kept out of search`);
     assert.match(t, /<title>[^<]*\(test network\) · MINTA<\/title>/);
-    assert.ok(t.includes(`<b>This is the test network’s`) && t.includes(`<a href="${real}">${real}</a>`), `${f} points to the mainnet page`);
+    assert.ok(/<b>(?:This is|These are) the test network’s/.test(t) && t.includes(`<a href="${real}">${real}</a>`), `${f} points to the mainnet page`);
   }
   assert.match(read('SECURITY.md'), /VYRE Mainnet \(chain 3045\), where the USDC is real/);
   assert.doesNotMatch(read('SECURITY.md'), /treat the test network as the place to\nfind problems/);
   assert.doesNotMatch(JSON.parse(read('package.json')).description, /\(testnet\)/);
+});
+
+// ---- a third review ----
+test('look-alikes: one word for each row of the table, a lower-case L, small capitals, and a protected word inside a longer name', () => {
+  const note = (symbol, name = 'x') => lookalikeNote({ symbol, name, token: OTHER }, REAL, null);
+  // Cyrillic, Greek, Armenian, Cherokee, Lisu, marked Latin and signs, a lower-case L and a bar, small capitals, digits
+  for (const [s, want] of [['МІNТА', 'Not MINTA’s token'], ['UЅDС', 'Not USDC'], ['VУRЕ', 'Not VYRE’s token'], ['ΜΙΝΤΑ', 'Not MINTA’s token'], ['VΥRΕ', 'Not VYRE’s token'], ['ՍSDC', 'Not USDC'],
+    ['ᏌᏚᎠᏟ'.replace('Ꮜ', 'U'), 'Not USDC'], ['ᎷᏆNᎢᎪ'.replace('Ꮖ', 'I'), 'Not MINTA’s token'], ['ꓴꓢꓓꓚ', 'Not USDC'], ['ꓦꓬꓣꓰ', 'Not VYRE’s token'], ['U$ÐC', 'Not USDC'], ['V¥R€', 'Not VYRE’s token'], ['M@NTA'.replace('@', 'I').replace('A', '@'), 'Not MINTA’s token'],
+    ['MlNTA', 'Not MINTA’s token'], ['M|NTA', 'Not MINTA’s token'], ['ᴜsᴅᴄ', 'Not USDC'], ['ᴠʏʀᴇ', 'Not VYRE’s token'], ['ᴍɪɴᴛᴀ', 'Not MINTA’s token'], ['ᴡᴜꜱᴅᴄ', 'Not USDC'],
+    ['U5DC', 'Not USDC'], ['M1NT4', 'Not MINTA’s token'], ['VYR3', 'Not VYRE’s token'], ['M1N7A', 'Not MINTA’s token'], ['U5DC0IN'.replace('0IN', ''), 'Not USDC']]) {
+    assert.equal(note(s), want, `${JSON.stringify(s)} (${plainLook(s)})`);
+  }
+  // a protected word as one of the words of a ticker or name
+  for (const s of ['USDC.e', 'USDC Token', 'Real USDC', 'usdc-v2', 'The USDC']) assert.equal(note(s), 'Not USDC', s);
+  for (const s of ['MINTA Official', 'official minta', 'MINTA-2']) { assert.equal(note(s), 'Not MINTA’s token', s); assert.equal(note('X', s), 'Not MINTA’s token', `as a name: ${s}`); }
+  assert.equal(note('VYRE Chain'), 'Not VYRE’s token');
+  // but not as part of a longer word
+  for (const s of ['USDCAT', 'XUSDC', 'MINTAX', 'VYRES', 'MINTAGE', 'Silly', 'ALL IN', 'DOGE']) assert.equal(note(s), '', s);
+  // the network's own tokens, by address
+  assert.equal(lookalikeNote({ symbol: 'VYRE', name: 'VYRE', token: OTHER }, REAL, OTHER), '');
+  assert.equal(lookalikeNote({ symbol: 'VYRE', name: 'VYRE', token: REAL }, REAL, OTHER), 'Not VYRE’s token');
+  assert.match(read('src/lib/network.ts'), /mainnet: \{[\s\S]*?vyreToken: null,/);
+});
+
+test('a dollar figure a hair under the next unit stays in its own unit', () => {
+  assert.equal(usd(999999999999.999), '$999.99B');
+  assert.equal(usd(999999.9999999999), '$999.99K');
+  assert.equal(usd(999.999999999999), '$999.99');
+  assert.equal(usd(999999999.99999), '$999.99M');
+  assert.equal(usd(1e15), '$1,000T');
+  assert.equal(usd(1000), '$1K');
+});
+
+test('an unsettled launch is kept for the tab, per wallet, and what is read back is checked', () => {
+  const kept = new Map();
+  const store = { getItem: (k) => kept.get(k) ?? null, setItem: (k, v) => kept.set(k, v), removeItem: (k) => kept.delete(k) };
+  const A = '0x' + 'Aa'.repeat(20), B = '0x' + 'bb'.repeat(20);
+  const one = unsureStore(() => store, 'k');
+  assert.equal(one.has(A), false);
+  one.set(A, 'Your wallet didn’t confirm this.');
+  assert.equal(one.has(A.toLowerCase()), true, 'whatever the letter case');
+  assert.equal(one.has(B), false, 'another wallet has none');
+  // another page load (a reload) reads it back
+  const two = unsureStore(() => store, 'k');
+  assert.equal(two.get(A), 'Your wallet didn’t confirm this.');
+  two.delete(A);
+  assert.equal(kept.has('k'), false, 'cleared from the tab too');
+  assert.equal(unsureStore(() => store, 'k').has(A), false);
+  // storage that can't be used: kept in memory for the page
+  const none = unsureStore(() => { throw new Error('blocked'); }, 'k');
+  none.set(A, 'x'); assert.equal(none.has(A), true);
+  // only wallet addresses with short words are read back
+  const back = parseUnsure(JSON.stringify({ [A.toLowerCase()]: 'ok', notAnAddress: 'x', [B]: 5, ['0x' + 'cc'.repeat(20)]: 'y'.repeat(601), ['0x' + 'dd'.repeat(20)]: '' }));
+  assert.deepEqual([...back.keys()], [A.toLowerCase()]);
+  for (const raw of [null, '', 'nope', '[]', '"x"', '{"a":', 'x'.repeat(50_000)]) assert.equal(parseUnsure(raw).size, 0);
+  const launch = read('src/pages/Launch.tsx');
+  assert.match(launch, /const unsureLaunch = unsureStore\(\(\) => \{ try \{ return window\.sessionStorage; \} catch \{ return null; \} \}, scoped\('minta\.unsureLaunch'\)\);/);
+  assert.match(launch, /const pausedUntil = new Map<string, number>\(\);/, 'the pause is kept outside the dialog too');
+});
+
+test('where the pages load no file from another site, "Your own file" is not offered and a launch never points at one', () => {
+  const fields = read('src/components/LaunchFileFields.tsx');
+  assert.match(fields, /const own = NETWORK\.outsideFiles && \(part === 'all' \|\| part === 'own'\);/);
+  assert.match(fields, /useEffect\(\(\) => \{ if \(!NETWORK\.outsideFiles && value\.useOwn\) onChange\(\{ \.\.\.value, useOwn: false \}\); \}, \[value\.useOwn\]\);/);
+  const launch = read('src/pages/Launch.tsx');
+  assert.match(launch, /if \(meta\.useOwn && NETWORK\.outsideFiles\) metadataURI = meta\.own\.trim\(\) \|\| undefined;/);
+  assert.match(launch, /const ownFile = NETWORK\.outsideFiles && meta\.useOwn;/);
+  assert.match(read('src/lib/api.ts'), /\$\{NETWORK\.outsideFiles \? ', or paste your own link under “Your own file”' : ''\}/);
+  assert.match(read('src/pages/Manage.tsx'), /useOwn: NETWORK\.outsideFiles \}\)/);
+});
+
+test('the withdrawals card: the timer reads as far back as the list shows, and a claimed row is marked at once', () => {
+  const wallet = read('src/pages/Wallet.tsx');
+  assert.match(wallet, /const t = setInterval\(load, 60_000\); return \(\) => clearInterval\(t\); \}, \[waiting, account, back\]\);/);
+  assert.match(wallet, /onDone=\{\(\) => \{ setRows\(\(rs\) => rs && rs\.map\(\(r\) => \(keyOf\(r\) === keyOf\(w\) \? \{ \.\.\.r, state: 'claimed' as const \} : r\)\)\); load\(\); onDone\(\); \}\}/);
+});
+
+test('the wrapped USDC card never says "0 WUSDC" for dust, says an email wallet can’t unwrap here, and that unwrapping needs a little USDC', () => {
+  const card = read('src/components/Wrapped.tsx');
+  assert.match(card, /This wallet holds <b className="break">\{shortAmount\(held, 4\)\} WUSDC<\/b>/);
+  assert.match(card, /it needs a little USDC on VYRE for the network fee/);
+  assert.match(card, /\{email && <p className="small muted wrapped-email">An email wallet can’t send transactions on VYRE yet, so it can’t unwrap here\.<\/p>\}/);
+});
+
+test('the privacy pages say what each network’s pages do: mainnet reaches only verify.walletconnect.org and loads no file from another site', () => {
+  const main = read('public/privacy/index.html');
+  assert.doesNotMatch(main, /which that policy does not block/);
+  assert.match(main, /this page’s own security policy lets it reach only verify\.walletconnect\.org/);
+  assert.match(main, /<b>A token whose details are kept on another site<\/b>/);
+  assert.match(read('public/privacy-testnet/index.html'), /which that policy does not block/, 'the test network’s page keeps its own sentence');
+  assert.match(read('scripts/csp.mjs'), /it does not close every way out/);
+  assert.doesNotMatch(read('scripts/csp.mjs'), /could send nothing anywhere else/);
+});
+
+test('small things: the hand-off note names the SDK, a long host wraps, the opening is "within about 1%" for assistants too', () => {
+  assert.match(read('docs/HANDOFF.md'), /The vendored SDK is 0\.7\.1, which knows the new pad; the app's mainnet calls are still made in `padv2\.ts`\./);
+  assert.doesNotMatch(read('docs/HANDOFF.md'), /0\.6\.0/);
+  assert.match(read('src/pages/Token.tsx'), /\(<bdi className="break">\{outsideFile\(launch\.metadataURI\)\}<\/bdi>\)/);
+  assert.match(read('public/llms-full.txt'), /the pool opens within about 1% of that market cap/);
+  assert.match(read('public/terms-testnet/index.html'), /The terms for MINTA on VYRE Mainnet \(minta\.vyrechain\.com\) are at/);
 });
