@@ -277,7 +277,7 @@ test('privacy says what the verification service’s alternative address is: lis
   for (const f of ['public/privacy/index.html', 'public/privacy-testnet/index.html']) {
     const t = read(f);
     assert.match(t, /verify\.walletconnect\.com as an alternative address of that service: MINTA does not choose it/);
-    assert.match(t, /lets the frame load only from verify\.walletconnect\.org/);
+    assert.match(t, /lets the frame load only from verify\.walletconnect\.org|lets the page load that frame from, and send requests to, verify\.walletconnect\.org only/);
   }
   assert.match(read('docs/ANDROID.md'), /verify\.walletconnect\.com as an alternative address, which MINTA does not choose/);
   // true to the code and the policy

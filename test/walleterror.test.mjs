@@ -375,3 +375,98 @@ test('the notes for a sale that asks for an approval instead of a permit are pla
   }
   assert.equal(/^import /m.test(fs.readFileSync(new URL('../src/lib/walletError.ts', import.meta.url), 'utf8')), false, 'the file imports nothing');
 });
+
+// ---- what counts as a revert: one rule, on the errors the wallet library really makes ----
+// Each shape is thrown by a transport (a custom one, or a local http server answering as a node or a proxy would) under a simulated
+// contract call, and the error that comes out is what is judged. A node's revert is: code 3 (at the top, or in the answer a wallet's
+// provider wrapped under data, data.originalError or data.cause); a message that OPENS with "execution reverted" under code 3, -32000,
+// -32603 or no code; Solidity's Error(string) or Panic data; nothing returned where a value was due. Nothing else is.
+test('realRevert: a node’s revert in every shape it comes in is one; a limit, an internal error, a dropped connection or words that only mention a revert are not', async (t) => {
+  const http = await import('node:http');
+  const { http: httpTransport, zeroHash } = await import('viem');
+  const TOKEN = '0x1111111111111111111111111111111111111111';
+  const abi = parseAbi(['function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)', 'function approve(address spender, uint256 amount) returns (bool)']);
+  const CUSTOM_ERROR = '0x4b800e46' + '00'.repeat(32); // a contract's own 4-byte error: not Error(string), not Panic
+  const ERROR_STRING = '0x08c379a0' + '00'.repeat(31) + '20' + '00'.repeat(31) + '02' + '6e6f' + '00'.repeat(30); // Error("no")
+  let reply = null; // what the http stand-in answers: { status, body } or { rpc: <error object> } or { result }
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const id = JSON.parse(body).id;
+      if (reply.status) { res.writeHead(reply.status, { 'content-type': 'text/plain' }); return res.end(reply.body ?? ''); }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(reply.rpc ? { jsonrpc: '2.0', id, error: reply.rpc } : { jsonrpc: '2.0', id, result: reply.result }));
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  const overHttp = createPublicClient({ chain: vyreMainnet, transport: httpTransport(`http://127.0.0.1:${server.address().port}`, { retryCount: 0 }) });
+  const thrownBy = async (client, functionName = 'permit') => {
+    const args = functionName === 'permit' ? [TOKEN, TOKEN, 1n, 1n, 27, zeroHash, zeroHash] : [TOKEN, 1n];
+    try { await simulateContract(client, { account: TOKEN, address: TOKEN, abi, functionName, args }); } catch (e) { return e; }
+    return assert.fail('the simulation did not throw');
+  };
+  const viaCustom = (make) => thrownBy(createPublicClient({ chain: vyreMainnet, transport: custom({ request: async () => { throw make(); } }, { retryCount: 0 }) }));
+  const viaHttp = async (r, functionName) => { reply = r; return thrownBy(overHttp, functionName); };
+  const rpcError = (o) => Object.assign(new Error(o.message), o);
+  const wrapped = { code: -32603, message: 'Internal JSON-RPC error.' };
+
+  const shapes = [
+    // ---- reverts
+    [true, 'the node’s own: code 3, "execution reverted", no data', { code: 3, message: 'execution reverted', data: '0x' }],
+    [true, 'code 3 with a contract’s own error and words that say nothing (the code alone decides)', { code: 3, message: 'call failed', data: CUSTOM_ERROR }],
+    [true, 'Error(string) data under a general code and words that say nothing (the data alone decides)', { code: -32000, message: 'VM Exception while processing transaction', data: ERROR_STRING }],
+    [true, 'Panic data under a general code', { code: -32000, message: 'VM Exception while processing transaction', data: '0x4e487b71' + '00'.repeat(31) + '11' }],
+    [true, 'the words alone under the general code', { code: -32000, message: 'execution reverted' }],
+    [true, 'the words with a reason under the general code', { code: -32000, message: 'execution reverted: no' }],
+    [true, 'wrapped by a wallet provider: data {code 3, no data}', { ...wrapped, data: { code: 3, message: 'execution reverted', data: '0x' } }],
+    [true, 'wrapped: data {code 3, a contract’s own error, words that say nothing}', { ...wrapped, data: { code: 3, message: 'call failed', data: CUSTOM_ERROR } }],
+    [true, 'wrapped: data.originalError {code 3, a contract’s own error}', { ...wrapped, data: { originalError: { code: 3, message: 'call failed', data: CUSTOM_ERROR } } }],
+    [true, 'wrapped: data.cause {code 3, a contract’s own error}', { ...wrapped, data: { cause: { code: 3, message: 'call failed', data: CUSTOM_ERROR } } }],
+    [true, 'wrapped: data {the words under the general code, a contract’s own error}', { ...wrapped, data: { code: -32000, message: 'execution reverted', data: CUSTOM_ERROR } }],
+    [true, 'wrapped: data.originalError holds only Error(string) data (no code, no words)', { ...wrapped, data: { originalError: { message: 'failed', data: ERROR_STRING } } }],
+    [true, 'wrapped: data.cause holds only Error(string) data', { ...wrapped, data: { cause: { message: 'failed', data: ERROR_STRING } } }],
+    [true, 'an older wallet provider: its node’s message kept under -32603 (3 is no code it knows)', { code: -32603, message: 'execution reverted' }],
+    [true, 'the same with a reason and a contract’s own error', { code: -32603, message: 'execution reverted: no', data: CUSTOM_ERROR }],
+    [true, 'the words in other letter case (some nodes)', { code: -32000, message: 'Execution Reverted' }],
+    [true, 'wrapped: the inner message has space before the words', { ...wrapped, data: { code: -32000, message: '  execution reverted', data: CUSTOM_ERROR } }],
+    [true, 'wrapped three deep: data.cause.originalError holds only Error(string) data', { ...wrapped, data: { cause: { originalError: { message: 'failed', data: ERROR_STRING } } } }],
+    [true, 'Error(string) data written in capitals', { code: -32000, message: 'VM Exception while processing transaction', data: `0x${ERROR_STRING.slice(2).toUpperCase()}` }],
+    // ---- not reverts
+    [false, 'a word that only starts like the node’s', { code: -32000, message: 'execution revertedly refused' }],
+    [false, 'an internal error that mentions a revert further in', { code: -32603, message: 'Internal error: upstream said execution reverted' }],
+    [false, 'an EVM failure in other words', { code: -32000, message: 'err: intrinsic gas too low (supplied gas 22016)' }],
+    [false, 'out of gas', { code: -32000, message: 'out of gas' }],
+    [false, 'an internal error and nothing else', { code: -32603, message: 'Internal error' }],
+    [false, 'an internal error with some other hex attached', { code: -32603, message: 'Internal error', data: CUSTOM_ERROR }],
+    [false, 'a general error with some other hex attached and words that say nothing', { code: -32000, message: 'VM Exception while processing transaction', data: CUSTOM_ERROR }],
+    [false, 'a limit', { code: -32005, message: 'rate limit: slow down' }],
+    [false, 'a limit that quotes a revert', { code: -32005, message: 'rate limited (last error: execution reverted)' }],
+    [false, 'a limit that opens with the words', { code: -32005, message: 'execution reverted' }],
+    [false, 'words that mention a revert of another kind', { code: -32000, message: 'request reverted to the backup node: try again' }],
+    [false, 'the general code quoting the words further in', { code: -32000, message: 'upstream said: execution reverted' }],
+    [false, 'wrapped: an inner limit that quotes a revert', { ...wrapped, data: { code: -32005, message: 'execution reverted' } }],
+    [false, 'wrapped: an inner error that mentions a revert further in', { ...wrapped, data: { code: -32000, message: 'limited (last error: execution reverted)' } }],
+  ];
+  assert.equal(shapes.length, 33);
+  for (const [want, name, shape] of shapes) {
+    assert.equal(W.realRevert(await viaCustom(() => rpcError(shape))), want, `custom transport, ${name}`);
+    assert.equal(W.realRevert(await viaHttp({ rpc: shape })), want, `http, ${name}`);
+    // and as a wallet throws it, before any library has wrapped it
+    assert.equal(W.realRevert(rpcError(shape)), want, `the bare answer, ${name}`);
+  }
+  // what only a transport of one kind can throw
+  assert.equal(W.realRevert(await viaCustom(() => new Error('HTTP 429: execution reverted'))), false, 'a plain error that mentions a revert after other words');
+  assert.equal(W.realRevert(await viaCustom(() => new Error('fetch failed'))), false);
+  assert.equal(W.realRevert(await viaCustom(() => new TypeError('execution reverted'))), false, 'an error the language made is not the node’s answer');
+  assert.equal(W.realRevert(await viaCustom(() => ({ details: 'execution reverted' }))), true, 'a provider that puts the node’s words under details');
+  // (a wallet that throws bare words: the library keeps them as the end of the chain of causes)
+  assert.equal(W.realRevert(Object.assign(new Error('wrapped'), { cause: 'execution reverted: no' })), true);
+  assert.equal(W.realRevert(Object.assign(new Error('wrapped'), { cause: 'HTTP 429: execution reverted' })), false);
+  assert.equal(W.realRevert(await viaHttp({ status: 429, body: 'Too Many Requests' })), false, 'http 429');
+  assert.equal(W.realRevert(await viaHttp({ status: 429, body: 'execution reverted' })), false, 'http 429 whose body is the words: the library made that error, the node did not answer');
+  assert.equal(W.realRevert(await viaHttp({ status: 503, body: '' })), false, 'http 503');
+  assert.equal(W.realRevert(await viaHttp({ result: '0x' }, 'approve')), true, 'nothing returned where a value was due');
+  for (const junk of [null, undefined, 'nope', 3, {}, new Error('x')]) assert.equal(W.realRevert(junk), false);
+});

@@ -12,7 +12,8 @@ import { erc20Abi, getAddress, isAddress, zeroAddress, type Address, type EIP119
 import { ARC_CHAIN, VYRE_CHAIN, arc, reason, sourceClient, switchTo, vyre, walletOn } from '../lib/chain';
 import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
-import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, WITHDRAWALS_READ, carryStates, fromBlockOf, keepMove, listWithdrawals, loadMoves, type Move } from '../lib/moves';
+import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, SPENT_READS_PER_CALL, WITHDRAWALS_READ, carryStates, fromBlockOf, keepMove, listWithdrawals, loadMoves, settleWithdrawals, type Move } from '../lib/moves';
+import { inPieces } from '../lib/pieces';
 import { burnSentError } from '../lib/fromchain';
 import { afterApproval, approvalIsIn } from '../lib/walletError';
 import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
@@ -608,9 +609,19 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
   const cardFor = useRef(account);
   cardFor.current = account;
   const keyOf = (w: Row) => `${w.hash}-${w.position}`;
+  // every load has a number: only the newest one's answers are used (a slower, older one, for a shorter look back, never replaces them)
+  const loadNo = useRef(0);
+  // how far back the list looks NOW, whichever render's load is running (a button's onDone calls the load of the render it was pressed in)
+  const backNow = useRef(back);
+  backNow.current = back;
+  // how many loads are on their way: the minute's timer starts none while one is (a read slower than a minute would otherwise never land)
+  const loading = useRef(0);
   const load = async () => {
     const mine = account;
-    const live = () => cardFor.current === mine;
+    const no = ++loadNo.current;
+    const back = backNow.current;
+    const live = () => cardFor.current === mine && loadNo.current === no;
+    loading.current++;
     try {
       // the ones this wallet started (anyone can start one paying to any address): filtered as the SDK pages back, so
       // others' can't crowd these out
@@ -624,20 +635,26 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
       setRows((before) => listWithdrawals(carryStates(list, before, keyOf)));
       if (!list.length) return;
       const outbox = getAddresses(VYRE_CHAIN.id).rollup!.outbox!;
+      // "was it paid out" for each, a few calls of Arc's Multicall3 one after another (never fifty requests at once); a read that
+      // fails leaves its own row as it was, and the line above the list says some could not be read
       const [confirmed, spent] = await Promise.all([
         getConfirmedCount(vyre, arc),
-        Promise.all(list.map((w) => arc.readContract({ address: outbox, abi: outboxAbi, functionName: 'isSpent', args: [w.position] }))),
+        inPieces(list, SPENT_READS_PER_CALL, (piece) => arc.multicall({
+          allowFailure: true,
+          contracts: piece.map((w) => ({ address: outbox, abi: outboxAbi, functionName: 'isSpent' as const, args: [w.position] as const })),
+        }).then((rs) => rs.map((r) => (r.status === 'success' ? r.result === true : null)), () => piece.map(() => null))).then((ps) => ps.flat()),
       ]);
       if (!live()) return;
+      if (spent.some((x) => x === null)) setReadErr(true);
       // every one not paid out yet is listed, before the paid-out ones
-      setRows(listWithdrawals(list.map((w, i) => ({ ...w, state: spent[i] ? 'claimed' : w.position < confirmed ? 'ready' : 'waiting' }))));
-    } catch { if (live()) { setReadErr(true); setRows((r) => r ?? []); } }
+      setRows((before) => listWithdrawals(settleWithdrawals(list, spent, confirmed, before, keyOf)));
+    } catch { if (live()) { setReadErr(true); setRows((r) => r ?? []); } } finally { loading.current--; }
   };
   useEffect(() => { setRows(null); setReadErr(false); load(); }, [account, back]);
   // check again every minute while one is waiting
   const waiting = !!rows?.some((w) => w.state === 'waiting');
   // (`back` too: the load this timer calls must be the one that looks as far back as the list now shows)
-  useEffect(() => { if (!waiting) return; const t = setInterval(load, 60_000); return () => clearInterval(t); }, [waiting, account, back]);
+  useEffect(() => { if (!waiting) return; const t = setInterval(() => { if (loading.current === 0) load(); }, 60_000); return () => clearInterval(t); }, [waiting, account, back]);
 
   return (
     <div className="card">

@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { withMainnetPolicy } from './scripts/csp.mjs';
+import { readFileSync } from 'node:fs';
+import { apiOrigin, checkHeaderNames, withMainnetPolicy } from './scripts/csp.mjs';
 
 const shim = (name: string) => fileURLToPath(new URL(`./src/lib/shims/${name}.ts`, import.meta.url));
 
@@ -15,10 +16,19 @@ const siteUrl = (process.env.VITE_SITE_URL || (process.env.VERCEL_PROJECT_PRODUC
 // The network is read from the very value the app gets as import.meta.env.VITE_NETWORK (the process environment or an .env file),
 // so the policy and the app can never be for different networks.
 let builtFor: unknown;
+// the app API's origin for that build (VITE_API_URL, the same value the app reads): the policy names it; not an https address stops the build
+let apiFor: string | undefined;
+const forMainnet = () => builtFor === 'mainnet' || builtFor === undefined || builtFor === '';
 const mainnetPolicyInHtml: Plugin = {
   name: 'mainnet-policy-in-html', apply: 'build',
-  configResolved(config) { builtFor = config.env.VITE_NETWORK; },
-  transformIndexHtml: { order: 'pre', handler: (html) => (builtFor === 'mainnet' || builtFor === undefined || builtFor === '' ? withMainnetPolicy(html) : html) },
+  configResolved(config) {
+    builtFor = config.env.VITE_NETWORK;
+    if (!forMainnet()) return;
+    apiFor = apiOrigin(config.env.VITE_API_URL);
+    // (the header vercel.json sends on the mainnet site's host must name the same API, or the build would be cut off from it there)
+    checkHeaderNames(apiFor, readFileSync(new URL('./vercel.json', import.meta.url), 'utf8'));
+  },
+  transformIndexHtml: { order: 'pre', handler: (html) => (forMainnet() ? withMainnetPolicy(html, apiFor) : html) },
 };
 const siteUrlInHtml: Plugin = { name: 'site-url-in-html', transformIndexHtml: (html) => html.replaceAll('__SITE_URL__', siteUrl) };
 

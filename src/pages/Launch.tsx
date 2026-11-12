@@ -821,7 +821,8 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
               {/* after a send the wallet did not confirm, the launch button is off and says to check the wallet; a separate button
                   says it isn't there, and the launch button comes back a moment later (so no double press can send) */}
               {(unsure || cooling || answered) && <button type="button" className="btn btn-line not-in-wallet" onClick={notInWallet} disabled={cooling || answered}>It isn’t in my wallet</button>}
-              <button ref={launchButton} type="button" className="btn btn-accent create-launch" onClick={() => create()} disabled={switched || !params || unsure || cooling}>{createLabel({ replacing, unsure, failed: !!err && !earlierHash })}{devBuy}</button>
+              {/* (a key held down since before this button had the focus, Enter kept pressed on the other button, presses nothing here) */}
+              <button ref={launchButton} type="button" className="btn btn-accent create-launch" onKeyDown={(e) => { if (e.repeat) e.preventDefault(); }} onClick={() => create()} disabled={switched || !params || unsure || cooling}>{createLabel({ replacing, unsure, failed: !!err && !earlierHash })}{devBuy}</button>
             </div>
           </>
         )}

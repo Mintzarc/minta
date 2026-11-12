@@ -318,11 +318,13 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     putSt(stillHeld(h));
   }, [keepAs]);
   // one run at a time, even if a second click lands before the button shows it's busy
-  const running = useRef(false);
+  // (per action: another account's run, still open in the wallet, does not make this account's press do nothing)
+  const running = useRef(new Set<string>());
+  const me = keepAs ?? '';
   const go = async () => {
-    if (running.current) return;
-    running.current = true;
-    try { await (held ? check(held) : attempt()); } finally { running.current = false; }
+    if (running.current.has(me)) return;
+    running.current.add(me);
+    try { await (held ? check(held) : attempt()); } finally { running.current.delete(me); }
   };
   const done = () => { if (!mine()) return; try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
   const check = async (h: Held) => {
@@ -374,8 +376,9 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   };
   // "start over" reads the chain once more first: only if it still has no such transaction is the button armed again
   const startOver = async (h: Held) => {
-    if (running.current) return;
-    running.current = true;
+    if (running.current.has(me)) return;
+    running.current.add(me);
+    setSt({ kind: 'busy', text: 'Checking…', hash: h.hash, chainId: h.chainId });
     try {
       try {
         await clientFor(h.chainId).getTransactionReceipt({ hash: h.hash });
@@ -388,7 +391,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
       }
       // it is on the chain after all: read as any check would
       await check(h);
-    } finally { running.current = false; }
+    } finally { running.current.delete(me); }
   };
   const attempt = async () => {
     setSt({ kind: 'busy', text: 'Checking…' });

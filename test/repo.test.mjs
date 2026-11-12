@@ -158,16 +158,55 @@ test('every workflow has read-only permissions at the top, runs on a named image
   for (const step of ['npm ci', 'npm run typecheck', 'npm run build', 'npm test', 'npx playwright install --with-deps chromium', 'npm run test:browser']) assert.ok(ci.includes(`- run: ${step}\n`), `CI runs ${step}`);
 });
 
-test('the headers every page is served with are exactly these', () => {
-  const all = JSON.parse(text('vercel.json')).headers.find((h) => h.source === '/(.*)').headers;
-  assert.deepEqual(all, [
-    { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: data:; media-src 'self'; connect-src 'self' https: wss://relay.walletconnect.org; frame-src https://pw-auth.circle.com https://verify.walletconnect.org; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'" },
-    { key: 'X-Frame-Options', value: 'DENY' },
-    { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-    { key: 'X-Content-Type-Options', value: 'nosniff' },
-    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-    { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+test('the headers every page is served with are exactly these: the wide policy everywhere but the mainnet site’s host, the narrow one there', async () => {
+  const csp = await import('../scripts/csp.mjs');
+  const rules = JSON.parse(text('vercel.json')).headers.filter((h) => h.source === '/(.*)');
+  // (the exact-match form of a host condition, as the vercel.json schema has it: a plain string there is read as a pattern)
+  const host = [{ type: 'host', value: { eq: csp.MAINNET_HOST } }];
+  assert.equal(csp.MAINNET_HOST, 'minta.vyrechain.com');
+  assert.deepEqual(rules, [
+    // every host but the mainnet site's (the test network's build is served under this one)
+    { source: '/(.*)', missing: host, headers: [{ key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: data:; media-src 'self'; connect-src 'self' https: wss://relay.walletconnect.org; frame-src https://pw-auth.circle.com https://verify.walletconnect.org; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'" }] },
+    // the mainnet site's host: the narrow policy as the header, for every document there
+    { source: '/(.*)', has: host, headers: [{ key: 'Content-Security-Policy', value: csp.mainnetHeader() }] },
+    { source: '/(.*)', headers: [
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+    ] },
   ]);
+  assert.equal(csp.mainnetHeader(), "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://api.vyrechain.com; media-src 'self'; connect-src 'self' https://rpc.vyrechain.com https://api.vyrechain.com https://explorer.vyrechain.com https://rpc.mainnet.arc.io wss://relay.walletconnect.org https://verify.walletconnect.org; frame-src https://verify.walletconnect.org; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'");
+});
+
+test('a mainnet build configured with its own app API names that API’s origin in its policy; anything but an https address stops the build', async () => {
+  const csp = await import('../scripts/csp.mjs');
+  assert.equal(csp.apiOrigin(undefined), 'https://api.vyrechain.com');
+  assert.equal(csp.apiOrigin(''), 'https://api.vyrechain.com');
+  assert.equal(csp.apiOrigin('https://mine.example.com/api/'), 'https://mine.example.com');
+  assert.equal(csp.apiOrigin('https://mine.example.com:8443'), 'https://mine.example.com:8443');
+  for (const bad of ['http://mine.example.com', 'mine.example.com', 'javascript:alert(1)', 'https://user:pw@mine.example.com', 'https://', '*', 'https://*.example.com', 'https://*', "https://mine.example.com'", "https://'unsafe-inline'", 'https://a b.example', 'https://a;b.example', 'https://[::1]']) assert.throws(() => csp.apiOrigin(bad), /VITE_API_URL/, bad);
+  const p = csp.mainnetPolicy(csp.apiOrigin('https://mine.example.com/api'));
+  assert.match(p, /connect-src 'self' https:\/\/rpc\.vyrechain\.com https:\/\/mine\.example\.com https:\/\/explorer/);
+  assert.match(p, /img-src 'self' data: https:\/\/mine\.example\.com;/);
+  assert.doesNotMatch(p, /api\.vyrechain\.com/, 'the default API is not left in beside it');
+  assert.ok(csp.withMainnetPolicy('<head></head>', 'https://mine.example.com').includes('https://mine.example.com'));
+  const cfg = text('vite.config.ts');
+  assert.match(cfg, /apiFor = apiOrigin\(config\.env\.VITE_API_URL\);\n[^\n]*\n\s*checkHeaderNames\(apiFor, readFileSync\(new URL\('\.\/vercel\.json', import\.meta\.url\), 'utf8'\)\);/);
+  // a build for another API stops unless the header sent on the mainnet site's host names that API too
+  const vercel = text('vercel.json');
+  csp.checkHeaderNames('https://api.vyrechain.com', vercel);
+  csp.checkHeaderNames('https://api.vyrechain.com', 'not json at all'); // (the default needs no look at the file)
+  assert.throws(() => csp.checkHeaderNames('https://mine.example.com', vercel), /does not name it/);
+  assert.throws(() => csp.checkHeaderNames('https://mine.example.com', '{'), /could not be read/);
+  const named = JSON.parse(vercel);
+  const rule = named.headers.find((h) => h.has).headers[0];
+  rule.value = rule.value.replace("img-src 'self' data: https://api.vyrechain.com", "img-src 'self' data: https://api.vyrechain.com https://mine.example.com");
+  assert.throws(() => csp.checkHeaderNames('https://mine.example.com', JSON.stringify(named)), /does not name it/, 'named for pictures only: still stopped');
+  rule.value = rule.value.replace('https://api.vyrechain.com https://explorer', 'https://api.vyrechain.com https://mine.example.com https://explorer');
+  csp.checkHeaderNames('https://mine.example.com', JSON.stringify(named));
+  assert.match(cfg, /handler: \(html\) => \(forMainnet\(\) \? withMainnetPolicy\(html, apiFor\) : html\)/);
 });
 
 // The header above is one for every build, and the test network's build needs its wide lists. A mainnet build adds its own policy
@@ -181,8 +220,8 @@ test('a mainnet build adds a policy that lists the only hosts it talks to, draws
   assert.throws(() => csp.withMainnetPolicy('<html></html>'), /no <head>/);
   const cfg = text('vite.config.ts');
   // decided from the value the app itself is built with (the process environment or an .env file), never from the process environment alone
-  assert.match(cfg, /configResolved\(config\) \{ builtFor = config\.env\.VITE_NETWORK; \}/);
+  assert.match(cfg, /configResolved\(config\) \{\n\s*builtFor = config\.env\.VITE_NETWORK;/);
   assert.doesNotMatch(cfg, /process\.env\.VITE_NETWORK/);
   assert.match(cfg, /plugins: \[react\(\), siteUrlInHtml, mainnetPolicyInHtml\]/);
-  assert.match(cfg, /handler: \(html\) => \(builtFor === 'mainnet' \|\| builtFor === undefined \|\| builtFor === '' \? withMainnetPolicy\(html\) : html\)/);
+  assert.match(cfg, /const forMainnet = \(\) => builtFor === 'mainnet' \|\| builtFor === undefined \|\| builtFor === '';/);
 });
