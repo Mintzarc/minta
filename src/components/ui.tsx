@@ -298,8 +298,8 @@ const stillHeld = (h: Held | null): Status => (h
 const OPEN_RUNS = new Map<string, number>(); // name -> when the run started
 /** How a named action's last run closed, when its own button was not there to show it (drawn for another account by then, or taken
  *  off the page): shown by the buttons drawn for that action from then on, until that action's next run starts, it is started over, or the words are old */
-const CLOSED_UNSEEN = new Map<string, { st: Status; at: number }>();
-/** How long such closing words are still shown: an old line does not sit under a button on later visits */
+const CLOSED_UNSEEN = new Map<string, { st: Status; at: number | null }>(); // at: when a button first showed it
+/** How long such closing words are still shown, counted from when a button first shows them (never from when the run closed: unseen words do not go unseen): an old line does not sit under a button on later visits */
 const CLOSED_SHOWN_MS = 5 * 60_000;
 /** After this long with an earlier run still open, the button adds what to do if the wallet shows no request at all */
 const LONG_OPEN_MS = 3 * 60_000;
@@ -317,14 +317,18 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   const firstFor = (name: string | undefined, h: Held | null): Status => {
     if (name && OPEN_RUNS.has(name)) return STILL_WORKING;
     const kept = name ? CLOSED_UNSEEN.get(name) : undefined;
-    if (name && kept && Date.now() - kept.at >= CLOSED_SHOWN_MS) CLOSED_UNSEEN.delete(name);
-    const closed = kept && Date.now() - kept.at < CLOSED_SHOWN_MS ? kept.st : undefined;
+    const old = !!kept && kept.at !== null && Date.now() - kept.at >= CLOSED_SHOWN_MS;
+    if (name && old) CLOSED_UNSEEN.delete(name);
+    if (kept && kept.at === null) kept.at = Date.now();
+    const closed = kept && !old ? kept.st : undefined;
     // (kept until that action's next run starts: a button can be drawn for an action for a moment and taken away again, as when the
     // account changes, and the words must still be there for the one that stays)
     if (closed) return closed;
     return stillHeld(h);
   };
   const [st, putSt] = useState<Status>(() => firstFor(keepAs, held));
+  const shown = useRef(st); // what this drawing shows
+  shown.current = st;
   // A run belongs to the action (`keepAs`: the account, say) it was pressed for. If the button has become another action's since
   // (the account changed while it ran), the run's result is kept only in storage under its own name: it is never shown, held
   // or reported as done under the other action.
@@ -338,7 +342,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     // (back to idle, as on "start over": nothing of an earlier closing is kept for this action, shown or not)
     if (keepAs && s.kind === 'idle') CLOSED_UNSEEN.delete(keepAs);
     if (mine() && shows.current) { putSt(s); return; }
-    if (keepAs && s.kind !== 'busy' && s.kind !== 'idle') CLOSED_UNSEEN.set(keepAs, { st: s, at: Date.now() });
+    if (keepAs && s.kind !== 'busy' && s.kind !== 'idle') CLOSED_UNSEEN.set(keepAs, { st: s, at: null });
   };
   const setHeld = (h: Held | null) => { writeHeld(keepAs, h); if (mine()) keepHeld(h); };
   // another action under the same button (another account, say): what it holds, if anything
@@ -372,9 +376,10 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     };
     RUN_ENDED.add(ended);
     // (a run that closed between this button's first drawing and this line told nobody: read once more)
-    if (!OPEN_RUNS.has(keepAs)) {
+    if (!OPEN_RUNS.has(keepAs) && shown.current === STILL_WORKING) {
       const h = readHeld(keepAs);
-      putSt((cur) => { if (cur !== STILL_WORKING) return cur; keepHeld(h); return firstFor(keepAs, h); });
+      keepHeld(h);
+      putSt(firstFor(keepAs, h));
     }
     return () => { RUN_ENDED.delete(ended); };
   }, [keepAs]);

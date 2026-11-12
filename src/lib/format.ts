@@ -182,18 +182,22 @@ export function plainLook(s: string): string {
 // (accents and strokes drawn over a letter or a bar go before the bars do, or a struck-through bar would stay)
 // (upright bars, and letters of other scripts drawn as one: Tifinagh, runic, Latin epigraphic, N'Ko, Hebrew vav, Arabic alef)
 const BARS = '|ǀǁǃ∣¦ⵏᛁꟾߊוا';
-const unmarked = (s: string) => ends(s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').trim().replace(/^\p{Lm}+|\p{Lm}+$/gu, '').normalize('NFKC').replace(HIDDEN, '')
+// (first, a character that is not the plain capital I but that NFKC would turn into one or more of them, full-width, a Roman numeral,
+// a mathematical I, becomes a bar: it is drawn to pass as one and is no honest letter of a ticker)
+const drawnI = (s: string) => Array.from(s, (c) => (c !== 'I' && /^I+$/.test(c.normalize('NFKC')) ? '|' : c)).join('');
+const unmarked = (s: string) => ends(drawnI(s).replace(/[\p{So}\p{Sk}\p{No}]/gu, '').trim().replace(/^\p{Lm}+|\p{Lm}+$/gu, '').normalize('NFKC').replace(HIDDEN, '')
   .normalize('NFD').replace(/\p{M}/gu, '').trim());
 
 // Taken off both ends, again and again until nothing more comes off: bars and bar-shaped letters; then letters that draw as a bar
-// beside capitals: a lower-case L at the end ("USDCl"), and the letters of other scripts drawn as a capital I (Greek, Cyrillic,
+// beside capitals: a lower-case L at the end, after two capitals or a bar ("USDCl", not "Mint All"), and the letters of other scripts drawn as a capital I (Greek, Cyrillic,
 // the dotless i and the palochka) at either end of a word of capitals. The plain Latin capital I is a real letter and stays ("Mint AI").
 const BAR_ENDS = new RegExp(`^[${BARS}\\p{Lm}]+|[${BARS}\\p{Lm}]+$`, 'gu');
+const L_AT_END = new RegExp(`(?<=\\p{Lu}{2}|[${BARS}])l+$`, 'u');
 const I_AT_END = new RegExp(`(?<=[\\p{Lu}${BARS}])[ӏӀΙıІ]+$`, 'u');
 const I_AT_START = new RegExp(`^[ӏӀΙıІ]+(?=[\\p{Lu}${BARS}])`, 'u');
 function ends(s: string): string {
   for (let i = 0; i < 8; i++) {
-    const t = s.replace(BAR_ENDS, '').replace(/(?<=[^a-z])l+$/u, '').replace(I_AT_END, '').replace(I_AT_START, '');
+    const t = s.replace(BAR_ENDS, '').replace(L_AT_END, '').replace(I_AT_END, '').replace(I_AT_START, '');
     if (t === s) break;
     s = t;
   }
@@ -209,7 +213,9 @@ export function plainWords(s: string): string[] {
  * A plain note for a token whose ticker or name reads as one of the names people trust here: "Not USDC" (USDC, WUSDC),
  * "Not MINTA’s token" (MINTA, unless the token is `realMinta`), "Not VYRE’s token" (VYRE). '' for every other token.
  */
-export function lookalikeNote(l: { symbol: string; name: string; token?: string | null }, realMinta?: string | null, realVyre?: string | null): string {
+export function lookalikeNote(given: { symbol: string; name: string; token?: string | null }, realMinta?: string | null, realVyre?: string | null): string {
+  // (only the first 300 characters are read: a ticker or name is short, and a huge string must not keep the page busy)
+  const l = { ...given, symbol: given.symbol.slice(0, 300), name: given.name.slice(0, 300) };
   // the whole ticker or name ("U S D C"), and each word of it ("USDC Token", "Real USDC", "USDC.e"); not a longer word ("USDCAT")
   // (each also without marks hung on it: "USDC™", "USDC²", and bars at either end, "USDC|", which would otherwise read as one more letter)
   // ...and each word of it by itself the same way, a word ending at a space or at punctuation: "USDC| Token", "USDC|.e", "USDC|-Token"

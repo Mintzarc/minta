@@ -917,8 +917,10 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await soon(async () => (await card.count()) === 0);
     await pg.evaluate(() => window.__holds[0].fail({ code: -32603, message: 'Request timed out' }));
     await pg.waitForTimeout(600);
+    // (the five minutes run from when the words are first shown: six minutes unseen take nothing away)
+    await pg.clock.fastForward(6 * 60_000);
     await pg.evaluate((a) => window.__switch(a), A);
-    ok(await soon(async () => /didn’t confirm this\. It said: “Request timed out”/.test(await card.innerText().catch(() => ''))), 'the kept closing words are shown when the account comes back');
+    ok(await soon(async () => /didn’t confirm this\. It said: “Request timed out”/.test(await card.innerText().catch(() => ''))), 'the kept closing words are shown when the account comes back, six minutes after the request closed unseen');
     await pg.evaluate((b) => window.__switch(b), B);
     await soon(async () => (await card.count()) === 0);
     await pg.clock.fastForward(4 * 60_000);

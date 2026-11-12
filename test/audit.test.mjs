@@ -605,9 +605,26 @@ test('look-alikes: a bar before punctuation, bar-shaped letters of other scripts
     assert.equal(note(s), '', JSON.stringify(s));
     assert.equal(note('X', s), '', `as a name: ${JSON.stringify(s)}`);
   }
-  // pinned: a lower-case l comes off only after something that is not a lower-case letter; a Latin capital I never does
-  for (const s of ['usdcl', 'Usdcl', 'usdcI', 'MintaI']) assert.equal(note(s), '', JSON.stringify(s));
+  // the capital palochka, the dotless i and the small palochka at the start too
+  for (const s of ['\u04C0USDC', '\u0131USDC', '\u04CFUSDC', 'USDC\u04C0']) assert.equal(note(s), 'Not USDC', JSON.stringify(s));
+  // characters that are not the plain capital I but that NFKC spells as one or more: full-width, Roman numerals, mathematical
+  for (const s of ['USDC\uFF29', 'USDC\u2160', '\u2160USDC', 'USDC\u2162', 'USDC\u{1D408}', '\uFF29USDC\uFF29']) {
+    assert.equal(note(s), 'Not USDC', JSON.stringify(s));
+    assert.equal(note('X', s), 'Not USDC', `as a name: ${JSON.stringify(s)}`);
+  }
+  // pinned: a lower-case l comes off only after two capitals or a bar; a Latin capital I never does
+  for (const s of ['usdcl', 'Usdcl', 'USDcl', 'usdcI', 'MintaI', 'Mint All', 'Mint Al', 'MintAll', 'MINT All']) {
+    assert.equal(note(s), '', JSON.stringify(s));
+    assert.equal(note('X', s), '', `as a name: ${JSON.stringify(s)}`);
+  }
   for (const s of ['USDCl', 'USDCll', 'USDC|l']) assert.equal(note(s), 'Not USDC', JSON.stringify(s));
+  assert.equal(note('MINTAll'), 'Not MINTA’s token');
+  // only the first 300 characters are read: a huge string answers at once
+  const t0 = Date.now();
+  assert.equal(note('|'.repeat(100_000), 'I|'.repeat(50_000)), '');
+  assert.equal(note('X', 'x'.repeat(300) + ' USDC'), '');
+  assert.equal(note('X', 'x'.repeat(290) + ' USDC'), 'Not USDC');
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`);
   // a slash (or other punctuation) inside a word of a longer name makes no protected word
   for (const s of ['Pay USD/C fast', 'Send US.DC now', 'My MIN-TA token', 'A VY/RE thing']) assert.equal(note('X', s), '', s);
   const honest = ['DOGE', 'PEPE', 'SHIB', 'WIF', 'BONK', 'FLOKI', 'MOG', 'TURBO', 'BRETT', 'POPCAT', 'MEW', 'NEIRO', 'GOAT', 'PNUT', 'FART', 'CHAD', 'GIGA', 'SPX', 'TOSHI', 'DEGEN',
