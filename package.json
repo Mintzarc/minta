@@ -2,7 +2,7 @@
   "name": "minta",
   "version": "0.1.0",
   "private": true,
-  "description": "MINTA: launch, trade and explore tokens on VYRE (testnet). A static web app (React, Vite, viem); it keeps no server of its own.",
+  "description": "MINTA: launch, trade and explore tokens on VYRE (mainnet by default; a test network build too). A static web app (React, Vite, viem); it keeps no server of its own.",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@circle-fin/w3s-pw-web-sdk": "1.1.11",
-    "@vyrechain/sdk": "file:vendor/vyrechain-sdk-0.6.0.tgz",
+    "@vyrechain/sdk": "file:vendor/vyrechain-sdk-0.7.1.tgz",
     "@walletconnect/universal-provider": "2.26.0",
     "qrcode-generator": "2.0.4",
     "react": "19.3.0",

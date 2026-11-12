@@ -16,6 +16,7 @@ import TokenArt from './TokenArt';
 import { FACE_ID_OFFERED, kept, useConfirmRequest } from '../lib/faceid';
 import { depositWaitOf, type DepositWait } from '../lib/deposit';
 import { mayStartOver, receiptNotFound } from '../lib/held';
+import { usePlatformWallet } from '../lib/platform';
 import { lookalikeNote, readAs } from '../lib/format';
 
 const WalletIcon = () => (
@@ -125,7 +126,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
             )}
             {available.map((w, i) => (
               <button key={w.id} role="menuitem" type="button" className="wallet-choice" disabled={!!busy || !!again} onClick={() => pick(i)}>
-                {w.icon && <img src={w.icon} alt="" width={20} height={20} />}{w.name}
+                {w.icon && <img src={w.icon} alt="" width={20} height={20} onError={(e) => { e.currentTarget.style.display = 'none'; }} />}{w.name}
               </button>
             ))}
             <button role="menuitem" type="button" className="wallet-choice" disabled={!!busy || !!again || (wcState.kind !== 'idle' && wcState.kind !== 'failed')} onClick={() => { setOpen(false); connectWalletConnect(); }}>WalletConnect</button>
@@ -296,8 +297,15 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   className?: string; onDone?: () => void; keepAs?: string; finalTo?: string; arrived?: (d: DepositWait) => Promise<boolean>;
 }) {
   const [held, keepHeld] = useState<Held | null>(() => readHeld(keepAs));
-  const [st, setSt] = useState<Status>(() => stillHeld(held));
-  const setHeld = (h: Held | null) => { keepHeld(h); writeHeld(keepAs, h); };
+  const [st, putSt] = useState<Status>(() => stillHeld(held));
+  // A run belongs to the action (`keepAs`: the account, say) it was pressed for. If the button has become another action's since
+  // (the account changed while it ran), the run's result is kept only in storage under its own name: it is never shown, held
+  // or reported as done under the other action.
+  const nowAs = useRef(keepAs);
+  nowAs.current = keepAs;
+  const mine = () => nowAs.current === keepAs;
+  const setSt = (s: Status) => { if (mine()) putSt(s); };
+  const setHeld = (h: Held | null) => { writeHeld(keepAs, h); if (mine()) keepHeld(h); };
   // another action under the same button (another account, say): what it holds, if anything
   const keptAs = useRef(keepAs);
   useEffect(() => {
@@ -305,7 +313,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     keptAs.current = keepAs;
     const h = readHeld(keepAs);
     keepHeld(h);
-    setSt(stillHeld(h));
+    putSt(stillHeld(h));
   }, [keepAs]);
   // one run at a time, even if a second click lands before the button shows it's busy
   const running = useRef(false);
@@ -314,7 +322,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     running.current = true;
     try { await (held ? check(held) : attempt()); } finally { running.current = false; }
   };
-  const done = () => { try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
+  const done = () => { if (!mine()) return; try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
   const check = async (h: Held) => {
     const at = { hash: h.hash, chainId: h.chainId };
     setSt({ kind: 'busy', text: 'Checking…', ...at });
@@ -456,4 +464,10 @@ export function ReadAs({ input }: { input: string }) {
 export function NotThat({ l, className = '' }: { l: { symbol: string; name: string; token?: string | null }; className?: string }) {
   const note = lookalikeNote(l, NETWORK.mintaToken);
   return note ? <span className={`not-that ${className}`.trim()}>{note}</span> : null;
+}
+
+/** The platform wallet as the launchpad contract names it now, linked (with a note when the contract couldn't be read) */
+export function PlatformWalletLink() {
+  const { address, note } = usePlatformWallet();
+  return <><AddressLink address={address} />{note && <span className="muted small platform-note"> ({note})</span>}</>;
 }

@@ -38,7 +38,7 @@ Set these when building (`VITE_…` values are public: they end up in the page):
 |---|---|---|
 | VYRE Mainnet (chain ID 3045) or VYRE Testnet (7357) | `https://rpc.vyrechain.com` or `https://testnet-rpc.vyrechain.com` | every read and every transaction |
 | The contracts: on mainnet the launchpad `VyrePadV2`, the pool factory and Uniswap's SwapRouter and QuoterV2 (addresses in `src/lib/padv2.ts`); on the testnet the first launchpad, fee splitter and app router (inside the SDK) | `src/lib/padv2.ts`, the SDK | launching, trading, promoters (testnet only) |
-| `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.6.0.tgz` | chain definition, addresses, typed calls |
+| `@vyrechain/sdk` | `vendor/vyrechain-sdk-0.7.1.tgz` | chain definition, addresses, typed calls |
 | The VYRE app API | `https://api.vyrechain.com` | token pictures (`POST /image`), details files, card checkout links, email sign-in, and the advisory check before a wallet signs (`POST /txcheck`) |
 | The explorer | `https://explorer.vyrechain.com` | links, holder counts, the block at a given time (called from the visitor’s browser) |
 | The faucet (testnet only) | `https://vyrechain.com/faucet` | test USDC |
@@ -62,7 +62,7 @@ MINTA needs the SDK released after that.
 - **Launches can be closed.** The launchpad contract has a switch (`launchesOpen`) its owner sets. While it is off, the Create page
   reads it from the chain and says "Launches open soon" instead of running the wizard; browsing and trading existing tokens is not affected.
 - **Taxes.** On mainnet the wizard limits a creator's tax to 1% to 10% a side (the testnet keeps 0 to 10% until the new launch contract is on it). The creator's tax is the only fee a trader pays; the pad pays a tenth of each payout of it to the platform wallet and the rest to the creator's tax wallets, and the wizard and token page say so in those words. The app sends no partner and no fee of its own with a launch.
-- **The mainnet launchpad is `VyrePadV2`.** The vendored SDK (0.6.0) is written for the first launchpad, so on mainnet `src/lib/padv2.ts` makes the launch, quote, buy and sell calls against the new pad and the SwapRouter (the testnet still uses the SDK's). When an SDK release for the new pad is out, vendor it and replace that file with it. The Create page stays behind the launches-closed notice until the pad's owner opens launches.
+- **The mainnet launchpad is `VyrePadV2`.** The vendored SDK (0.7.1) knows it too, but the app's mainnet calls are still made by `src/lib/padv2.ts` (written when the SDK only knew the first launchpad; the testnet uses the SDK's own calls), with the app's own handling of a sale's approval and of what a wallet answers. Moving mainnet onto the SDK's calls is a change to how money is sent: do it as its own reviewed step. The Create page stays behind the launches-closed notice until the pad's owner opens launches.
 - **The app API must allow the site's address.** Picture upload, launch files and the check before signing are served by
   `api.vyrechain.com`, which answers browsers only from the pages on its allow-list: ask its operator to add the site's address.
 

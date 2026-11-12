@@ -108,7 +108,7 @@ For people: ${SITE}/agents/
 ## Using MINTA from an AI assistant or a script
 
 - The assistant prepares a transaction (target contract, call data, USDC value); the user checks it and signs it in their own wallet. Never ask a user for a private key or seed phrase, and never accept one.
-- Prepare it with viem and the contract calls in llms-full.txt. Install: ${f.sdkInstall}. The SDK supplies the chain definition (vyreMainnet) and USDC helpers; use the contract addresses on this page, not the SDK's older launchpad entries.
+- Prepare it with viem and the contract calls in llms-full.txt. Install: ${f.sdkInstall}. This SDK release knows this launchpad (getAddresses(3045).padVersion is 2): it supplies the chain definition (vyreMainnet), these addresses, USDC helpers and typed launch, buy and sell calls. The first launchpad is kept only under its legacy record: do not use it.
 - Read before writing: check launchesOpen() on the launchpad, simulate the call, show the user the amounts, and set a spend limit.
 - Token pages are hash routes (${SITE}/#/token/<token address>) that need JavaScript; to read a launch use the contracts or the explorer.
 
@@ -163,7 +163,7 @@ MINTA (${SITE}) is a launchpad app on VYRE mainnet (chain ID ${f.chainId}). This
 | Multicall3 | ${f.multicall3} |
 | Platform wallet (a wallet, not a contract) | ${f.platformWallet} |
 
-Source of these addresses: MINTA's own code (${REFERENCE_CODE}: PAD_V2) and the SDK's mainnet record (chain, hosts, WUSDC, Multicall3). The SDK's older launchpad entries (pad, appRouter, feeSplitter) belong to the first launchpad, which mainnet launches no longer use: do not send launches or trades there.
+Source of these addresses: MINTA's own code (${REFERENCE_CODE}: PAD_V2) and the SDK's mainnet record (chain, hosts, WUSDC, Multicall3). The SDK's legacy record (pad, appRouter, feeSplitter) is the first launchpad, which mainnet launches no longer use: do not send launches or trades there.
 
 ## Launch rules (VyrePadV2)
 

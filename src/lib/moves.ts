@@ -92,3 +92,23 @@ export function keepMove(vyreChainId: number, account: string, m: Move, store: K
   }
   return list;
 }
+
+/** How many withdrawals the list reads at most (newest first), and how many paid-out ones it shows beside the unclaimed ones */
+export const WITHDRAWALS_READ = 50;
+export const WITHDRAWALS_SHOWN = 10;
+
+/**
+ * The withdrawals to list: every one not yet paid out (waiting, ready, or not known yet) first, then paid-out ones until
+ * `shown` rows are listed, each group newest first as read. So an unclaimed withdrawal is never pushed off the list by newer ones.
+ */
+export function listWithdrawals<T extends { state?: string }>(rows: readonly T[], shown = WITHDRAWALS_SHOWN): T[] {
+  const open = rows.filter((r) => r.state !== 'claimed');
+  const paid = rows.filter((r) => r.state === 'claimed');
+  return [...open, ...paid.slice(0, Math.max(0, shown - open.length))];
+}
+
+/** Rows just read, each with the state the row with the same key had before (so a button drawn for a row isn't taken away while it is read again) */
+export function carryStates<T extends { state?: string }>(fresh: readonly T[], before: readonly T[] | null, keyOf: (r: T) => string): T[] {
+  const known = new Map((before ?? []).map((r) => [keyOf(r), r.state]));
+  return fresh.map((r) => (r.state === undefined && known.get(keyOf(r)) !== undefined ? { ...r, state: known.get(keyOf(r)) } : r));
+}

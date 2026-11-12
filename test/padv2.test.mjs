@@ -9,7 +9,7 @@ import {
   createPublicClient, createWalletClient, custom, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionResult, getAddress,
   isAddress, parseAbi, parseUnits, toFunctionSelector, zeroAddress, keccak256, toHex,
 } from 'viem';
-import { getAddresses, quoterV2Abi, vyreTokenAbi, vyreMainnet } from '@vyrechain/sdk';
+import { getAddresses, quoterV2Abi, vyrePoolAbi, vyreTokenAbi, vyreMainnet } from '@vyrechain/sdk';
 import * as P from '../src/lib/padv2.ts';
 
 const ME = getAddress('0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
@@ -31,10 +31,11 @@ test('the deployment is eight different, checksummed, non-zero addresses on chai
   assert.equal(P.MAINNET_ID, 3045);
   assert.equal(P.MAINNET_ID, vyreMainnet.id);
   assert.equal(P.PAD_V2.startBlock, 59);
-  // the first launchpad and its fee contracts (in the SDK's record) are not this one
-  const old = getAddresses(3045);
-  for (const k of ['pad', 'poolFactory', 'poolDeployer', 'swapRouter', 'quoter', 'tickLens']) assert.notEqual(P.PAD_V2[k].toLowerCase(), old[k].toLowerCase(), `${k} is the new deployment's, not the first one's`);
-  assert.equal(P.PAD_V2.wusdc, old.wusdc, 'WUSDC is the same token');
+  // the vendored SDK's record for mainnet names the same deployment; the first launchpad (its `legacy` part) is not this one
+  const sdk = getAddresses(3045);
+  assert.equal(sdk.padVersion, 2);
+  for (const k of ['pad', 'poolFactory', 'poolDeployer', 'swapRouter', 'quoter', 'tickLens', 'wusdc']) assert.equal(P.PAD_V2[k].toLowerCase(), sdk[k].toLowerCase(), `${k} is the one the SDK names`);
+  for (const k of ['pad', 'poolFactory', 'poolDeployer', 'swapRouter', 'quoter', 'tickLens']) assert.notEqual(P.PAD_V2[k].toLowerCase(), sdk.legacy[k].toLowerCase(), `${k} is the new deployment's, not the first one's`);
 });
 
 test('the pad’s calls have the contract’s own signatures (selectors taken from VyrePadV2.sol)', () => {
@@ -92,7 +93,7 @@ const HASH = '0x' + 'ab'.repeat(32);
  * `world.calls`: eth_call requests seen (to, data). `world.sent`: transactions the wallet was asked to send, in order.
  * `world.logs`: the receipt's logs for every sent transaction (a function of the transaction). `world.signed`: typed data signed.
  */
-function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null, saleWithPermit = 'ok', permitAlone = 'ok', sendFailsAt = null, receiptLostAfter = null } = {}) {
+function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = () => [], signature = 'ok', launched = null, sendFails = null, saleWithPermit = 'ok', permitAlone = 'ok', sendFailsAt = null, receiptLostAfter = null, feeConfig = 0n } = {}) {
   const chain = vyreMainnet;
   const world = { calls: [], sent: [], signed: [], reads: [] };
   const reads = {
@@ -141,6 +142,11 @@ function stand({ allowance = 0n, quote = 7n * E18, quoteRevert = null, logs = ()
           if (f.functionName === 'tokenOfPool') return encodeFunctionResult({ abi: P.padV2Abi, functionName: 'tokenOfPool', result: eq(f.args[0], POOL) ? TOKEN : zeroAddress });
           if (f.functionName === 'createLaunch') return encodeFunctionResult({ abi: P.padV2Abi, functionName: 'createLaunch', result: [TOKEN, POOL, 0n] });
           return '0x';
+        }
+        if (eq(to, POOL)) {
+          const f = decodeFunctionData({ abi: vyrePoolAbi, data: input });
+          if (f.functionName === 'launchFeeConfig') return encodeFunctionResult({ abi: vyrePoolAbi, functionName: 'launchFeeConfig', result: feeConfig });
+          if (f.functionName === 'buyFee') return encodeFunctionResult({ abi: vyrePoolAbi, functionName: 'buyFee', result: 10000 });
         }
         if (eq(to, P.PAD_V2.swapRouter)) {
           // a sale that carries a permit can be made to revert, or the node to fail, to see what the fallback does
@@ -504,4 +510,30 @@ test('the file imports nothing but viem and the SDK, and names no network servic
   assert.equal(/const (userRejected|realRevert|hasRevertData) =|function (userRejected|realRevert|hasRevertData)\(/.test(src), false, 'one copy of the checks, in walletError.ts');
   assert.doesNotMatch(src, /fetch\(|https?:\/\//, 'no URL and no request of its own');
   assert.doesNotMatch(src, /type\(uint256\)\.max|maxUint256|2n \*\* 256n/, 'no unlimited approval');
+});
+
+// The pool factory's owner can give new pools an early-buy fee window. A quote taken inside it has the fee in it, and the fee only
+// falls: a minimum worked out from that quote guards nothing, so a buy that names no minimum is not sent there.
+test('inside an early-buy fee window a buy that names no minimum is not sent; one that names it, or any buy outside a window, is', async () => {
+  const NOW = 0x6000n; // the stand-in chain's latest block time
+  const config = (openedAt, windowSeconds, startBps) => (openedAt << 32n) | (BigInt(windowSeconds) << 16n) | BigInt(startBps);
+  const logs = () => [log(P.PAD_V2.wusdc, 'Deposit', { dst: P.PAD_V2.swapRouter }, word(E18)), log(TOKEN, 'Transfer', { from: POOL, to: ME }, word(5n * E18))];
+  // in the window
+  const inside = stand({ feeConfig: config(NOW - 2n, 10, 9000), logs });
+  const fee = await P.earlyBuyFee(inside.pc, TOKEN);
+  assert.ok(fee && fee.currentBps > 0 && fee.endsAt === NOW + 8n, 'the fee and the end of its window are read');
+  await assert.rejects(P.buy(inside.wc, inside.pc, { token: TOKEN, usdcIn: E18 }), /early-buy fee \([\d.]+% now\) runs until 24584 .*Give minTokensOut/);
+  await assert.rejects(P.buy(inside.wc, inside.pc, { token: TOKEN, usdcIn: E18, slippageBps: 50 }), /early-buy fee/);
+  assert.equal(inside.world.sent.length, 0, 'nothing was sent');
+  await P.buy(inside.wc, inside.pc, { token: TOKEN, usdcIn: E18, minTokensOut: 3n * E18 });
+  assert.equal(inside.world.sent.length, 1, 'a buy that names its minimum goes through');
+  // the window has ended, or none is set: as before
+  for (const feeConfig of [config(NOW - 10n, 10, 9000), config(NOW - 500n, 10, 9000), config(NOW - 2n, 0, 9000), config(NOW - 2n, 10, 0), 0n]) {
+    const out = stand({ feeConfig, logs });
+    assert.equal(await P.earlyBuyFee(out.pc, TOKEN), null);
+    await P.buy(out.wc, out.pc, { token: TOKEN, usdcIn: E18 });
+    assert.equal(out.world.sent.length, 1);
+  }
+  // not a launch: no fee to read (the quote says what is wrong)
+  assert.equal(await P.earlyBuyFee(inside.pc, getAddress('0x9999999999999999999999999999999999999999')), null);
 });

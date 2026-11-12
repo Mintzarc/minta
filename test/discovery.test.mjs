@@ -41,10 +41,13 @@ test('every address the pages name is one the app or the SDK’s mainnet record 
   }
   for (const [k, v] of Object.entries(P.PAD_V2)) if (k !== 'startBlock') assert.ok(llmsFull.includes(v), `llms-full.txt does not name ${k} ${v}`);
   assert.ok(llmsFull.includes(sdk.wusdc) && llmsFull.includes(vyreMainnet.contracts.multicall3.address));
-  // the SDK’s own pad, router and quoter are the first launchpad’s: never named as places to send a launch or a trade
+  // the first launchpad’s pad, router and quoter are never named as places to send a launch or a trade
   for (const k of ['pad', 'appRouter', 'feeSplitter', 'swapRouter', 'quoter', 'poolFactory', 'poolDeployer', 'tickLens', 'referrals']) {
-    if (Object.values(P.PAD_V2).some((v) => String(v).toLowerCase() === String(sdk[k]).toLowerCase())) continue;
-    for (const file of GENERATED) assert.ok(!read(file).toLowerCase().includes(sdk[k].toLowerCase()), `${file} names the first launchpad’s ${k}`);
+    // (the first launchpad is the SDK's `legacy` record)
+    const first = sdk.legacy?.[k];
+    assert.ok(first, `the SDK's record of the first launchpad has its ${k}`);
+    assert.ok(!Object.values(P.PAD_V2).some((v) => String(v).toLowerCase() === first.toLowerCase()), `${k}: the app does not use the first launchpad's`);
+    for (const file of GENERATED) assert.ok(!read(file).toLowerCase().includes(first.toLowerCase()), `${file} names the first launchpad’s ${k}`);
   }
   assert.equal(f.chainId, 3045);
   assert.equal(f.rpc, 'https://rpc.vyrechain.com');

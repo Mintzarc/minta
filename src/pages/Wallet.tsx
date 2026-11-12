@@ -12,7 +12,7 @@ import { erc20Abi, getAddress, isAddress, zeroAddress, type Address, type EIP119
 import { ARC_CHAIN, VYRE_CHAIN, arc, reason, sourceClient, switchTo, vyre, walletOn } from '../lib/chain';
 import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
-import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
+import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, WITHDRAWALS_READ, carryStates, fromBlockOf, keepMove, listWithdrawals, loadMoves, type Move } from '../lib/moves';
 import { burnSentError } from '../lib/fromchain';
 import { afterApproval, approvalIsIn } from '../lib/walletError';
 import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
@@ -60,19 +60,25 @@ export default function Wallet() {
 
   // the account the balances on screen are for: an answer that comes back for another one is dropped
   const shownFor = useRef<string | null>(null);
+  // the account connected now, whichever render's `load` is running (a button's onDone belongs to the render it was pressed in)
+  const accountNow = useRef(account);
+  accountNow.current = account;
+  const faceIdNow = useRef(!!faceId);
+  faceIdNow.current = !!faceId;
   const load = async () => {
     if (FAUCET_OFFERED) getFaucetStatus().then(setFaucet).catch(() => setFaucet(null));
     else setFaucet(null);
-    const who = account ? account.toLowerCase() : null;
+    const now = accountNow.current;
+    const who = now ? now.toLowerCase() : null;
     setReads((n) => n + 1);
     // another account: the last one's balances go at once, never shown under the new one
     if (shownFor.current !== who) { shownFor.current = who; setUsdc(null); setOnArc(null); }
-    if (!account) return;
+    if (!now) return;
     const mine = <T,>(set: (v: T) => void) => (v: T) => { if (shownFor.current === who) set(v); };
-    usdcBalance(account).then(mine(setUsdc)).catch(() => {});
+    usdcBalance(now).then(mine(setUsdc)).catch(() => {});
     // a Face ID wallet's address on Arc isn't a wallet of its own (yet): nothing to show there
-    if (faceId) setOnArc(null);
-    else arc.getBalance({ address: account }).then(mine(setOnArc)).catch(() => mine(setOnArc)(null));
+    if (faceIdNow.current) setOnArc(null);
+    else arc.getBalance({ address: now }).then(mine(setOnArc)).catch(() => mine(setOnArc)(null));
   };
   useEffect(() => { load(); }, [account]);
 
@@ -81,6 +87,7 @@ export default function Wallet() {
   const prefillMove = async (arrived: bigint) => {
     if (!account) return;
     const onArcNow = await arc.getBalance({ address: account }).catch(() => onArc);
+    if (accountNow.current !== account) return;
     if (onArcNow !== null) setOnArc(onArcNow);
     const room = onArcNow !== null && onArcNow > GAS_ON_ARC ? onArcNow - GAS_ON_ARC : 0n;
     const v = arrived < room ? arrived : room;
@@ -127,7 +134,7 @@ export default function Wallet() {
 
       {!faceId && <div className="card" id="from-arc">
         <h2 className="h3">Bring it from Arc</h2>
-        <p className="small">{IS_TESTNET ? <>Get 20 {USDC_LABEL} at a time from <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a> (pick {ARC_CHAIN.name}), then move it here.</> : <>Move USDC from {ARC_CHAIN.name} here.</>} It arrives in about 3 seconds.</p>
+        <p className="small">{IS_TESTNET ? <>Get 20 {USDC_LABEL} at a time from <a href="https://faucet.circle.com" target="_blank" rel="noopener noreferrer">Circle’s faucet</a> (pick {ARC_CHAIN.name}), then move it here.</> : <>Move USDC from {ARC_CHAIN.name} here.</>} {IS_TESTNET ? 'It arrives in about 3 seconds.' : 'It arrives in a few seconds.'}</p>
         {email && <p className="note small">With an email wallet you confirm the move in Circle’s window, and Circle sends it on Arc. The USDC arrives at the same address on VYRE, where it stays for now: trading it, or moving it back, with an email wallet opens when Circle supports VYRE.</p>}
         {account && (
           <>
@@ -547,9 +554,13 @@ function Promoter({ account }: { account: Address }) {
   const [app, setApp] = useState<{ code: string; status: string } | null | undefined | 'unread'>(undefined);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
-    getPromoter(vyre, account).then(setMine).catch(() => setMine(undefined));
-    isApprovedPromoter(vyre, account).then(setApproved).catch(() => setApproved(null));
-    promoterStatus(account).then(setApp).catch(() => setApp('unread'));
+    // another account: the last one's answers go at once, and its late ones are dropped
+    let live = true;
+    setMine(undefined); setApproved(null); setApp(undefined);
+    getPromoter(vyre, account).then((v) => { if (live) setMine(v); }).catch(() => { if (live) setMine(undefined); });
+    isApprovedPromoter(vyre, account).then((v) => { if (live) setApproved(v); }).catch(() => { if (live) setApproved(null); });
+    promoterStatus(account).then((v) => { if (live) setApp(v); }).catch(() => { if (live) setApp('unread'); });
+    return () => { live = false; };
   }, [account]);
   // an approved code gets the short link; otherwise the wallet link still works (it pays once the wallet is approved)
   const coded = app && app !== 'unread' && app.status === 'approved' && approved;
@@ -589,24 +600,40 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
 
   // the account's withdrawals, and for each whether it's waiting, ready to claim or paid out (one confirmed-count read
   // for all of them, then the Outbox's isSpent for each)
+  // how far back the list looks (about 10 days of blocks at first; "Look further back" widens it), and whether older blocks exist
+  const [back, setBack] = useState(LOOK_BACK_BLOCKS);
+  const [older, setOlder] = useState(false);
+  const [readErr, setReadErr] = useState(false);
+  // the account this card is for now: an answer read for another one is dropped
+  const cardFor = useRef(account);
+  cardFor.current = account;
+  const keyOf = (w: Row) => `${w.hash}-${w.position}`;
   const load = async () => {
+    const mine = account;
+    const live = () => cardFor.current === mine;
     try {
       // the ones this wallet started (anyone can start one paying to any address): filtered as the SDK pages back, so
       // others' can't crowd these out
-      // (from about 10 days back, in a few big pages: on a busy chain a look from the first block would be hundreds of queries)
+      // (in a few big pages: on a busy chain a look from the first block would be hundreds of queries)
       const head = await vyre.getBlockNumber();
-      const list: Row[] = await getWithdrawals(vyre, { destination: account, caller: account, limit: 10, fromBlock: head > LOOK_BACK_BLOCKS ? head - LOOK_BACK_BLOCKS : 0n, pageBlocks: LOOK_PAGE_BLOCKS });
-      setRows(list);
+      const list: Row[] = await getWithdrawals(vyre, { destination: mine, caller: mine, limit: WITHDRAWALS_READ, fromBlock: head > back ? head - back : 0n, pageBlocks: LOOK_PAGE_BLOCKS });
+      if (!live()) return;
+      setOlder(head > back);
+      setReadErr(false);
+      // a row keeps the state it had while it is read again, so a claim button in use is never taken away and drawn anew
+      setRows((before) => listWithdrawals(carryStates(list, before, keyOf)));
       if (!list.length) return;
       const outbox = getAddresses(VYRE_CHAIN.id).rollup!.outbox!;
       const [confirmed, spent] = await Promise.all([
         getConfirmedCount(vyre, arc),
         Promise.all(list.map((w) => arc.readContract({ address: outbox, abi: outboxAbi, functionName: 'isSpent', args: [w.position] }))),
       ]);
-      setRows(list.map((w, i) => ({ ...w, state: spent[i] ? 'claimed' : w.position < confirmed ? 'ready' : 'waiting' })));
-    } catch { setRows((r) => r ?? []); }
+      if (!live()) return;
+      // every one not paid out yet is listed, before the paid-out ones
+      setRows(listWithdrawals(list.map((w, i) => ({ ...w, state: spent[i] ? 'claimed' : w.position < confirmed ? 'ready' : 'waiting' }))));
+    } catch { if (live()) { setReadErr(true); setRows((r) => r ?? []); } }
   };
-  useEffect(() => { load(); }, [account]);
+  useEffect(() => { setRows(null); setReadErr(false); load(); }, [account, back]);
   // check again every minute while one is waiting
   const waiting = !!rows?.some((w) => w.state === 'waiting');
   useEffect(() => { if (!waiting) return; const t = setInterval(load, 60_000); return () => clearInterval(t); }, [waiting, account]);
@@ -633,6 +660,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
             }} />
         </>
       )}
+      {readErr && <p className="err small withdrawals-unread" role="alert">Couldn’t read your withdrawals just now, so some may be missing below. <button type="button" className="linkish small" onClick={() => { setReadErr(false); load(); }}>Try again</button></p>}
       {rows && rows.length > 0 && (
         <ul className="list withdrawals">
           {rows.map((w) => (
@@ -643,7 +671,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
               {w.state === undefined && <span className="muted small">Checking…</span>}
               {w.state === 'ready' && !isEmail && viaWc && <span className="small wc-claim-here">{WC_CLAIM_HERE}</span>}
               {w.state === 'ready' && !isEmail && !viaWc && (
-                <TxButton className="btn btn-accent btn-sm" label="Claim on Arc" onDone={() => { load(); onDone(); }}
+                <TxButton key={`claim:${w.position}:${account.toLowerCase()}`} keepAs={`claim:${w.position}:${account.toLowerCase()}`} className="btn btn-accent btn-sm" label="Claim on Arc" onDone={() => { load(); onDone(); }}
                   run={async (say) => {
                     if (!provider) throw new Error('Connect a wallet first.');
                     say(`Switching your wallet to ${ARC_CHAIN.name}…`);
@@ -657,6 +685,7 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
           ))}
         </ul>
       )}
+      {rows && older && <p className="small muted withdrawals-older">Moves started from this wallet in the last {back.toLocaleString('en-US')} blocks are listed{rows.length ? ', the ones not paid out yet first' : ''}. <button type="button" className="linkish small" onClick={() => setBack((b) => b * 4n)}>Look further back</button></p>}
     </div>
   );
 }

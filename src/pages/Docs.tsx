@@ -5,11 +5,12 @@ import { href } from '../lib/router';
 import { addresses } from '../lib/market';
 import { EXPLORER, VYRE_CHAIN } from '../lib/chain';
 import { NETWORK } from '../lib/network';
-import { PAD_V2 } from '../lib/padv2';
+import { sourceSentence } from '../lib/verified';
+import { usePlatformWallet } from '../lib/platform';
 import { MILESTONE_TEXT } from '../lib/stats';
 import { API_URL } from '../lib/api';
 import { VyreGlyph } from '../components/Brand';
-import { AddressLink } from '../components/ui';
+import { PlatformWalletLink } from '../components/ui';
 import { LIQUIDITY_FACT } from '../lib/facts';
 import './docs.css';
 
@@ -17,7 +18,7 @@ import './docs.css';
 const ART = '/art/';
 /** The app API's host, as the pages call it (the check before signing is one of its routes) */
 const API_HOST = (() => { try { return new URL(API_URL).host; } catch { return API_URL; } })();
-const SDK_FILE = 'https://vyrechain.com/sdk/vyrechain-sdk-0.6.0.tgz';
+const SDK_FILE = 'https://vyrechain.com/sdk/vyrechain-sdk-0.7.1.tgz';
 
 type Section = { id: string; title: string; body: ReactNode; label?: string; nav?: string; art?: string };
 type Article = { slug: string; title: string; intro?: ReactNode; sections: Section[] };
@@ -50,11 +51,13 @@ const Code = ({ children }: { children: string }) => <pre className="code"><code
 
 function ContractTable() {
   const a = addresses();
+  // read from the launchpad contract (its owner can move it); the app's own record while that is on its way or can't be read
+  const platform = usePlatformWallet();
   const rows: [string, string, string][] = NETWORK.testnet ? [
     ['VyrePad', a.pad, 'Launches tokens (one transaction each) and holds every launch’s settings'],
-    ['VyreAppRouter', a.appRouter, 'Buys and sells launch tokens for apps and pays promoters'],
-    ['VyreReferrals', a.referrals, 'Records which promoter brought each wallet'],
-    ['VyreFeeSplitter', a.feeSplitter, 'Splits the platform fee between the platform, partner launchpads and promoters'],
+    ['VyreAppRouter', a.appRouter!, 'Buys and sells launch tokens for apps and pays promoters'],
+    ['VyreReferrals', a.referrals!, 'Records which promoter brought each wallet'],
+    ['VyreFeeSplitter', a.feeSplitter!, 'Splits the platform fee between the platform, partner launchpads and promoters'],
     ['VyrePoolFactory', a.poolFactory, 'Creates launch pools (Uniswap v3 design; only the launchpad adds liquidity)'],
     ['SwapRouter', a.swapRouter, 'Uniswap v3’s router, for these pools'],
     ['QuoterV2', a.quoter, 'Uniswap v3’s quoter: prices a trade without making it'],
@@ -66,7 +69,7 @@ function ContractTable() {
     ['QuoterV2', a.quoter, 'Uniswap v3’s quoter: prices a trade without making it'],
     ['TickLens', a.tickLens, 'Uniswap v3’s tick reader'],
     ['WUSDC', a.wusdc, 'Wrapped USDC, what launch pools trade against'],
-    ['Platform wallet', PAD_V2.platformWallet, 'A wallet, not a contract: where the platform’s tenth of each payout of a launch’s tax goes'],
+    ['Platform wallet', platform.address, `A wallet, not a contract: where the platform’s tenth of each payout of a launch’s tax goes${platform.note ? ` (${platform.note})` : ''}`],
   ];
   return (
     <div className="table-wrap">
@@ -157,7 +160,7 @@ const ARTICLES: Article[] = [
       },
       {
         id: 'opening-price', title: 'The opening price',
-        body: <p>Every launch opens at the same market cap, <b>$3,000</b>. It isn’t a setting. {NETWORK.testnet ? 'The mainnet contract enforces it; the testnet’s contract was deployed before that rule and still accepts other values from a script, so on the testnet it is MINTA and the SDK that hold it.' : 'The launchpad contract enforces it.'} You choose the supply, which sets the price of one token.</p>,
+        body: <p>Every launch opens at about the same market cap, <b>about $3,000</b> (the pool’s opening price is rounded to its price grid, so it opens within about 1% of that). It isn’t a setting. {NETWORK.testnet ? 'The mainnet contract enforces it; the testnet’s contract was deployed before that rule and still accepts other values from a script, so on the testnet it is MINTA and the SDK that hold it.' : 'The launchpad contract enforces it.'} You choose the supply, which sets the price of one token.</p>,
       },
       {
         id: 'steps', title: 'Review, confirm, wait, ready',
@@ -190,7 +193,7 @@ const ARTICLES: Article[] = [
       { id: 'create', title: '1. Create', body: <p>The launch transaction creates the token, its pool and the locked liquidity, and makes your optional first buy.</p> },
       { id: 'trade', title: '2. Trade', body: <p>The token trades at once. Its page shows the price, market cap, volume, holders and the trades as they happen.</p> },
       { id: 'bought-in', title: '3. Bought in', body: <p>A token’s page and card show how much USDC has been bought into its pool, net of sales. Tokens at or above {MILESTONE_TEXT} are listed under “At least {MILESTONE_TEXT} bought in” on the Launchpad. It’s a label for browsing: nothing changes on chain when a token reaches it.</p> },
-      { id: 'manage', title: '4. Manage', body: <p>On the token’s Manage page the creator can collect the tax, lower either tax, split the tax between up to four wallets, update the picture and links, and hand the creator role to another wallet (a two-step handover, so it can’t be sent to the wrong place by mistake).</p> },
+      { id: 'manage', title: '4. Manage', body: <p>On the token’s Manage page the creator can collect the tax, lower either tax, split the tax between up to four wallets, update the picture and links, and hand the creator role to another wallet (a two-step handover, so it can’t be sent to the wrong place by mistake: the offer stays open until the other wallet accepts it or the creator withdraws it).</p> },
     ],
   },
   {
@@ -219,7 +222,7 @@ const ARTICLES: Article[] = [
                 <thead><tr><th>Fee</th><th>Size</th><th>Goes to</th></tr></thead>
                 <tbody>
                   <tr><td><b>Creator’s tax</b></td><td>{NETWORK.minTaxBps / 100}–10% per side</td><td className="wrap">{NETWORK.testnet ? 'The creator, or up to 4 wallets they name' : 'Nine tenths of each payout to the creator’s tax wallets (up to 4 wallets the creator names)'}</td></tr>
-                  {!NETWORK.testnet && <tr><td><b>Platform wallet’s tenth</b></td><td>One tenth of each payout of the tax</td><td className="wrap"><AddressLink address={PAD_V2.platformWallet} /></td></tr>}
+                  {!NETWORK.testnet && <tr><td><b>Platform wallet’s tenth</b></td><td>One tenth of each payout of the tax</td><td className="wrap"><PlatformWalletLink /></td></tr>}
                   {NETWORK.testnet && <tr><td><b>Platform fee</b></td><td>1% of every buy and sell</td><td className="wrap">The platform treasury set in the launchpad contracts {NETWORK.promoters ? '(less a promoter’s share, below)' : ''}</td></tr>}
                   {NETWORK.testnet && <tr><td><b>Partner fee</b></td><td>0–1%, only on launches through a partner launchpad</td><td className="wrap">The partner launchpad</td></tr>}
                   {NETWORK.promoters && <tr><td><b>Promoter share</b></td><td>30% of the platform fee</td><td className="wrap">The promoter who brought the trader, when the trade goes through the app router</td></tr>}
@@ -239,7 +242,7 @@ const ARTICLES: Article[] = [
     slug: 'contracts',
     title: 'Smart contracts',
     sections: [
-      { id: 'addresses', title: NETWORK.testnet ? 'Testnet addresses' : 'Contract addresses', body: <><p>These are the contracts of {NETWORK.label} (chain {VYRE_CHAIN.id}). Click an address to read its source on the explorer.</p><ContractTable /></> },
+      { id: 'addresses', title: NETWORK.testnet ? 'Testnet addresses' : 'Contract addresses', body: <><p>These are the contracts of {NETWORK.label} (chain {VYRE_CHAIN.id}). {NETWORK.testnet ? 'Click an address to open it on the explorer.' : `${sourceSentence()} (Published source is a fact about the code, not a safety check.) A token or pool launched a moment ago may show there as unverified until its source has been matched.`}</p><ContractTable /></> },
       {
         id: 'review-status', title: 'Review status',
         body: <p>The contracts have a large test suite (including trade-by-trade comparisons with Uniswap’s own v3 contracts) and have been through review rounds by the network’s operator, who deployed them. They have <b>not</b> had an outside audit yet. Treat it accordingly.</p>,
@@ -254,7 +257,7 @@ const ARTICLES: Article[] = [
         id: 'install', title: 'Install',
         body: (
           <>
-            <p><code>@vyrechain/sdk</code> is a small TypeScript library on top of viem: the chain definition, the addresses and ABIs, and typed calls for launching, trading and reading launches. Every transaction is simulated before it’s sent, and approvals are for the exact amount. It isn’t on npm yet; it’s served from vyrechain.com:</p>
+            <p><code>@vyrechain/sdk</code> is a small TypeScript library on top of viem: the chain definition, the addresses and ABIs, and typed calls for launching, trading and reading launches. Every transaction is simulated before it’s sent, and approvals are for the exact amount. It is on npm as <code>@vyrechain/sdk</code>, and the same release is served from vyrechain.com:</p>
             <Code>{`npm install ${SDK_FILE} viem`}</Code>
           </>
         ),
@@ -283,7 +286,7 @@ const { token, pool, bought, hash } = await launch(wallet, client, {
     sections: [
       { id: 'apps', title: 'Apps and bots', body: NETWORK.testnet
         ? <p>Trade through the app router with native USDC (no wrapping, no approval to buy), and be your users’ promoter. The router can charge an app fee on top; it is 0 today, and any change is announced on chain 7 days ahead.</p>
-        : <p>Trade with Uniswap v3’s SwapRouter (address above) against the token’s pool: the pool is found by the token, WUSDC and the fee key 10000. To buy, send native USDC with the call (a multicall of the swap and refundETH); to sell, approve the router for the exact amount, or sign a permit, and unwrap the WUSDC you get back. There is no fee on top of the creator’s tax. The SDK served today was written for the first launchpad; a version for this one is being prepared, and until then call the contracts directly.</p> },
+        : <p>Trade with Uniswap v3’s SwapRouter (address above) against the token’s pool: the pool is found by the token, WUSDC and the fee key 10000. To buy, send native USDC with the call (a multicall of the swap and refundETH); to sell, approve the router for the exact amount, or sign a permit, and unwrap the WUSDC you get back. There is no fee on top of the creator’s tax. The SDK release named under “API &amp; SDK” knows this launchpad (its <code>getAddresses(3045).padVersion</code> is 2), so its <code>launch</code>, <code>buy</code> and <code>sell</code> make these calls for you.</p> },
       ...(NETWORK.testnet ? [{ id: 'partners', title: 'Partner launchpads', body: <p>Other launchpads can run on the same contracts under their own brand: launch with your payout address as the partner and a fee of up to 1%. It’s added on top of the creator’s tax and the platform fee (it never comes out of either) and paid to you in USDC. No sign-up or approval is needed.</p> } as Section] : []),
       { id: 'own', title: 'Your own launchpad', body: <p>VYRE is an open EVM chain: anyone can deploy anything, including their own launchpad on a standard, unmodified Uniswap v3.</p> },
     ],

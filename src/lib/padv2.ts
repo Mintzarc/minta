@@ -1,6 +1,6 @@
-// VYRE mainnet's launchpad, VyrePadV2 (chain 3045), as the app talks to it. The vendored SDK (0.6.0) is written for the first
+// VYRE mainnet's launchpad, VyrePadV2 (chain 3045), as the app talks to it. It was written when the vendored SDK only knew the first
 // launchpad (VyrePad) and its app router, which mainnet no longer uses for launches; this file does the same jobs against the
-// new pad and Uniswap's SwapRouter, with the same names and shapes, so the pages call one set of functions on either network
+// new pad and Uniswap's SwapRouter (the SDK's newer releases know this pad too; the app's mainnet calls are still made here), with the same names and shapes, so the pages call one set of functions on either network
 // (lib/pad.ts picks). It sends nothing by itself: every write goes through the SDK's own `sendCall`, which simulates the
 // transaction first and then sends it from the visitor's wallet.
 //
@@ -17,9 +17,9 @@ import {
   encodeFunctionData, getAddress, isAddress, isAddressEqual, parseAbi, parseEventLogs, parseSignature, zeroAddress,
   type Address, type Hash, type Hex, type TransactionReceipt,
 } from 'viem';
-import { getChainId, readContract, signTypedData, simulateContract } from 'viem/actions';
+import { getBlock, getChainId, readContract, signTypedData, simulateContract } from 'viem/actions';
 import {
-  SentButUnconfirmedError, isSmart, quoterV2Abi, sendCall, vyreTokenAbi,
+  SentButUnconfirmedError, decodeLaunchFeeConfig, isSmart, launchFeeBpsAt, quoterV2Abi, sendCall, vyrePoolAbi, vyreTokenAbi,
   type BuyParams, type BuyResult, type Launch, type LaunchParams, type LaunchResult, type ReadClient, type SellParams, type SellResult,
   type TaxWallets, type WalletLike,
 } from '@vyrechain/sdk';
@@ -261,11 +261,37 @@ const noRecipient = (r: Address | undefined, trader: Address) => {
   if (r !== undefined && !sameAddress(r, trader)) throw new Error('this launchpad’s trades go to the trading wallet only');
 };
 
+/**
+ * The early-buy fee a quote taken now has in it: what a buy of this launch pays on top of the creator's tax at the latest block's
+ * time (the pool's own curve, worked out by the SDK's `launchFeeBpsAt`), and when that window ends; null when there is none (no
+ * window set on the pool, or it has ended, or the token is no launch). The pool factory's owner can set such a window for new
+ * pools, with public notice; none is set today.
+ */
+export async function earlyBuyFee(client: ReadClient, token: Address): Promise<{ currentBps: number; endsAt: bigint } | null> {
+  const row = await readContract(client, { address: PAD_V2.pad, abi: padV2Abi, functionName: 'launches', args: [token] });
+  if (row[0] === zeroAddress) return null;
+  const config = await readContract(client, { address: row[0], abi: vyrePoolAbi, functionName: 'launchFeeConfig' });
+  const set = decodeLaunchFeeConfig(config);
+  if (!set.windowSeconds || !set.startBps) return null;
+  const [buyFee, block] = await Promise.all([
+    readContract(client, { address: row[0], abi: vyrePoolAbi, functionName: 'buyFee' }),
+    getBlock(client, { blockTag: 'latest' }),
+  ]);
+  const currentBps = launchFeeBpsAt(config, buyFee, block.timestamp);
+  return currentBps > 0 ? { currentBps, endsAt: set.openedAt + BigInt(set.windowSeconds) } : null;
+}
+
 /** Buys a launch token with native USDC through the SwapRouter (the router wraps it; anything it doesn't spend comes back) */
 export async function buy(wallet: WalletLike, client: ReadClient, p: BuyParams): Promise<BuyResult> {
   if (p.usdcIn <= 0n) throw new Error('usdcIn must be more than 0');
   const account = accountOf(wallet);
   noRecipient(p.recipient, account.address);
+  if (p.minTokensOut === undefined) {
+    // inside an early-buy fee window a quote has the fee in it, and the fee only falls: a minimum made from that quote would accept a
+    // fill many times smaller than the buy is worth a moment later, so it would guard almost nothing. Nothing is sent; the caller names the minimum.
+    const fee = await earlyBuyFee(client, p.token);
+    if (fee) throw new Error(`this launch’s early-buy fee (${fee.currentBps / 100}% now) runs until ${fee.endsAt} (Unix seconds): a quote taken now has it in, and the fee only falls, so a minimum made from the quote would not guard the price. Give minTokensOut (the least you accept), or buy once the window has ended`);
+  }
   const minTokensOut = p.minTokensOut ?? less(nonZero(await quoteBuy(client, p), 'this buy would get no tokens'), p.slippageBps);
   const deadline = p.deadline ?? defaultDeadline();
   const data = [

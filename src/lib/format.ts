@@ -12,14 +12,26 @@ export function amount(v: bigint, places = 4): string {
   return `${w.startsWith('-') ? '-' : ''}${whole}${frac ? `.${frac}` : ''}`;
 }
 
-/** USDC with a $ sign; tiny amounts keep their significant digits */
+// `n` cut (never rounded up) to `d` decimals; the toPrecision pass keeps 1.15 from being read as 1.1499999
+const cut = (n: number, d: number) => Math.trunc(Number((n * 10 ** d).toPrecision(12))) / 10 ** d;
+
+/** USDC with a $ sign; tiny amounts keep their significant digits. Always cut, never rounded up: a total is never shown as more
+ * than it is ($1,995.01 is "$1.99K", not "$2K"), and nothing is printed as an exponent (below a millionth: "<$0.000001") */
 export function usd(n: number): string {
   if (!isFinite(n)) return '—';
   if (n === 0) return '$0';
-  if (Math.abs(n) >= 1000) return `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(n)}`;
-  if (Math.abs(n) >= 1) return `$${n.toFixed(2)}`;
-  if (Math.abs(n) >= 0.01) return `$${n.toFixed(4)}`;
-  return `$${n.toPrecision(3)}`;
+  const a = Math.abs(n), sign = n < 0 ? '-' : '';
+  if (a >= 1000) {
+    const units: [number, string][] = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
+    const [size, letter] = units.find(([u]) => a >= u)!;
+    return `${sign}$${cut(a / size, 2).toLocaleString('en-US', { maximumFractionDigits: 2 })}${letter}`;
+  }
+  if (a >= 1) return `${sign}$${cut(a, 2).toFixed(2)}`;
+  if (a >= 0.01) return `${sign}$${cut(a, 4).toFixed(4)}`;
+  if (a < 1e-6) return `${sign}<$0.000001`;
+  // three significant digits, written out
+  const d = 2 - Math.floor(Math.log10(a));
+  return `${sign}$${cut(a, d).toFixed(d)}`;
 }
 
 /** An 18-decimal USDC amount with a $ sign, like usd() */

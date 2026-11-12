@@ -7,6 +7,10 @@ import fs from 'node:fs';
 import { amountProblem, exact, lookalikeNote, parse, plainLook, readAs, tickerText, tokenText } from '../src/lib/format.ts';
 import { START_OVER_AFTER_MS, mayStartOver, receiptNotFound } from '../src/lib/held.ts';
 import { codeKey, taxWalletsWithCode } from '../src/lib/taxsplit.ts';
+import { usd } from '../src/lib/format.ts';
+import { carryStates, listWithdrawals, WITHDRAWALS_SHOWN } from '../src/lib/moves.ts';
+import { PLATFORM_WALLET_UNREAD, platformWalletShown } from '../src/lib/platformShown.ts';
+import { SOURCE_ON_EXPLORER, sourceSentence, unpublished } from '../src/lib/verified.ts';
 import { NO_BLOCKS, isHidden, setFirstCreators, visibleFeed, visibleLaunches } from '../src/lib/hidden.ts';
 import { TransactionReceiptNotFoundError } from 'viem';
 
@@ -232,7 +236,7 @@ test('someone connected through WalletConnect is told before starting a withdraw
   const startAt = card.indexOf('<TxButton label={value ? `Move ');
   assert.ok(noteAt > 0 && noteAt < startAt, 'the note is above the button that starts the move');
   assert.match(card, /\{w\.state === 'ready' && !isEmail && viaWc && <span className="small wc-claim-here">\{WC_CLAIM_HERE\}<\/span>\}/);
-  assert.match(card, /\{w\.state === 'ready' && !isEmail && !viaWc && \(\n\s*<TxButton className="btn btn-accent btn-sm" label="Claim on Arc"/);
+  assert.match(card, /\{w\.state === 'ready' && !isEmail && !viaWc && \(\n\s*<TxButton key=\{`claim:\$\{w\.position\}:\$\{account\.toLowerCase\(\)\}`\} keepAs=\{`claim:\$\{w\.position\}:\$\{account\.toLowerCase\(\)\}`\} className="btn btn-accent btn-sm" label="Claim on Arc"/);
   const words = read('src/lib/wcstate.ts');
   assert.match(words, /WC_CLAIM_NOTE = '[^']*the claim on Arc, needs a browser wallet with this same account[^']*before you start\.'/);
   assert.match(words, /WC_CLAIM_HERE = '[^']*connect a browser wallet with this same account\.'/);
@@ -241,14 +245,22 @@ test('someone connected through WalletConnect is told before starting a withdraw
 // ---- one account's balances never under another ----
 test('balances are cleared when the account changes and an answer for the last account is dropped (token page, portfolio, wallet page, wrapped USDC)', () => {
   const token = read('src/pages/Token.tsx');
-  assert.match(token, /if \(balFor\.current !== who\) \{ balFor\.current = who; setBal\(null\); \}\n\s*const \[usdc, tokens\] = await Promise\.all\(\[usdcBalance\(account\), tokenBalance\(token, account\)\]\);\n\s*if \(balFor\.current === who\) setBal\(\{ usdc, tokens \}\);/);
+  assert.match(token, /if \(balFor\.current !== who\) \{ balFor\.current = who; setBal\(null\); \}\n\s*const \[usdc, tokens\] = await Promise\.all\(\[usdcBalance\(mine\), tokenBalance\(token, mine\)\]\);\n\s*if \(balFor\.current === who\) setBal\(\{ usdc, tokens \}\);/);
+  // a trade's "after" (and a button's onDone) belongs to the render it was pressed in: the account is read from a ref, never from that closure
+  assert.match(token, /const accountNow = useRef\(account\);\n\s*accountNow\.current = account;\n\s*const refreshBalances = useCallback\(async \(\) => \{\n\s*const mine = accountNow\.current;/);
   const pf = read('src/pages/Portfolio.tsx');
   assert.match(pf, /setUsdc\(null\); setRaw\(null\); setFailed\(''\);\n\s*if \(!account \|\| !ready\) return;\n\s*let live = true;/);
   assert.match(pf, /const held = await usdcBalance\(account\);\n\s*if \(!live\) return;\n\s*setUsdc\(held\);/);
   const wallet = read('src/pages/Wallet.tsx');
   assert.match(wallet, /if \(shownFor\.current !== who\) \{ shownFor\.current = who; setUsdc\(null\); setOnArc\(null\); \}/);
-  assert.match(wallet, /usdcBalance\(account\)\.then\(mine\(setUsdc\)\)/);
-  assert.match(wallet, /arc\.getBalance\(\{ address: account \}\)\.then\(mine\(setOnArc\)\)/);
+  assert.match(wallet, /const now = accountNow\.current;\n\s*const who = now \? now\.toLowerCase\(\) : null;/, 'the Wallet page’s reload reads the account connected now, not the one of the render a button was pressed in');
+  assert.match(wallet, /usdcBalance\(now\)\.then\(mine\(setUsdc\)\)/);
+  assert.match(wallet, /arc\.getBalance\(\{ address: now \}\)\.then\(mine\(setOnArc\)\)/);
+  assert.match(wallet, /if \(accountNow\.current !== account\) return;\n\s*if \(onArcNow !== null\) setOnArc\(onArcNow\);/, 'a transfer that lands after the account changed fills nothing in');
+  // the withdrawals card and the promoter card drop a late answer too
+  assert.match(wallet, /const live = \(\) => cardFor\.current === mine;/);
+  assert.equal((wallet.slice(wallet.indexOf('function CashOut'), wallet.indexOf('function addressProblem')).match(/if \(!live\(\)\) return;/g) || []).length, 2);
+  assert.match(wallet, /getPromoter\(vyre, account\)\.then\(\(v\) => \{ if \(live\) setMine\(v\); \}\)/);
   assert.match(read('src/components/Wrapped.tsx'), /if \(shownFor\.current === who && v !== null\) setHeld\(v\);/);
 });
 
@@ -273,4 +285,139 @@ test('the pages say the tax is paid out as wrapped USDC, show the wallet’s wra
   assert.match(card, /const r = await unwrap\(w, vyre, held\);/);
   // the mainnet wrapped-USDC token is the one the launchpad pays the tax in
   assert.match(read('src/lib/pad.ts'), /wusdc: v2\.PAD_V2\.wusdc,/, 'the SDK is told the launchpad’s own');
+});
+
+// ---- a second review: figures, lists and words ----
+test('a dollar figure is cut, never rounded up, and never printed as an exponent', () => {
+  for (const [n, text] of [[1995.01, '$1.99K'], [9995, '$9.99K'], [9999.99, '$9.99K'], [999.996, '$999.99'], [1e-7, '<$0.000001'], [5e-7, '<$0.000001'], [1234, '$1.23K'], [1.15, '$1.15'], [0.07, '$0.0700'],
+    [0.0123456, '$0.0123'], [0.001234, '$0.00123'], [0.00009999, '$0.0000999'], [1e6, '$1M'], [2500000, '$2.5M'], [1234567890, '$1.23B'], [12.345, '$12.34'], [3000, '$3K'], [1000, '$1K'], [0.0000015, '$0.00000150'], [0, '$0'], [-5.129, '-$5.12']]) {
+    assert.equal(usd(n), text, String(n));
+  }
+  assert.equal(usd(Infinity), '—');
+  assert.equal(usd(NaN), '—');
+});
+
+test('a small token amount is never shown as 0: the quote, the minimum, the balance, the result and the trades table use the short form that keeps it', () => {
+  const token = read('src/pages/Token.tsx');
+  for (const piece of ['{shortAmount(t.usdc, 4)}', '{shortAmount(t.tokens, 0)}', '`${shortAmount(bal.usdc, 4)} USDC` : `${shortAmount(bal.tokens, 2)} ${sym}`', "{shortAmount(shown.out, side === 'buy' ? 2 : 6)}",
+    "At least {shortAmount(min, side === 'buy' ? 2 : 6)}", '`Bought ${shortAmount(r.tokensOut, 2)} ${sym}.`', '`Sold for ${shortAmount(r.usdcOut, 4)} USDC.`']) assert.ok(token.includes(piece), piece);
+  const pf = read('src/pages/Portfolio.tsx');
+  assert.ok(pf.includes('{shortAmount(h.balance, 2)}') && pf.includes("'…' : shortAmount(usdc, 4)}"));
+});
+
+test('the chart starts "All" at the launch’s opening price when every trade is there, and says so when only the latest were read', () => {
+  const chart = read('src/components/PriceChart.tsx');
+  assert.match(chart, /if \(open && open\.price > 0 && !cut && \(!all\.length \|\| open\.time <= all\[0\]\.t\)\) all\.unshift\(\{ t: open\.time, p: open\.price, start: true \}\);/);
+  assert.match(chart, /\{cut \? <p className="muted small chart-cut">Latest \{cut\} trades<\/p> : null\}/);
+  const token = read('src/pages/Token.tsx');
+  assert.match(token, /open=\{stats\?\.openPrice \? \{ price: stats\.openPrice, time: launch\.createdAt \} : undefined\} cut=\{trades && trades\.length >= MAX_TRADES \? MAX_TRADES : undefined\}/);
+  assert.match(read('src/lib/stats.ts'), /openPrice: openPrice\.get\(k\),/);
+});
+
+test('the withdrawals list shows every one not paid out yet before the paid-out ones, and a row keeps its state while it is read again', () => {
+  const row = (n, state) => ({ hash: `0x${n}`, position: BigInt(n), state });
+  const many = [...Array.from({ length: 12 }, (_, i) => row(100 - i, 'claimed')), row(5, 'ready'), row(4, 'waiting'), row(3, undefined)];
+  const shown = listWithdrawals(many);
+  assert.deepEqual(shown.slice(0, 3).map((r) => r.position), [5n, 4n, 3n], 'the unclaimed ones first, however old');
+  assert.equal(shown.length, WITHDRAWALS_SHOWN);
+  assert.ok(shown.slice(3).every((r) => r.state === 'claimed'));
+  const open = Array.from({ length: 14 }, (_, i) => row(i, 'waiting'));
+  assert.equal(listWithdrawals([...open, row(99, 'claimed')]).length, 14, 'every unclaimed one is listed, past the usual length');
+  const key = (r) => `${r.hash}-${r.position}`;
+  const fresh = [row(5, undefined), row(6, undefined)];
+  assert.deepEqual(carryStates(fresh, [row(5, 'ready')], key).map((r) => r.state), ['ready', undefined]);
+  assert.deepEqual(carryStates(fresh, null, key).map((r) => r.state), [undefined, undefined]);
+  const wallet = read('src/pages/Wallet.tsx');
+  const card = wallet.slice(wallet.indexOf('function CashOut'), wallet.indexOf('function addressProblem'));
+  assert.match(card, /limit: WITHDRAWALS_READ, fromBlock: head > back \? head - back : 0n/);
+  assert.match(card, /setRows\(\(before\) => listWithdrawals\(carryStates\(list, before, keyOf\)\)\);/);
+  assert.match(card, /catch \{ if \(live\(\)\) \{ setReadErr\(true\); setRows\(\(r\) => r \?\? \[\]\); \} \}/);
+  assert.match(card, /\{readErr && <p className="err small withdrawals-unread" role="alert">Couldn’t read your withdrawals just now/);
+  assert.match(card, /onClick=\{\(\) => setBack\(\(b\) => b \* 4n\)\}>Look further back<\/button>/);
+});
+
+test('a button’s run belongs to the action it was pressed for: after the account changes, its result is kept under its own name and shown under no other', () => {
+  const ui = read('src/components/ui.tsx');
+  assert.match(ui, /const mine = \(\) => nowAs\.current === keepAs;\n\s*const setSt = \(s: Status\) => \{ if \(mine\(\)\) putSt\(s\); \};\n\s*const setHeld = \(h: Held \| null\) => \{ writeHeld\(keepAs, h\); if \(mine\(\)\) keepHeld\(h\); \};/);
+  assert.match(ui, /const done = \(\) => \{ if \(!mine\(\)\) return; try \{ onDone\?\.\(\); \}/);
+});
+
+test('the platform wallet shown is the chain’s answer; the app’s own record only while reading, or with a note when the chain can’t be read', () => {
+  const REC = '0x' + '11'.repeat(20), CHAIN = '0x' + '22'.repeat(20);
+  assert.deepEqual(platformWalletShown('reading', REC), { address: REC, note: '' });
+  assert.deepEqual(platformWalletShown(CHAIN, REC), { address: CHAIN, note: '' }, 'the chain wins when it differs');
+  assert.deepEqual(platformWalletShown(REC, REC), { address: REC, note: '' });
+  for (const bad of ['failed', '0x', '0x' + '00'.repeat(20), '0x123']) assert.deepEqual(platformWalletShown(bad, REC), { address: REC, note: PLATFORM_WALLET_UNREAD }, bad);
+  assert.match(read('src/lib/platform.ts'), /vyre\.readContract\(\{ address: PAD_V2\.pad, abi: padV2Abi, functionName: 'platformWallet' \}\)/);
+  assert.doesNotMatch(read('src/pages/Token.tsx') + read('src/pages/Docs.tsx'), /PAD_V2\.platformWallet/, 'no page shows the constant by itself');
+  assert.match(read('src/pages/Token.tsx'), /\(<PlatformWalletLink \/>\)/);
+});
+
+test('the docs say "read its source" only while every row of the contract table has its source on the explorer; the terms say no more than that', () => {
+  assert.deepEqual(Object.keys(SOURCE_ON_EXPLORER), ['VyrePadV2', 'VyrePoolFactory', 'SwapRouter', 'QuoterV2', 'TickLens', 'WUSDC']);
+  // the docs table's contract rows are exactly the listed ones
+  const docs = read('src/pages/Docs.tsx');
+  const main = docs.slice(docs.indexOf("] : [\n    ['VyrePadV2'"), docs.indexOf('return (', docs.indexOf("['VyrePadV2'")));
+  assert.deepEqual([...main.matchAll(/^\s*\['([A-Za-z0-9]+)', a\./gm)].map((m) => m[1]), Object.keys(SOURCE_ON_EXPLORER));
+  assert.match(docs, /\$\{sourceSentence\(\)\} \(Published source is a fact about the code, not a safety check\.\) A token or pool launched a moment ago may show there as unverified/);
+  assert.equal(sourceSentence({ A: true, B: true }), 'Click an address to read its source on the explorer.');
+  assert.equal(sourceSentence({ VyrePadV2: false, B: true }), 'Click an address to open it on the explorer. The source of VyrePadV2 is not published there yet.');
+  assert.equal(sourceSentence({ A: false, B: false, C: true }), 'Click an address to open it on the explorer. The source of A and B is not published there yet.');
+  const terms = read('public/terms/index.html');
+  if (unpublished().length) {
+    assert.doesNotMatch(terms, /anyone can read them/, 'a contract without published source: the terms don’t say anyone can read them');
+    assert.match(terms, /anyone can see them, and who owns them, on the/);
+  } else {
+    assert.match(terms, /anyone can read them, and see who owns them, on the|anyone can see them, and who owns them, on the/);
+  }
+  assert.doesNotMatch(docs + terms, /verified (?:and|means|so it is) safe|audited contracts/i);
+});
+
+test('a handover offer can be withdrawn on the page, and the page says it stays open until then', () => {
+  const m = read('src/pages/Manage.tsx');
+  assert.match(m, /An offer does not run out: it stays open until they accept it or you withdraw it\./);
+  assert.match(m, /<TxButton className="btn btn-line btn-sm" label="Withdraw the offer" run=\{run\(\{ functionName: 'offerCreator', args: \[launch\.token, zeroAddress\] \}, 'The offer is withdrawn\.'\)\} \/>/);
+  assert.match(m, /Offered now to <AddressLink address=\{pending\} label=\{pending\} \/>/, 'the whole address');
+  assert.match(m, /&& to\.toLowerCase\(\) !== zeroAddress;/, 'the form itself never offers to the zero address');
+});
+
+test('the opening market cap is "about $3,000" wherever it is stated', () => {
+  const launch = read('src/pages/Launch.tsx');
+  const stated = launch.split('\n').filter((l) => /usd\(Number\(OPENING_MARKET_CAP \/ E18\)\)/.test(l));
+  assert.equal(stated.length, 5);
+  for (const l of stated) assert.match(l, /about \{usd\(Number\(OPENING_MARKET_CAP|about \$\{usd\(Number\(OPENING_MARKET_CAP/, l.trim().slice(0, 90));
+  assert.match(read('src/pages/Docs.tsx'), /opens at about the same market cap, <b>about \$3,000<\/b>/);
+});
+
+test('the developer docs name the vendored SDK release, say it is on npm and that it knows this launchpad', () => {
+  const docs = read('src/pages/Docs.tsx');
+  const file = JSON.parse(read('package.json')).dependencies['@vyrechain/sdk'].replace('file:vendor/', '');
+  assert.match(file, /^vyrechain-sdk-0\.(?:[7-9]|\d\d)\.\d+\.tgz$/, 'a release that knows the new launchpad');
+  assert.ok(docs.includes(`const SDK_FILE = 'https://vyrechain.com/sdk/${file}';`));
+  assert.doesNotMatch(docs, /isn’t on npm yet|is being prepared|written for the first launchpad/);
+  assert.match(docs, /It is on npm as <code>@vyrechain\/sdk<\/code>/);
+  assert.match(docs, /<code>getAddresses\(3045\)\.padVersion<\/code> is 2/);
+  for (const f of ['public/llms.txt', 'public/llms-full.txt', 'public/agents/index.html']) {
+    assert.ok(read(f).includes(file), `${f} names it`);
+    assert.doesNotMatch(read(f), /older launchpad entries/);
+  }
+});
+
+test('words that were the test network’s, or wider than the facts, are gone from the mainnet pages and the store text', () => {
+  assert.match(read('store/android/full-description.txt'), /^- The network fee is paid in USDC: about a twentieth of a cent for a trade, about two cents for a launch\.$/m);
+  assert.match(read('index.html'), /"browserRequirements": "Requires JavaScript and a wallet \(a browser wallet, or a wallet app through WalletConnect\)"/);
+  const terms = read('public/terms/index.html');
+  assert.doesNotMatch(terms, /email/i, 'the mainnet terms describe no email sign-in (it is not offered there)');
+  const wallet = read('src/pages/Wallet.tsx');
+  assert.match(wallet, /\{IS_TESTNET \? 'It arrives in about 3 seconds\.' : 'It arrives in a few seconds\.'\}/);
+  assert.match(read('public/privacy/index.html'), /A token’s picture, description and links load from the app’s picture service \(api\.vyrechain\.com\), which receives the tokens shown and your IP address\./);
+  for (const [f, real] of [['public/terms-testnet/index.html', '/terms/'], ['public/privacy-testnet/index.html', '/privacy/']]) {
+    const t = read(f);
+    assert.match(t, /<meta name="robots" content="noindex">/, `${f} is kept out of search`);
+    assert.match(t, /<title>[^<]*\(test network\) · MINTA<\/title>/);
+    assert.ok(t.includes(`<b>This is the test network’s`) && t.includes(`<a href="${real}">${real}</a>`), `${f} points to the mainnet page`);
+  }
+  assert.match(read('SECURITY.md'), /VYRE Mainnet \(chain 3045\), where the USDC is real/);
+  assert.doesNotMatch(read('SECURITY.md'), /treat the test network as the place to\nfind problems/);
+  assert.doesNotMatch(JSON.parse(read('package.json')).description, /\(testnet\)/);
 });

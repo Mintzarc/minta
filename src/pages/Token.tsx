@@ -12,10 +12,9 @@ import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats
 import { clearRef, href, storedRef, storedRefCode } from '../lib/router';
 import { promoterWallet } from '../lib/api';
 import { NETWORK } from '../lib/network';
-import { PAD_V2 } from '../lib/padv2';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { sendVyreTx, type EmailSession } from '../lib/circle';
-import { AddressLink, ConnectButton, EmailTradeNote, Loading, NotThat, ReadAs, TokenPic, TxButton, useMeta } from '../components/ui';
+import { AddressLink, ConnectButton, EmailTradeNote, Loading, NotThat, PlatformWalletLink, ReadAs, TokenPic, TxButton, useMeta } from '../components/ui';
 import PriceChart from '../components/PriceChart';
 import { BlockedToken, HideToken, useBlocklistState } from '../components/Hidden';
 import { isHidden } from '../lib/hidden';
@@ -25,6 +24,8 @@ import { ReportToken } from '../components/ReportToken';
 import { PERMIT_REFUSED_NOTE, PERMIT_UNSIGNED_NOTE } from '../lib/walletError';
 
 // kept back from a "max" buy so the wallet can still pay gas
+/** The most trades read for the chart and the table (the latest ones) */
+const MAX_TRADES = 300;
 const GAS_RESERVE = 10n ** 16n; // 0.01 USDC
 const FEE_ROOM = 5n * 10n ** 15n; // 0.005 USDC: less than this left, a buy can't pay its fee
 
@@ -74,7 +75,7 @@ export default function Token({ token }: { token: Address }) {
     if (!x || gone.current) return;
     const { l, m } = x;
     await Promise.all([
-      recentTrades(l, m.quoteIsToken0, undefined, 300).then((t) => { setTrades(t); setTradesErr(false); }).catch(() => setTradesErr(true)),
+      recentTrades(l, m.quoteIsToken0, undefined, MAX_TRADES).then((t) => { setTrades(t); setTradesErr(false); }).catch(() => setTradesErr(true)),
       loadStats([{ ...l, index: 0, market: m }]).then((s) => { setStats(s.get(l.pool) ?? null); setStatsErr(false); }).catch(() => setStatsErr(true)),
       loadHolders([l]).then((h) => setHolders(h.get(l.token) ?? null)).catch(() => {}),
     ]);
@@ -113,12 +114,16 @@ export default function Token({ token }: { token: Address }) {
 
   // the account (and token) the balances on screen are for: an answer that comes back for another one is dropped
   const balFor = useRef('');
+  // the account connected now, whichever render's callback is running (a trade's "after" belongs to the render it was pressed in)
+  const accountNow = useRef(account);
+  accountNow.current = account;
   const refreshBalances = useCallback(async () => {
-    const who = account ? `${account.toLowerCase()}:${token.toLowerCase()}` : '';
-    if (!account) { balFor.current = who; setBal(null); return; }
+    const mine = accountNow.current;
+    const who = mine ? `${mine.toLowerCase()}:${token.toLowerCase()}` : '';
+    if (!mine) { balFor.current = who; setBal(null); return; }
     // another account or token: the old balances go at once, never shown under the new one
     if (balFor.current !== who) { balFor.current = who; setBal(null); }
-    const [usdc, tokens] = await Promise.all([usdcBalance(account), tokenBalance(token, account)]);
+    const [usdc, tokens] = await Promise.all([usdcBalance(mine), tokenBalance(token, mine)]);
     if (balFor.current === who) setBal({ usdc, tokens });
   }, [account, token]);
 
@@ -186,7 +191,8 @@ export default function Token({ token }: { token: Address }) {
       <div className="token-grid">
         <div className="left-col">
         {readErr && <p className="err small">{readErr}{market ? ' The figures shown are the last ones read.' : ''}</p>}
-        <PriceChart trades={tradesErr && !trades ? [] : trades} current={market?.price ?? 0} failed={tradesErr && !trades} />
+        <PriceChart trades={tradesErr && !trades ? [] : trades} current={market?.price ?? 0} failed={tradesErr && !trades}
+          open={stats?.openPrice ? { price: stats.openPrice, time: launch.createdAt } : undefined} cut={trades && trades.length >= MAX_TRADES ? MAX_TRADES : undefined} />
         <div className="stats-card">
           <h2 className="h3 span-all">Settings</h2>
           <div><span>Buy tax</span><b>{pct(launch.buyTaxBps)}</b></div>
@@ -202,7 +208,7 @@ export default function Token({ token }: { token: Address }) {
           </div>
           {NETWORK.testnet
             ? <p className="muted small">The tax is paid in USDC. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>
-            : <p className="muted small">The creator’s tax is the only fee a trade pays, in USDC: {pct(launch.buyTaxBps)} on buys and {pct(launch.sellTaxBps)} on sells, between 1% and 10% a side. When the tax is paid out, one tenth of it goes to the platform wallet (<AddressLink address={PAD_V2.platformWallet} />) and the rest to the creator’s tax wallets above, as wrapped USDC (WUSDC), which unwraps to USDC one for one. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>}
+            : <p className="muted small">The creator’s tax is the only fee a trade pays, in USDC: {pct(launch.buyTaxBps)} on buys and {pct(launch.sellTaxBps)} on sells, between 1% and 10% a side. When the tax is paid out, one tenth of it goes to the platform wallet (<PlatformWalletLink />) and the rest to the creator’s tax wallets above, as wrapped USDC (WUSDC), which unwraps to USDC one for one. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>}
         </div>
         </div>
         <TradePanel launch={launch} bal={bal} onVyre={onVyre} account={account} onDone={after} />
@@ -220,8 +226,8 @@ export default function Token({ token }: { token: Address }) {
             {trades.slice(0, 25).map((t) => (
               <tr key={`${t.hash}-${t.tokens}`}>
                 <td className={t.isBuy ? 'buy' : 'sell'}>{t.isBuy ? 'Buy' : 'Sell'}</td>
-                <td>{amount(t.usdc, 4)}</td>
-                <td>{amount(t.tokens, 0)}</td>
+                <td>{shortAmount(t.usdc, 4)}</td>
+                <td>{shortAmount(t.tokens, 0)}</td>
                 <td>{price(t.price)}</td>
                 <td><a href={`${EXPLORER}/tx/${t.hash}`} target="_blank" rel="noopener noreferrer">{t.time ? ago(t.time) : `block ${t.block}`}</a></td>
               </tr>
@@ -297,7 +303,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
           <input inputMode="decimal" autoComplete="off" placeholder="0.0" value={input} onChange={(e) => setInput(e.target.value)} aria-invalid={!!typo} />
           {bal && <button type="button" className="linkish small" onClick={max}>Max</button>}
         </div>
-        {bal && <span className="muted small">Balance: {side === 'buy' ? `${amount(bal.usdc)} USDC` : `${amount(bal.tokens, 2)} ${sym}`}</span>}
+        {bal && <span className="muted small">Balance: {side === 'buy' ? `${shortAmount(bal.usdc, 4)} USDC` : `${shortAmount(bal.tokens, 2)} ${sym}`}</span>}
         {cut && <span className="muted small break exact-amount">Exactly {exact(value!)} {unit}</span>}
       </label>
       <ReadAs input={input} />
@@ -308,8 +314,8 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
         {quoteErr && <p className="err small">{quoteErr}</p>}
         {value && shown && (
           <>
-            <p>You get about <b>{amount(shown.out, side === 'buy' ? 2 : 6)} {outSym}</b></p>
-            <p className="muted small">At least {amount(min, side === 'buy' ? 2 : 6)} {outSym}, or the trade doesn’t go through ({(slippage / 100).toFixed(1)}% leeway for other trades landing first), after the creator’s tax ({pct(side === 'buy' ? launch.buyTaxBps : launch.sellTaxBps)}){launch.partner ? ` and the partner’s ${pct(launch.partnerFeeBps)}` : ''}.</p>
+            <p>You get about <b>{shortAmount(shown.out, side === 'buy' ? 2 : 6)} {outSym}</b></p>
+            <p className="muted small">At least {shortAmount(min, side === 'buy' ? 2 : 6)} {outSym}, or the trade doesn’t go through ({(slippage / 100).toFixed(1)}% leeway for other trades landing first), after the creator’s tax ({pct(side === 'buy' ? launch.buyTaxBps : launch.sellTaxBps)}){launch.partner ? ` and the partner’s ${pct(launch.partnerFeeBps)}` : ''}.</p>
           </>
         )}
         <p className="small slip">Leeway: {[100, 200, 500].map((s) => <button key={s} type="button" className={`chip ${slippage === s ? 'on' : ''}`} onClick={() => setSlippage(s)}>{s / 100}%</button>)}</p>
@@ -333,10 +339,10 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
             say(confirmHint);
             if (side === 'buy') {
               const r = await buy(wallet, vyre, { token: launch.token, usdcIn: value!, minTokensOut: min });
-              return { hash: r.hash, text: `Bought ${amount(r.tokensOut, 2)} ${sym}.` };
+              return { hash: r.hash, text: `Bought ${shortAmount(r.tokensOut, 2)} ${sym}.` };
             }
             const r = await sell(wallet, vyre, { token: launch.token, amountIn: value!, minUsdcOut: min }, (what) => say(what === 'permit-unsigned' ? PERMIT_UNSIGNED_NOTE : PERMIT_REFUSED_NOTE));
-            return { hash: r.hash, text: `Sold for ${amount(r.usdcOut, 4)} USDC.` };
+            return { hash: r.hash, text: `Sold for ${shortAmount(r.usdcOut, 4)} USDC.` };
           }}
         />
       )}

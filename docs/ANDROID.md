@@ -206,6 +206,16 @@ The app opens the site in Chrome's full-screen mode. Chrome on Android has no ex
 - **Exported components (what another app can start).** From the built app's merged manifest: `LauncherActivity` (exported; the launcher and the `https://minta.vyrechain.com` link filter), `ShortcutTrampolineActivity` (exported; the library's activity for home-screen shortcuts), and `androidx.profileinstaller.ProfileInstallReceiver` (exported; an AndroidX component protected by the system's DUMP permission). The file provider, the cold-shortcut activity and the startup provider are not exported.
 - **Can another app make the app open another site?** The library (androidbrowserhelper 2.7.4, read from its compiled classes with `javap`, since no sources jar is published) rejects an incoming address unless it is on a trusted origin (the app's start address and any listed origins) or matches the app's own intent filter (`LauncherActivity.isRejectedIntentUrl`, `isTrustedIntentUrl`, `Utils.isTrustedOrigin`). The only origin listed is minta.vyrechain.com. Even a trusted address opens in Chrome, and Chrome only hides its address bar for a site that Digital Asset Links verifies. Residual risk: `LauncherActivity` and `ShortcutTrampolineActivity` are exported (the launcher and shortcuts need them), so any app can start them; the worst it can do is open a page of minta.vyrechain.com.
 
+### Not done yet: checksums for what the Android build downloads
+
+The release build downloads the Android Gradle plugin, the Trusted Web Activity helper library and what they depend on, by version only, in the same step that holds the upload key. Gradle can check each download against a recorded checksum. The record has to be written by a real build on a machine with the Android SDK, then read and committed:
+
+```
+cd android && ./gradlew --write-verification-metadata sha256 bundleRelease assembleDebug lintDebug
+```
+
+That writes `android/gradle/verification-metadata.xml`; commit it, and from then on a download that does not match stops the build. At the same time `gradlePluginPortal()` can be taken out of `android/settings.gradle` if the build still resolves without it (the Android plugin is on `google()`). Neither was done here: both need a build that this repository's tests cannot run, and a hand-written record would be wrong. Until then, the release job trusts the three repositories named in `settings.gradle`.
+
 ## Part 4: tests and how to run them
 
 | What | Command | Needs |

@@ -28,7 +28,9 @@ function ticks(min: number, max: number): number[] {
   return out;
 }
 
-export default function PriceChart({ trades, current, failed = false }: { trades: Trade[] | null; current: number; failed?: boolean }) {
+/** `open`: the launch's opening price and time, the first point of "All" (so the change is counted from the opening price, not from the
+ * price after the first trade); `cut`: the trades given are only the latest that many, so "All" starts where they start */
+export default function PriceChart({ trades, current, failed = false, open, cut }: { trades: Trade[] | null; current: number; failed?: boolean; open?: { price: number; time: number }; cut?: number }) {
   const [range, setRange] = useState<(typeof RANGES)[number]['key']>('all');
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -36,8 +38,10 @@ export default function PriceChart({ trades, current, failed = false }: { trades
   const pts = useMemo<Pt[]>(() => {
     if (!trades) return [];
     const now = Math.floor(Date.now() / 1000);
-    const all = trades.filter((t) => t.time && t.price > 0).map((t) => ({ t: t.time!, p: t.price, isBuy: t.isBuy })).sort((a, b) => a.t - b.t);
+    const all: Pt[] = trades.filter((t) => t.time && t.price > 0).map((t) => ({ t: t.time!, p: t.price, isBuy: t.isBuy })).sort((a, b) => a.t - b.t);
     const secs = RANGES.find((r) => r.key === range)!.secs;
+    // every trade is here (the list wasn't cut) and the opening is known: the line starts at the opening price
+    if (open && open.price > 0 && !cut && (!all.length || open.time <= all[0].t)) all.unshift({ t: open.time, p: open.price, start: true });
     const from = secs === Infinity ? (all[0]?.t ?? now) : now - secs;
     const inRange = all.filter((x) => x.t >= from);
     const before = all.filter((x) => x.t < from).pop();
@@ -47,7 +51,7 @@ export default function PriceChart({ trades, current, failed = false }: { trades
     out.push(...inRange);
     if (current > 0) out.push({ t: now, p: current });
     return out;
-  }, [trades, range, current]);
+  }, [trades, range, current, open?.price, open?.time, cut]);
 
   const view = useMemo(() => {
     if (pts.length < 2) return null;
@@ -90,6 +94,7 @@ export default function PriceChart({ trades, current, failed = false }: { trades
             {h && <span className="muted small">{h.start ? 'at the start of this range' : h.isBuy === undefined ? 'now' : `${h.isBuy ? 'buy' : 'sell'} · ${ago(h.t)}`}</span>}
           </p>
         </div>
+        {cut ? <p className="muted small chart-cut">Latest {cut} trades</p> : null}
         <div className="chips" role="group" aria-label="Time range">
           {RANGES.map((r) => <button key={r.key} type="button" className={`chip ${range === r.key ? 'on' : ''}`} aria-pressed={range === r.key} onClick={() => setRange(r.key)}>{r.label}</button>)}
         </div>

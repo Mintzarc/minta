@@ -36,7 +36,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
   const TOKEN = viem.getAddress('0x1111111111111111111111111111111111111111');
   const POOL = viem.getAddress('0x2222222222222222222222222222222222222222');
   const CREATOR = viem.getAddress('0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
-  ok(sdk.getAddresses(3045).pad.toLowerCase() !== pad, 'the SDK still lists the first launchpad, which this build does not use');
+  ok(sdk.getAddresses(3045).pad.toLowerCase() === pad && sdk.getAddresses(3045).legacy.pad.toLowerCase() !== pad, 'the vendored SDK names the same launchpad as the app (the first one is only in its legacy record)');
   const multicall = sdk.vyreMainnet.contracts.multicall3.address.toLowerCase();
   const m3 = viem.parseAbi(['function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)']);
 
@@ -310,6 +310,35 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await split.locator('button', { hasText: /^Save the split/ }).click();
     ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1) && await split.locator('.code-wallets').count() === 0, 'a split of ordinary wallets is sent without a second question');
     ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+
+  // ---- the mainnet build carries its own narrower content policy: it reaches the hosts mainnet uses and no other
+  {
+    const { pg, ctx, errs } = await open('#/', true);
+    const csp = await import('../scripts/csp.mjs');
+    const meta = await pg.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content').catch(() => null);
+    ok(meta === csp.mainnetPolicy(), 'the built page has the mainnet policy in its head');
+    const tried = await pg.evaluate(async (urls) => {
+      const blocked = [];
+      document.addEventListener('securitypolicyviolation', (e) => blocked.push(`${e.effectiveDirective} ${e.blockedURI}`));
+      for (const u of urls.fetch) await fetch(u, { method: 'POST', body: '{}' }).catch(() => {});
+      for (const u of urls.img) await new Promise((r) => { const i = new Image(); i.onload = i.onerror = r; i.src = u; setTimeout(r, 1500); });
+      for (const u of urls.frame) { const f = document.createElement('iframe'); f.src = u; document.body.appendChild(f); await new Promise((r) => setTimeout(r, 300)); f.remove(); }
+      try { const w = new WebSocket('wss://elsewhere.example/'); w.onerror = () => {}; } catch { /* refused */ }
+      await new Promise((r) => setTimeout(r, 500));
+      return blocked;
+    }, {
+      fetch: ['https://rpc.vyrechain.com/', 'https://api.vyrechain.com/x', 'https://explorer.vyrechain.com/api/v2/x', 'https://rpc.mainnet.arc.io/', 'https://elsewhere.example/steal', 'https://testnet-rpc.vyrechain.com/', 'https://pulse.walletconnect.org/e'],
+      img: ['https://api.vyrechain.com/i/x.webp', 'https://elsewhere.example/p.png'],
+      frame: ['https://verify.walletconnect.org/x', 'https://pw-auth.circle.com/', 'https://elsewhere.example/f'],
+    });
+    const hit = (dir, host) => tried.some((b) => b.startsWith(dir) && b.includes(host));
+    ok(!hit('connect-src', '//rpc.vyrechain.com') && !hit('connect-src', '//api.vyrechain.com') && !hit('connect-src', '//explorer.vyrechain.com') && !hit('connect-src', '//rpc.mainnet.arc.io'), 'the chain, the app API, the explorer and Arc can be reached: ' + tried.join(' | '));
+    ok(hit('connect-src', 'elsewhere.example/steal') && hit('connect-src', 'testnet-rpc.vyrechain.com') && hit('connect-src', 'pulse.walletconnect.org') && hit('connect-src', 'wss://elsewhere.example'), 'any other host, the test network’s and an unlisted WalletConnect one are refused, a WebSocket too');
+    ok(!hit('img-src', 'api.vyrechain.com') && hit('img-src', 'elsewhere.example'), 'pictures load from the picture service only');
+    ok(!hit('frame-src', 'verify.walletconnect.org') && hit('frame-src', 'pw-auth.circle.com') && hit('frame-src', 'elsewhere.example'), 'the only frame allowed is WalletConnect’s verification: not the email sign-in frame, which mainnet does not offer');
+    ok(errs.filter((e) => !/elsewhere\.example|testnet-rpc|pulse\.walletconnect|pw-auth\.circle/.test(e)).length === 0, 'the page itself asks for nothing the policy refuses' + (errs.length ? ': ' + errs.join(' | ').slice(0, 300) : ''));
     await ctx.close();
   }
 

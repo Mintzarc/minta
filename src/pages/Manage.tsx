@@ -306,11 +306,18 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
 
 function Handover({ launch, pending, run }: { launch: Launch; pending: Address | null; run: Runner }) {
   const [to, setTo] = useState('');
-  const ok = isAddr(to) && to.toLowerCase() !== launch.creator.toLowerCase();
+  // (the zero address is how an offer is withdrawn: the button below does that, by name)
+  const ok = isAddr(to) && to.toLowerCase() !== launch.creator.toLowerCase() && to.toLowerCase() !== zeroAddress;
   return (
     <div className="card">
       <h2 className="h3">Hand it over</h2>
-      <p className="small">Offer the launch (its taxes and settings) to another wallet. It becomes theirs when they accept on this page.{pending ? ` Offered now to ${short(pending)}.` : ''}</p>
+      <p className="small">Offer the launch (its taxes and settings) to another wallet. It becomes theirs when they accept on this page. An offer does not run out: it stays open until they accept it or you withdraw it.</p>
+      {pending && (
+        <div className="note small pending-offer">
+          <p>Offered now to <AddressLink address={pending} label={pending} />. Until you withdraw the offer, that wallet can accept it at any time.</p>
+          <TxButton className="btn btn-line btn-sm" label="Withdraw the offer" run={run({ functionName: 'offerCreator', args: [launch.token, zeroAddress] }, 'The offer is withdrawn.')} />
+        </div>
+      )}
       <label className="field"><span>New creator</span><input className="mono" value={to} onChange={(e) => setTo(e.target.value.trim())} placeholder="0x…" /></label>
       <TxButton className="btn btn-line" label="Offer" disabled={!ok} run={run({ functionName: 'offerCreator', args: [launch.token, to as Address] }, 'Offered.')} />
     </div>

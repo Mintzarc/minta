@@ -34,7 +34,7 @@ MINTA (https://minta.vyrechain.com) is a launchpad app on VYRE mainnet (chain ID
 | Multicall3 | 0x2055A30B00555e7cAd48b1756eac4f917781489b |
 | Platform wallet (a wallet, not a contract) | 0x72938Daaf3c2Fa4bEf722E1263a5766755788392 |
 
-Source of these addresses: MINTA's own code (https://github.com/Mintzarc/minta/blob/main/src/lib/padv2.ts: PAD_V2) and the SDK's mainnet record (chain, hosts, WUSDC, Multicall3). The SDK's older launchpad entries (pad, appRouter, feeSplitter) belong to the first launchpad, which mainnet launches no longer use: do not send launches or trades there.
+Source of these addresses: MINTA's own code (https://github.com/Mintzarc/minta/blob/main/src/lib/padv2.ts: PAD_V2) and the SDK's mainnet record (chain, hosts, WUSDC, Multicall3). The SDK's legacy record (pad, appRouter, feeSplitter) is the first launchpad, which mainnet launches no longer use: do not send launches or trades there.
 
 ## Launch rules (VyrePadV2)
 
@@ -80,7 +80,7 @@ A launch token (standard ERC-20, with EIP-2612 permit):
 
 ## Recipes (viem)
 
-Install: npm install https://vyrechain.com/sdk/vyrechain-sdk-0.6.0.tgz viem
+Install: npm install https://vyrechain.com/sdk/vyrechain-sdk-0.7.1.tgz viem
 
 ```js
 import { createPublicClient, http, encodeFunctionData, parseAbi } from 'viem';

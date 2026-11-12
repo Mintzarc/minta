@@ -334,7 +334,7 @@ export default function Launch() {
                 <legend className="h3">Launch settings <span className="muted small">How your launch works.</span></legend>
                 <dl className="setting-cards">
                   <div><dt>Launch type</dt><dd>Instant</dd><small>One transaction; trading opens at once, with no approval or waiting.</small></div>
-                  <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))}</dd><small>The same for every launch on MINTA.</small></div>
+                  <div><dt>Opening market cap</dt><dd>about {usd(Number(OPENING_MARKET_CAP / E18))}</dd><small>The same for every launch on MINTA; the pool opens within about 1% of it.</small></div>
                   <div><dt>Liquidity</dt><dd>One position</dd><small>{LIQUIDITY_FACT}</small></div>
                 </dl>
                 <label className="field"><span>Dev buy <span className="muted">(optional, USDC)</span></span>
@@ -351,7 +351,7 @@ export default function Launch() {
                 <legend className="h3">Tokenomics <span className="muted small">Supply and tax.</span></legend>
                 <div className="two">
                   <label className="field"><span>Supply (tokens)</span><input inputMode="decimal" value={supply} onChange={(e) => setSupply(e.target.value)} /><small className="muted">1,000 to 1,000,000,000,000,000.</small></label>
-                  <div className="field"><span>Price at launch</span><b className="block">{price(openPrice)}</b><small className="muted">Supply sets the price: {usd(Number(OPENING_MARKET_CAP / E18))} market cap divided by the supply.</small></div>
+                  <div className="field"><span>Price at launch</span><b className="block">about {price(openPrice)}</b><small className="muted">Supply sets the price: about {usd(Number(OPENING_MARKET_CAP / E18))} market cap divided by the supply.</small></div>
                 </div>
                 <div className="field"><span>Your tax on each buy and sale</span>
                   <small className="muted">{creatorTaxLine(TAX_RANGE)}</small>
@@ -389,7 +389,7 @@ export default function Launch() {
                 <dl className="review-list">
                   <div><dt>Token</dt><dd><b>$<bdi>{tokenText(symbol) || '—'}</bdi></b> <bdi>{tokenText(name)}</bdi></dd></div>
                   <div><dt>Supply</dt><dd>{params ? `${exact(params.totalSupply)} tokens` : '—'}</dd></div>
-                  <div><dt>Opening market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))} ({price(openPrice)} a token)</dd></div>
+                  <div><dt>Opening market cap</dt><dd>about {usd(Number(OPENING_MARKET_CAP / E18))} (about {price(openPrice)} a token)</dd></div>
                   <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}, {TAX_GOES}</dd></div>
                   <div><dt>Dev buy</dt><dd>{params?.firstBuyUsdc ? `${exact(params.firstBuyUsdc)} USDC` : 'None'}</dd></div>
                   <div><dt>Picture and links</dt><dd>{meta.useOwn ? (meta.own ? 'Your own file' : 'None') : hasContent(meta.file) || meta.picture ? 'Saved with the launch' : 'None (add them any time)'}</dd></div>
@@ -486,8 +486,8 @@ function Preview({ name, symbol, meta, params, buyTax, sellTax, openPrice, check
         <b>Token Description</b>
         <p className={desc ? 'small' : 'small muted'} dir="auto">{desc || blank}</p>
         <dl className="facts">
-          <div><dt>Price</dt><dd>{price(openPrice)}</dd></div>
-          <div><dt>Market cap</dt><dd>{usd(Number(OPENING_MARKET_CAP / E18))}</dd></div>
+          <div><dt>Price</dt><dd>about {price(openPrice)}</dd></div>
+          <div><dt>Market cap</dt><dd>about {usd(Number(OPENING_MARKET_CAP / E18))}</dd></div>
           <div><dt>Buy / sell tax</dt><dd>{taxText(buyTax)} / {taxText(sellTax)}</dd></div>
           <div><dt>Liquidity</dt><dd>One position</dd></div>
         </dl>
