@@ -45,8 +45,9 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
   const b = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--no-sandbox'] }).catch(() => chromium.launch({ args: ['--no-sandbox'] }));
 
   /** `launchesOpen`: true, false, or 'unreadable' (the read fails). Returns the page, the hosts asked and the errors */
-  const open = async (hash, launchesOpen, viewport = { width: 1440, height: 900 }) => {
+  const open = async (hash, launchesOpen, viewport = { width: 1440, height: 900 }, init = null) => {
     const ctx = await b.newContext({ viewport });
+    if (init) await ctx.addInitScript(init.script, init.arg);
     await ctx.addInitScript(() => { try { window.localStorage.setItem('minta.splash', String(Date.now())); } catch { /* none */ } });
     const hosts = new Set();
     const probe = { launchesReads: 0 }; // how many times the page has asked the stand-in whether launches are open
@@ -66,6 +67,8 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
           return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchesOpen', result: launchesOpen });
         }
         if (call.functionName === 'launchCount') return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'launchCount', result: 0n });
+        // the page's own simulation of a launch passes (whatever stops it after that is the wallet's doing)
+        if (call.functionName === 'createLaunch') return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'createLaunch', result: [TOKEN, POOL, 0n] });
       }
       // a launch on the new pad, to show a token page and a Manage page
       const t = TOKEN.toLowerCase();
@@ -102,7 +105,11 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         if (req.method === 'eth_blockNumber') return { jsonrpc: '2.0', id, result: '0x31' };
         if (req.method === 'eth_getLogs') return { jsonrpc: '2.0', id, result: [] };
         if (req.method === 'eth_getBlockByNumber') return { jsonrpc: '2.0', id, result: { number: '0x31', hash: '0x' + '0b'.repeat(32), timestamp: '0x6000', transactions: [], gasLimit: '0x1c9c380', baseFeePerGas: '0x1' } };
-        if (req.method === 'eth_getBalance') return { jsonrpc: '2.0', id, result: '0x0' };
+        if (req.method === 'eth_getBalance') return { jsonrpc: '2.0', id, result: init ? '0x56bc75e2d63100000' : '0x0' };
+        if (req.method === 'eth_estimateGas') return { jsonrpc: '2.0', id, result: '0x7a120' };
+        if (req.method === 'eth_getTransactionCount') return { jsonrpc: '2.0', id, result: '0x1' };
+        if (req.method === 'eth_gasPrice' || req.method === 'eth_maxPriorityFeePerGas') return { jsonrpc: '2.0', id, result: '0x1' };
+        if (req.method === 'eth_getCode') return { jsonrpc: '2.0', id, result: '0x' };
         if (req.method === 'eth_call') return { jsonrpc: '2.0', id, result: answerCall(req.params[0].to, req.params[0].data || req.params[0].input) };
       } catch { /* falls through to the error */ }
       return { jsonrpc: '2.0', id, error: { code: -32601, message: 'not answered' } };
@@ -226,6 +233,84 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(/1% \/ 10%/.test(review) && /a tenth goes to the platform wallet, the rest to the creator’s tax wallets/.test(review) && !/platform fee|per trade|MINTA fee|Trading fees|10% of every/i.test(review), 'the final review shows the tax, where it goes in words, and no fee sum');
     ok(!BANNED.test(await body(pg)), 'the wizard has no testnet-only wording' + (BANNED.test(await body(pg)) ? ': ' + (await body(pg)).match(BANNED)[0] : ''));
     ok(errs.length === 0, 'nothing throws in the wizard' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+
+  // ---- a launch the wallet was asked to send and did not confirm: the launch button says to check the wallet first and sends nothing;
+  // a separate button says it isn't there; closing and reopening the dialog does not forget it; a double press sends nothing
+  {
+    const A = '0x' + '3c'.repeat(20);
+    const { pg, ctx, errs } = await open('#/launch', true, { width: 1440, height: 900 }, { arg: A, script: (who) => {
+      try { localStorage.setItem('vyre.wallet.mainnet', 'rdns:test.wallet'); localStorage.setItem('vyre.wallet:3045', 'rdns:test.wallet'); } catch { /* none */ }
+      window.__sends = 0;
+      window.__answer = { code: -32603, message: 'Request timed out' };
+      const provider = {
+        request: async ({ method }) => {
+          if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [who];
+          if (method === 'eth_chainId') return '0xbe5';
+          if (method === 'eth_sendTransaction' || method === 'wallet_sendTransaction') { window.__sends++; throw Object.assign(new Error(window.__answer.message), { code: window.__answer.code }); }
+          return null;
+        },
+        on() {}, removeListener() {},
+      };
+      window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'w', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test.wallet' }, provider } })));
+    } });
+    await pg.waitForSelector('.wz', { timeout: 30000 });
+    const toReview = async () => {
+      await pg.click('.wz-step button[type=submit]:has-text("Review")', { timeout: 5000 });
+      await pg.waitForSelector('[role=dialog][aria-labelledby=review-title]', { timeout: 5000 });
+    };
+    await pg.fill('.wz-step input[placeholder="My Token"]', 'My Token');
+    await pg.fill('.wz-step input[placeholder="MYT"]', 'MYT');
+    await pg.click('.wz-next');
+    await pg.fill('.wz-step input[placeholder="0"]', '1'); // a dev buy, so the button's words carry it
+    for (let i = 0; i < 3; i++) await pg.click('.wz-next');
+    await pg.check('.accept-terms input');
+    await toReview();
+    const dlg = pg.locator('[role=dialog][aria-labelledby=review-title]');
+    const main = dlg.locator('button.create-launch');
+    const notThere = dlg.locator('button.not-in-wallet');
+    const sends = () => pg.evaluate(() => window.__sends);
+    const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 20000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+    ok(/^Create token with a 1 USDC dev buy$/.test((await main.innerText()).trim()) && await main.isEnabled(), `the review opens with the launch button on (${await main.innerText()})`);
+    await main.click();
+    ok(await soon(async () => /didn’t confirm this/.test(await dlg.innerText().catch(() => ''))), 'the wallet is asked and does not confirm: the page says it may have gone out');
+    ok(await sends() === 1, 'the wallet was asked once');
+    const said = await dlg.locator('[role=alert]').innerText();
+    ok(/Your wallet didn’t confirm this\. It said: “Request timed out”\. It may still have gone out/.test(said) && !/Nothing was sent/.test(said), `in the cautious words (${said.slice(0, 120)})`);
+    ok((await main.innerText()).trim() === 'Check your wallet first with a 1 USDC dev buy' && await main.isDisabled(), `the launch button says to check the wallet first, keeps the dev buy in its words, and is off (${await main.innerText()})`);
+    ok(await notThere.count() === 1 && /It isn’t in my wallet/.test(await notThere.innerText()), 'and a separate button says it isn’t there');
+    ok(!/Try again/.test(await dlg.innerText()), 'nothing offers “Try again”');
+    // pressing the launch button now (forced: it is off) sends nothing
+    await main.click({ force: true }).catch(() => {});
+    await pg.keyboard.press('Enter');
+    ok(await sends() === 1, 'pressing the launch button sends nothing');
+    // closing the dialog every way, and opening it again: still unsettled, still nothing sent
+    for (const close of [() => pg.keyboard.press('Escape'), () => dlg.locator('button:has-text("Back to details")').click(), () => pg.locator('.overlay').dispatchEvent('mousedown')]) {
+      await close();
+      await soon(async () => (await dlg.count()) === 0);
+      if (await dlg.count()) await dlg.locator('button:has-text("Back to details")').click();
+      await toReview();
+      ok(await main.isDisabled() && /^Check your wallet first/.test((await main.innerText()).trim()) && await notThere.count() === 1 && /didn’t confirm this/.test(await dlg.innerText()), 'closed and reopened: still “Check your wallet first”, with the words and the separate button');
+    }
+    ok(await sends() === 1, 'and nothing more was sent');
+    // the deliberate press, twice in a row and with Enter held: the launch button comes back, but nothing is sent by those presses
+    await notThere.dblclick();
+    await pg.keyboard.press('Enter');
+    await pg.keyboard.press('Enter');
+    await main.click({ force: true }).catch(() => {});
+    ok(await sends() === 1, 'a double press on “It isn’t in my wallet” (and Enter after it) sends nothing');
+    ok(await dlg.count() === 1 && await notThere.isDisabled() && /didn’t confirm this/.test(await dlg.innerText()), 'the dialog, the words and that button stay in place for a moment (the second press lands on nothing else)');
+    ok(/^Try again with a 1 USDC dev buy$/.test((await main.innerText()).trim()), `the launch button's words change at once, dev buy and all (${await main.innerText()})`);
+    ok(await main.isDisabled(), 'and the launch button is off for a moment after that press');
+    ok(await soon(async () => main.isEnabled()), 'then it is on again');
+    ok(await notThere.count() === 0, 'and the “It isn’t in my wallet” button is gone');
+    await pg.evaluate(() => { window.__answer = { code: 4001, message: 'User rejected the request.' }; });
+    await main.click();
+    ok(await soon(async () => (await sends()) === 2), 'a deliberate press on the launch button after that asks the wallet again');
+    ok(await soon(async () => /Cancelled in your wallet/.test(await dlg.innerText().catch(() => ''))), 'a refusal reads as a cancel');
+    ok(await notThere.count() === 0 && await main.isEnabled() && /^Try again/.test((await main.innerText()).trim()), 'and after a plain cancel the button is an ordinary “Try again” (nothing may have gone out)');
+    ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }
 

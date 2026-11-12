@@ -14,7 +14,7 @@ import { ago, amount, amountProblem, exact, parse, short } from '../lib/format';
 import { usdcBalance } from '../lib/market';
 import { LOOK_BACK_BLOCKS, LOOK_PAGE_BLOCKS, fromBlockOf, keepMove, loadMoves, type Move } from '../lib/moves';
 import { burnSentError } from '../lib/fromchain';
-import { afterApproval } from '../lib/walletError';
+import { afterApproval, approvalIsIn } from '../lib/walletError';
 import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
 import { FAUCET_OFFERED, IS_TESTNET, NETWORK, USDC_LABEL } from '../lib/network';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
@@ -265,15 +265,11 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
       if (/is a contract on Arc/.test(m)) throw new Error('Your address is a contract on Arc, so USDC minted to it could be stuck there. Use a plain wallet.');
       if (/may not be yours/.test(m)) throw new Error(`This is a smart-contract wallet on ${from.name}; the same address on Arc may not be yours, so MINTA won’t send there. Use a plain wallet.`);
       if (/has no ETH on/.test(m)) throw new Error(`You need a little Sepolia ETH on ${from.name} to pay for gas.`);
-      // the approval went through and the transfer did not (or was not confirmed): the page says both. The SDK reports the transfer
-      // step only after a few more reads, so when it stopped between the two the allowance itself says whether the approval is in
-      if (approval.asked && !approval.mined && messenger) {
-        try {
-          const allowed = await sourceClient(from.id).readContract({ address: from.usdc, abi: erc20Abi, functionName: 'allowance', args: [account, messenger] });
-          approval.mined = allowed >= burned;
-        } catch { /* not readable now: the error is shown as it is */ }
-      }
-      if (approval.mined) throw afterApproval(e, 'transfer', 'the button');
+      // the approval went through and the transfer did not (or was not confirmed): the page says both (lib/walletError.ts, approvalIsIn)
+      const read = () => (messenger
+        ? sourceClient(from.id).readContract({ address: from.usdc, abi: erc20Abi, functionName: 'allowance', args: [account, messenger] })
+        : Promise.reject(new Error('no transfer contract')));
+      if (await approvalIsIn({ asked: approval.asked, reachedNext: approval.mined, error: e, read, needed: burned })) throw afterApproval(e, 'transfer', 'the button');
       throw e;
     }
   };

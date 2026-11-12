@@ -7,7 +7,7 @@ import { SentButUnconfirmedError, operationIn, type LaunchParams } from '@vyrech
 import { LAUNCH_LIMITS, checkLaunchParams, getLaunch, launch, vyrePadAbi } from '../lib/pad';
 import { getAddress, isAddress, isAddressEqual, parseEventLogs, type Hash, type TransactionReceipt } from 'viem';
 import { EXPLORER, reason, vyre } from '../lib/chain';
-import { createLabel, sendUnconfirmed } from '../lib/walletError';
+import { AFTER_CHECK_MS, createLabel, sendUnconfirmed } from '../lib/walletError';
 import { amountProblem, exact, iso, parse, pct, percentBps, plainText, price, short, tokenText, usd } from '../lib/format';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
@@ -76,6 +76,10 @@ let unconfirmed: Sent | null = null;
 type Launched = { token: Address; hash: string; symbol: string };
 let launched: Launched | null = null;
 let inWallet = false;
+/** Wallets that were asked to send a launch and did not confirm it (it may have gone out), with the words shown for it. Kept here,
+ * outside the dialog, per creator wallet: closing the dialog (Escape, a click outside, Back to details) and opening it again does
+ * not forget it. Cleared only by the person saying it isn't in their wallet, or by a launch from that wallet being sent or confirmed. */
+const unsureLaunch = new Map<string, string>();
 /** A Face ID launch put aside on this page (checked from another wallet): it may still go through, so the form says so
  * and asks before launching again */
 type Aside = { symbol: string; sender: string };
@@ -518,12 +522,15 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
   const gate = useTokenGate();
   const [step, setStep] = useState<Step>(sent ? 'wait' : 'review');
   const [note, setNote] = useState(sent ? 'Sent. Waiting for it to be confirmed…' : '');
-  const [err, setErr] = useState('');
+  // the wallet this dialog is for was asked to send a launch and did not confirm it (see unsureLaunch): nothing is sent from here
+  // until the person says it isn't in their wallet (a separate button), and for a moment after that press
+  const who = creator.toLowerCase();
+  const [unsure, setUnsure] = useState(() => unsureLaunch.has(who));
+  const [cooling, setCooling] = useState(false);
+  const coolUntil = useRef(0);
+  const [err, setErr] = useState(() => unsureLaunch.get(who) ?? '');
   // an earlier Face ID transaction found to have gone through: its link, beside the message
   const [earlierHash, setEarlierHash] = useState('');
-  // 'ask': the wallet was asked to send the launch and did not confirm it (it may have gone out): the button says to check the wallet
-  // first, and that press sends nothing ('armed'); only the next one sends
-  const [unsure, setUnsure] = useState<'no' | 'ask' | 'armed'>('no');
   // the picture-and-links file couldn't be saved: offer to launch without it (the API never holds a launch up)
   const [fileFailed, setFileFailed] = useState(false);
   // a check found no receipt yet: offer to start over, for a launch that never reached the chain
@@ -633,13 +640,25 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
     else setErr('The token page isn’t showing yet. Check again in a moment: checking doesn’t create another token.');
   };
 
+  /** The deliberate press: the wallet was looked at and the launch isn't there. The launch button comes back, after a moment. */
+  const notInWallet = () => {
+    if (cooling) return;
+    unsureLaunch.delete(who);
+    setUnsure(false);
+    // the words and this button stay where they are for that moment, so a second press lands on nothing else
+    coolUntil.current = Date.now() + AFTER_CHECK_MS;
+    setCooling(true);
+    setTimeout(() => setCooling(false), AFTER_CHECK_MS);
+  };
+
   const create = async (withFile = true) => {
     if (!params || inWallet) return;
+    // a launch this wallet may already have sent, or a press that came with the one that cleared it: nothing is sent
+    if (unsureLaunch.has(who) || Date.now() < coolUntil.current) return;
     // with a launch sent and not confirmed, only one taking its place (and only from the wallet that sent it)
     const place = replacing && sent?.op ? { sender: sent.op.sender as Address, nonce: BigInt(sent.op.nonce), fromBlock: BigInt(sent.op.fromBlock) } : null;
     if (sent && !place) return;
     setErr('');
-    setUnsure('no');
     setEarlierHash('');
     setFileFailed(false);
     if (place && (!faceId || !account || !isAddressEqual(account, place.sender))) {
@@ -683,6 +702,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
       setNote(faceId ? 'Confirm the launch with Face ID.' : 'Approve the launch in your wallet.');
       const r = await launch(w, vyre, { ...params, metadataURI });
       launched = { token: r.token, hash: r.hash, symbol: params.symbol };
+      unsureLaunch.delete(who);
       inWallet = false;
       keep();
       // (in the first one's place: it can't run now, and the record of that place was crossed out when this was mined)
@@ -694,6 +714,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
       await checkPage(r.token);
     } catch (e) {
       if (e instanceof SentButUnconfirmedError) {
+        unsureLaunch.delete(who);
         // it was sent: never offer to send it again, only to check it (the page keeps it too, if this closes)
         // (in the first one's place: the same place in the sequence, so checking this one finds whichever ran)
         const o = e.userOperation ? e.operation : undefined;
@@ -718,7 +739,7 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
       }
       setStep((s) => (s === 'wait' ? s : 'review'));
       setErr(reason(e));
-      setUnsure(sendUnconfirmed(e) ? 'ask' : 'no');
+      if (sendUnconfirmed(e)) { unsureLaunch.set(who, reason(e)); setUnsure(true); }
       if (x && x.earlier === true && typeof x.hash === 'string') {
         setEarlierHash(x.hash);
         // it was a launch (from another tab, say): shown rather than another created (read before it was crossed out)
@@ -772,9 +793,11 @@ function Review({ params, meta, creator, openPrice, sent, onSent, onClose }: {
             {fileFailed && <p className="small">You can create it now without them, and add the picture, description and links later on its Manage page.</p>}
             <div className="row dialog-actions">
               <button type="button" className="btn btn-line" onClick={() => onClose()}>Back to details</button>
-              {fileFailed && <button type="button" className="btn btn-line" onClick={() => create(false)} disabled={switched || !params}>Create without picture and links{devBuy}</button>}
-              {/* after a send the wallet did not confirm, the first press only arms the button (the wallet is to be checked first) */}
-              <button type="button" className="btn btn-accent" onClick={() => (unsure === 'ask' ? setUnsure('armed') : create())} disabled={switched || !params}>{createLabel({ replacing, unsure, failed: !!err && !earlierHash })}{unsure === 'no' ? devBuy : ''}</button>
+              {fileFailed && <button type="button" className="btn btn-line" onClick={() => create(false)} disabled={switched || !params || unsure || cooling}>Create without picture and links{devBuy}</button>}
+              {/* after a send the wallet did not confirm, the launch button is off and says to check the wallet; a separate button
+                  says it isn't there, and the launch button comes back a moment later (so no double press can send) */}
+              {(unsure || cooling) && <button type="button" className="btn btn-line not-in-wallet" onClick={notInWallet} disabled={cooling}>It isn’t in my wallet</button>}
+              <button type="button" className="btn btn-accent create-launch" onClick={() => create()} disabled={switched || !params || unsure || cooling}>{createLabel({ replacing, unsure, failed: !!err && !earlierHash })}{devBuy}</button>
             </div>
           </>
         )}

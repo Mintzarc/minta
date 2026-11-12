@@ -71,11 +71,21 @@ function attached(d: unknown, depth = 0): string {
  *  or may be anything at all: it counts only next to a node's "execution reverted".) */
 export const hasRevertData = (d: unknown): boolean => /^0x(?:08c379a0|4e487b71)/.test(attached(d));
 
+/** A wallet that wraps its node's answer puts it under `data` (or `data.originalError`): {code: 3, message: 'execution reverted',
+ *  data: '0x…'}. That inner answer is the node's own, so its code 3 or its "execution reverted" counts, whatever hex is beside it
+ *  (a contract's own 4-byte error, say). */
+function saysRevert(d: unknown, depth = 0): boolean {
+  if (!d || typeof d !== 'object' || depth > 3) return false;
+  const o = d as { code?: unknown; message?: unknown; data?: unknown; originalError?: unknown };
+  if (o.code === 3 || (typeof o.message === 'string' && /^execution reverted/i.test(o.message.trim()))) return true;
+  return saysRevert(o.data, depth + 1) || saysRevert(o.originalError, depth + 1);
+}
+
 /** True when a call really reverted on the chain's own terms: the node answered "execution reverted" (code 3, or in so many words),
  *  or gave Solidity's own revert data. A node that could not be reached, or answered with an internal error and nothing else (or with
  *  some other hex attached), did not say that. */
 export function realRevert(e: unknown): boolean {
-  for (const x of links(e)) if (x.code === 3 || hasRevertData(x.data) || x.name === 'ContractFunctionZeroDataError') return true;
+  for (const x of links(e)) if (x.code === 3 || hasRevertData(x.data) || saysRevert(x.data) || x.name === 'ContractFunctionZeroDataError') return true;
   // in words: only the node's or wallet's own answer counts (the library's wrappers say "reverted" for any failure, and repeat the
   // call's arguments)
   const a = answer(e);
@@ -206,12 +216,38 @@ export const PERMIT_UNSIGNED_NOTE = 'Your wallet couldn’t sign the permit, so 
 export const PERMIT_REFUSED_NOTE = 'This token doesn’t take a permit, so your wallet is asking for an approval of exactly this amount first, then the sale. Confirm both in your wallet.';
 
 /**
- * The launch dialog's main button. After a send the wallet did not confirm (`unsure` 'ask') it does not offer to try again: it
- * says to check the wallet first, and that press sends nothing; only the next one ('armed') does.
+ * The launch dialog's main button. While a send the wallet did not confirm is unsettled for this wallet (`unsure`), it sends
+ * nothing and says to check the wallet first, whatever else is going on (a launch taking another's place too): only a separate,
+ * deliberate "It isn't in my wallet" press brings the ordinary label back.
  */
-export function createLabel(o: { replacing: boolean; unsure: 'no' | 'ask' | 'armed'; failed: boolean }): string {
+export function createLabel(o: { replacing: boolean; unsure: boolean; failed: boolean }): string {
+  if (o.unsure) return 'Check your wallet first';
   if (o.replacing) return 'Create it in its place';
-  if (o.unsure === 'ask') return 'Check your wallet first';
-  if (o.unsure === 'armed') return 'It isn’t in my wallet: create token';
   return o.failed ? 'Try again' : 'Create token';
+}
+
+/** How long the launch button stays off after "It isn't in my wallet" is pressed: a double press, or a held key, sends nothing */
+export const AFTER_CHECK_MS = 1500;
+
+/**
+ * Whether the approval asked for in this press is on the chain, when the press then failed with `error`. `reachedNext`: the next
+ * step (the transfer) had begun, which only happens once the approval is mined. Before that, an error that is the approval's own
+ * (the wallet's answer to it, a refusal, a transaction sent and unread, or replaced) says nothing certain about it, so the answer
+ * is no: the error is shown as the approval's. Otherwise something else failed after the approval was asked for, and the allowance
+ * itself is read (`read`, given a short time): the approval is in if it covers `needed`.
+ */
+export async function approvalIsIn(o: { asked: boolean; reachedNext: boolean; error: unknown; read: () => Promise<unknown>; needed: bigint; timeoutMs?: number }): Promise<boolean> {
+  if (!o.asked) return false;
+  if (o.reachedNext) return true;
+  const name = (o.error as Link | null)?.name;
+  if (fromSendStep(o.error) || userRejected(o.error) || name === 'SentButUnconfirmedError' || name === 'TransactionReplacedError') return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const got = await Promise.race([o.read(), new Promise<null>((r) => { timer = setTimeout(() => r(null), o.timeoutMs ?? 4000); })]);
+    return typeof got === 'bigint' && got >= o.needed;
+  } catch {
+    return false; // not readable now: the error is shown as it is
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
