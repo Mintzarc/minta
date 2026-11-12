@@ -6,13 +6,14 @@ import { getFaceIdAddresses, sendCall, type Launch, type WalletLike } from '@vyr
 import { getLaunch, LAUNCH_LIMITS, launchContractsAmong, launchpadContracts, vyrePadAbi } from '../lib/pad';
 import { vyre } from '../lib/chain';
 import { NETWORK } from '../lib/network';
-import { isAddr, pct, short, tokenText } from '../lib/format';
+import { isAddr, pct, short, tickerText, tokenText } from '../lib/format';
 import { addresses, readLaunchFile, type Meta } from '../lib/market';
-import { loweredTaxes, refusedForSplit, splitBps, taxSplitProblem } from '../lib/taxsplit';
+import { codeKey, loweredTaxes, refusedForSplit, splitBps, taxSplitProblem, taxWalletsWithCode } from '../lib/taxsplit';
 import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
-import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton } from '../components/ui';
+import { AddressLink, ConnectButton, EmailTradeNote, Loading, NotThat, TokenPic, TxButton } from '../components/ui';
 import { BlockedToken, useTokenGate } from '../components/Hidden';
+import { WrappedUsdc } from '../components/Wrapped';
 import { LaunchFileFields, emptyLaunchFile, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
 import { API_URL, hasContent, saveLaunchFile, withUploadedPicture, type LaunchFile } from '../lib/api';
 
@@ -39,6 +40,8 @@ async function padTx(wallet: WalletLike, call: PadCall): Promise<Hash> {
 export default function Manage({ token }: { token: Address }) {
   const { account, onVyre, confirmHint } = useWallet();
   const emailCantTrade = useEmailCantTrade();
+  // bumped after each transaction sent from here, so the wallet's wrapped USDC is read again
+  const [reads, setReads] = useState(0);
   const gate = useTokenGate();
   const [launch, setLaunch] = useState<Launch | null | undefined>(undefined);
   const [wallets, setWallets] = useState<Split | null>(null);
@@ -83,7 +86,7 @@ export default function Manage({ token }: { token: Address }) {
   const isOffered = !!account && !!pending && getAddress(account) === getAddress(pending);
   const run = (call: PadCall, text: string) => async (say: (t: string) => void) => {
     const w = await onVyre(); say(confirmHint);
-    const hash = await padTx(w, call); load(); return { hash, text };
+    const hash = await padTx(w, call); load(); setReads((n) => n + 1); return { hash, text };
   };
 
   return (
@@ -92,7 +95,7 @@ export default function Manage({ token }: { token: Address }) {
         <TokenPic uri={launch.metadataURI} symbol={launch.symbol} token={launch.token} size={56} />
         <div>
           <p className="eyebrow">Manage</p>
-          <h1 className="token-title"><bdi>{tokenText(launch.name)}</bdi> <span className="muted">$<bdi>{tokenText(launch.symbol)}</bdi></span></h1>
+          <h1 className="token-title"><bdi>{tokenText(launch.name)}</bdi> <span className="muted">$<bdi>{tickerText(launch.symbol, launch.token)}</bdi></span> <NotThat l={launch} /></h1>
           <p className="small muted">Creator <AddressLink address={launch.creator} /> · <a href={href({ page: 'token', token })}>Trade page</a></p>
         </div>
       </div>
@@ -113,9 +116,10 @@ export default function Manage({ token }: { token: Address }) {
 
       <div className="card">
         <h2 className="h3">Collect the tax</h2>
-        <p className="small">Sends the tax collected so far, in USDC, to {!wallets ? 'the wallets its tax goes to (the creator, unless the tax is split)' : wallets.wallets.length ? 'the tax wallets below' : 'the creator'}. Anyone can press it; the money only goes there.{!NETWORK.testnet && ' A tenth of what is collected goes to the platform wallet first.'}</p>
-        {account && <TxButton className="btn btn-line" label="Collect" run={run({ functionName: 'collectCreatorFees', args: [token] }, 'Collected.')} />}
+        <p className="small">Sends the tax collected so far to {!wallets ? 'the wallets its tax goes to (the creator, unless the tax is split)' : wallets.wallets.length ? 'the tax wallets below' : 'the creator'}. Anyone can press it; the money only goes there. It arrives as wrapped USDC (WUSDC), a token that holds USDC one for one: whoever receives it can unwrap it to USDC here or on the Wallet page.{!NETWORK.testnet && ' A tenth of what is collected goes to the platform wallet first.'}</p>
+        {account && <TxButton className="btn btn-line" label="Collect" run={run({ functionName: 'collectCreatorFees', args: [token] }, 'Collected, as wrapped USDC.')} />}
       </div>
+      {account && <WrappedUsdc account={account} again={reads} />}
 
       {isCreator && (
         <>
@@ -182,6 +186,10 @@ function SplitEditor({ launch, current, run }: { launch: Launch; current: Split;
   const refused = refusedForSplit(addresses(), faceIdContracts(), [vyre.chain?.contracts?.multicall3?.address, launch.pool, launch.token, ...launchpadContracts()]);
   const bps = splitBps(rows);
   const problem = taxSplitProblem(rows, refused);
+  // wallets found to be contracts at the last save press, and the set the creator has said yes to
+  const [coded, setCoded] = useState<string[]>([]);
+  const [yes, setYes] = useState('');
+  const asking = coded.filter((a) => rows.some((r) => r.addr.toLowerCase() === a.toLowerCase()));
   return (
     <>
       {rows.map((r, i) => (
@@ -194,11 +202,21 @@ function SplitEditor({ launch, current, run }: { launch: Launch; current: Split;
       ))}
       {rows.length < 4 && <button type="button" className="linkish small" onClick={() => setRows([...rows, { addr: '', share: '' }])}>Add a wallet</button>}
       {problem && <p className="err small">{problem}</p>}
+      {!problem && asking.length > 0 && (
+        <label className="check small code-wallets"><input type="checkbox" checked={yes === codeKey(asking)} onChange={(e) => setYes(e.target.checked ? codeKey(asking) : '')} />
+          <span>{asking.map((a) => short(a)).join(', ')} {asking.length > 1 ? 'are contracts' : 'is a contract'}, not {asking.length > 1 ? 'ordinary wallets' : 'an ordinary wallet'}. A multi-signature wallet such as a Safe is fine; a contract that can’t move wrapped USDC on would keep the tax for good. Tick this if you control {asking.length > 1 ? 'them' : 'it'}, then save again.</span></label>
+      )}
       <TxButton className="btn btn-line" label={problem ? 'Save the split' : `Save the split: ${bps.map(pct).join(' / ')}`} disabled={!!problem}
         run={async (say) => {
           // a pool or token of any launch (not only this one's) could never pay the tax out again: read from the launchpad before anything is signed
           const hits = await launchContractsAmong(vyre, rows.map((r) => r.addr));
           if (hits.length) throw new Error('That’s a launch’s pool or token, not a wallet: tax sent there would be lost. Nothing was sent.');
+          // a wallet with code is a contract: asked about once more before it is saved (not refused: a Safe is a contract too)
+          let found: string[];
+          try { found = await taxWalletsWithCode((a) => vyre.getCode({ address: a as Address }), rows.map((r) => r.addr)); }
+          catch { throw new Error('Couldn’t check the wallets on VYRE just now, so nothing was sent. Try again in a moment.'); }
+          setCoded(found);
+          if (found.length && yes !== codeKey(found)) throw new Error(`${found.length > 1 ? 'Some of these wallets are contracts' : 'One of these wallets is a contract'}. Nothing was sent: read the note above the button, tick it if that’s right, and save again.`);
           return run({ functionName: 'setTaxWallets', args: [launch.token, rows.map((r) => getAddress(r.addr as Address)), bps] }, 'Saved.')(say);
         }} />
     </>
@@ -231,7 +249,8 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
       return { file: { description: m.description, image: m.imageLink, links }, own: ours ? '' : uri, useOwn: false };
     };
     // a file that isn't one of ours and can't be read here stays the creator's own: its link is kept as it is
-    const asOwn = () => ({ ...emptyLaunchFile(), own: uri, useOwn: true });
+    // (where the pages don't read a file on another site, there is no "own file" mode: the fields start empty and the note below says what saving does)
+    const asOwn = () => ({ ...emptyLaunchFile(), own: uri, useOwn: NETWORK.outsideFiles });
     setRead('reading');
     readLaunchFile(uri, attempt > 0).then(
       (m) => { if (!live) return; setState(m ? fromFile(m) : uri && !ours ? asOwn() : emptyLaunchFile()); setRead('ready'); },
@@ -262,7 +281,7 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
           {uri && !ours && !state.useOwn && (
             <p className="small muted">This launch’s file is kept on another site ({/^https:\/\//.test(uri)
               ? <a className="mono break" href={uri} target="_blank" rel="noopener noreferrer">{uri}</a>
-              : <span className="mono break">{uri}</span>}). Saving the fields puts a new file in its place, kept by the service that keeps launch files; to keep using your own file, change it there and save its link under “Your own file (advanced)”.</p>
+              : <span className="mono break">{uri}</span>}). Saving the fields puts a new file in its place, kept by the service that keeps launch files{NETWORK.outsideFiles ? '; to keep using your own file, change it there and save its link under “Your own file (advanced)”' : ': MINTA does not load a file from another site here, so its picture, description and links are not shown until you save them in the fields'}.</p>
           )}
           <LaunchFileFields value={state} onChange={(v) => { setTouched(true); setState(v); }} />
           {uri && !state.useOwn && emptied && <p className="small">Nothing here would be kept in a file, so saving removes the launch’s picture, description and links.</p>}
@@ -288,11 +307,18 @@ function Metadata({ launch, run }: { launch: Launch; run: Runner }) {
 
 function Handover({ launch, pending, run }: { launch: Launch; pending: Address | null; run: Runner }) {
   const [to, setTo] = useState('');
-  const ok = isAddr(to) && to.toLowerCase() !== launch.creator.toLowerCase();
+  // (the zero address is how an offer is withdrawn: the button below does that, by name)
+  const ok = isAddr(to) && to.toLowerCase() !== launch.creator.toLowerCase() && to.toLowerCase() !== zeroAddress;
   return (
     <div className="card">
       <h2 className="h3">Hand it over</h2>
-      <p className="small">Offer the launch (its taxes and settings) to another wallet. It becomes theirs when they accept on this page.{pending ? ` Offered now to ${short(pending)}.` : ''}</p>
+      <p className="small">Offer the launch (its taxes and settings) to another wallet. It becomes theirs when they accept on this page. An offer does not run out: it stays open until they accept it or you withdraw it.</p>
+      {pending && (
+        <div className="note small pending-offer">
+          <p>Offered now to <AddressLink address={pending} label={pending} />. Until you withdraw the offer, that wallet can accept it at any time.</p>
+          <TxButton className="btn btn-line btn-sm" label="Withdraw the offer" run={run({ functionName: 'offerCreator', args: [launch.token, zeroAddress] }, 'The offer is withdrawn.')} />
+        </div>
+      )}
       <label className="field"><span>New creator</span><input className="mono" value={to} onChange={(e) => setTo(e.target.value.trim())} placeholder="0x…" /></label>
       <TxButton className="btn btn-line" label="Offer" disabled={!ok} run={run({ functionName: 'offerCreator', args: [launch.token, to as Address] }, 'Offered.')} />
     </div>

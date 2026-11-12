@@ -98,7 +98,7 @@ The principle: say Yes to sharing wherever MINTA is not sure a recipient is only
 | The transaction check (on api.vyrechain.com) | wallet address, destination, call data and USDC amount of a transaction, just before the wallet asks to sign; it asks GoPlus about the other addresses only |
 | GoPlus (address security) | the addresses in a transaction other than the user's own, and the check service's server address (never the user's IP or address) |
 | rpc.mainnet.arc.io (Arc's public RPC) | IP address and wallet address (balance and withdrawal status on the Wallet page) |
-| Where a token's creator chose (an https host, or ipfs.io when the link is ipfs://) | IP address, when a token's details load from there |
+| A site a token's creator chose for its details (an https host, or IPFS) | Nothing: the app (a mainnet build) names that site on the token's page and loads nothing from it. Only the test network's build loads such a file (from that host, or from ipfs.io for an ipfs:// link) |
 | Trust Wallet (link.trustwallet.com) | IP address, only if the user presses "Open in Trust Wallet" or "Open Trust Wallet" (the second also carries the WalletConnect pairing address) |
 | WalletConnect relay (relay.walletconnect.org) and verification service (verify.walletconnect.org, a hidden frame the library opens at each connect or sign request; the library also lists verify.walletconnect.com as an alternative address, which MINTA does not choose and the page's security policy does not allow as a frame), run by Reown | IP address, MINTA's WalletConnect project ID, the pairing and MINTA's web address, and the encrypted messages between the page and the wallet app, when the user connects with WalletConnect, and again on later visits while a saved connection exists in the app's browser storage. MINTA starts the library with its usage reporting off (verified against the real relay: no request to its usage-reporting host). |
 
@@ -205,6 +205,16 @@ The app opens the site in Chrome's full-screen mode. Chrome on Android has no ex
 - **Content security policy.** `vercel.json` is one static file for every build of the site, so its `frame-src https://pw-auth.circle.com` (the window Circle's email sign-in opens) stays; the mainnet app never opens it (email sign-in is off there, and the sign-in service is not asked). Removing it would need a separate CSP for the test network's build.
 - **Exported components (what another app can start).** From the built app's merged manifest: `LauncherActivity` (exported; the launcher and the `https://minta.vyrechain.com` link filter), `ShortcutTrampolineActivity` (exported; the library's activity for home-screen shortcuts), and `androidx.profileinstaller.ProfileInstallReceiver` (exported; an AndroidX component protected by the system's DUMP permission). The file provider, the cold-shortcut activity and the startup provider are not exported.
 - **Can another app make the app open another site?** The library (androidbrowserhelper 2.7.4, read from its compiled classes with `javap`, since no sources jar is published) rejects an incoming address unless it is on a trusted origin (the app's start address and any listed origins) or matches the app's own intent filter (`LauncherActivity.isRejectedIntentUrl`, `isTrustedIntentUrl`, `Utils.isTrustedOrigin`). The only origin listed is minta.vyrechain.com. Even a trusted address opens in Chrome, and Chrome only hides its address bar for a site that Digital Asset Links verifies. Residual risk: `LauncherActivity` and `ShortcutTrampolineActivity` are exported (the launcher and shortcuts need them), so any app can start them; the worst it can do is open a page of minta.vyrechain.com.
+
+### Not done yet: checksums for what the Android build downloads
+
+The release build downloads the Android Gradle plugin, the Trusted Web Activity helper library and what they depend on, by version only, in the same step that holds the upload key. Gradle can check each download against a recorded checksum. The record has to be written by a real build on a machine with the Android SDK, then read and committed:
+
+```
+cd android && ./gradlew --write-verification-metadata sha256 bundleRelease assembleDebug lintDebug
+```
+
+That writes `android/gradle/verification-metadata.xml`; commit it, and from then on a download that does not match stops the build. At the same time `gradlePluginPortal()` can be taken out of `android/settings.gradle` if the build still resolves without it (the Android plugin is on `google()`). Neither was done here: both need a build that this repository's tests cannot run, and a hand-written record would be wrong. Until then, the release job trusts the three repositories named in `settings.gradle`.
 
 ## Part 4: tests and how to run them
 

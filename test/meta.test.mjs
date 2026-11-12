@@ -14,12 +14,13 @@ const API = 'https://api.vyrechain.com';
 const HASH = 'ab'.repeat(32);
 
 /** market.ts as the app builds it, its imports from the app stood in (`api` is the picture service's address it is built with) */
-function market(api = API) {
+function market(api = API, outsideFiles = true) {
   const src = fs.readFileSync(new URL('../src/lib/market.ts', import.meta.url), 'utf8');
   const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const stubs = {
     './chain': { vyre: {} },
     './api': { API_URL: api },
+    './network': { NETWORK: { outsideFiles } },
     './picture': picture,
     './pad': { getLaunches: async () => [] },
     '@vyrechain/sdk': { getAddresses: () => ({}), getLaunches: async () => [], readLogsSplitting: async () => [], vyreTestnet: { id: 7357 }, vyreTokenAbi: [] },
@@ -171,4 +172,32 @@ test('readLaunchFile says when a file couldn’t be read, apart from a launch wi
   assert.equal(await m.metaOf(uri), null, 'the failure is kept for a while');
   assert.equal((await m.readLaunchFile(uri, true))?.description, 'back', 'but “Try again” reads it again at once');
   assert.equal((await m.metaOf(uri))?.description, 'back', 'and then everything shows it');
+});
+
+// On mainnet a launch's file on another site is the creator's own: reading it would send every visitor to a site its creator picked.
+test('where outside files are not read (mainnet), only a file the app API keeps is fetched; another is named by its host and never asked for', async () => {
+  const m = market(API, false);
+  const kept = `${API}/m/${'cd'.repeat(32)}.json`;
+  const asked = serve({ [kept]: { description: 'kept', links: {} }, 'https://evil.example/f.json': { description: 'outside', links: {} } });
+  assert.equal((await m.metaOf(kept)).description, 'kept');
+  assert.equal(m.outsideFile(kept), null);
+  for (const [uri, host] of [['https://evil.example/f.json', 'evil.example'], ['ipfs://bafyabc/f.json', 'IPFS'], [`${API}/m/short.json`, new URL(API).hostname], [`${API}/i/${'cd'.repeat(32)}.json`, new URL(API).hostname], ['https://api.vyrechain.com.evil.example/m/' + 'cd'.repeat(32) + '.json', 'api.vyrechain.com.evil.example'], ['javascript:alert(1)', '']]) {
+    assert.equal(m.outsideFile(uri), host, uri);
+    assert.equal(await m.readLaunchFile(uri), null, `${uri} reads as no file`);
+    assert.equal(await m.metaOf(uri), null);
+  }
+  assert.deepEqual(asked, [kept], 'only the kept file was fetched');
+  assert.equal(m.outsideFile(''), null);
+  // where they are read (the test network), nothing changes
+  const t = market(API, true);
+  const asked2 = serve({ 'https://other.example/f.json': { description: 'outside', links: {} } });
+  assert.equal(t.outsideFile('https://other.example/f.json'), null);
+  assert.equal((await t.metaOf('https://other.example/f.json')).description, 'outside');
+  assert.deepEqual(asked2, ['https://other.example/f.json']);
+  // the build is set that way, and the token page says where the file is without a link to it
+  const net = fs.readFileSync(new URL('../src/lib/network.ts', import.meta.url), 'utf8');
+  assert.match(net, /testnet: \{[\s\S]*?outsideFiles: true[\s\S]*?mainnet: \{[\s\S]*?outsideFiles: false/);
+  const page = fs.readFileSync(new URL('../src/pages/Token.tsx', import.meta.url), 'utf8');
+  assert.match(page, /outsideFile\(launch\.metadataURI\) !== null && <p className="muted small outside-file">[^\n]*kept on another site/);
+  assert.doesNotMatch(page.split('\n').find((l) => l.includes('outside-file')), /href=/);
 });

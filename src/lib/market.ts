@@ -5,7 +5,8 @@ import { getAddresses, readLogsSplitting, vyreTokenAbi, type Launch } from '@vyr
 import { getLaunches } from './pad';
 import { VYRE_CHAIN, vyre } from './chain';
 import { API_URL } from './api';
-import { shownPicture } from './picture';
+import { NETWORK } from './network';
+import { outsideFileHost, shownPicture } from './picture';
 
 const poolAbi = parseAbi([
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
@@ -92,7 +93,8 @@ export interface Trade {
 const blockTimes = new Map<bigint, number>();
 
 /** The pool's latest swaps (every router), newest first, with block times */
-export async function recentTrades(launch: Launch, quoteIsToken0: boolean, blocksBack = 200_000n, max = 25): Promise<Trade[]> {
+/** `windowed` on the answer: the read began after the launch was made (a chain longer than `blocksBack`), so older trades may be missing */
+export async function recentTrades(launch: Launch, quoteIsToken0: boolean, blocksBack = 200_000n, max = 25): Promise<Trade[] & { windowed?: boolean }> {
   const latest = await vyre.getBlockNumber();
   const fromBlock = latest > blocksBack ? latest - blocksBack : 0n;
   const logs = await readLogsSplitting((lo, hi) => vyre.getLogs({ address: launch.pool, event: swapEvent, fromBlock: lo, toBlock: hi }), fromBlock, latest);
@@ -113,7 +115,13 @@ export async function recentTrades(launch: Launch, quoteIsToken0: boolean, block
   const times = await Promise.all(blocks.map((b) => blockTimes.get(b) ?? vyre.getBlock({ blockNumber: b })
     .then((x) => { const t = Number(x.timestamp); blockTimes.set(b, t); return t; }).catch(() => undefined)));
   const at = new Map(blocks.map((b, i) => [b, times[i]]));
-  return trades.map((t) => ({ ...t, time: at.get(t.block) }));
+  const out: Trade[] & { windowed?: boolean } = trades.map((t) => ({ ...t, time: at.get(t.block) }));
+  if (fromBlock > 0n) {
+    // did the window start after the launch? (unknown counts as yes: the chart then claims no opening point)
+    const began = await vyre.getBlock({ blockNumber: fromBlock }).then((x) => Number(x.timestamp)).catch(() => null);
+    out.windowed = began === null || began > launch.createdAt;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -189,6 +197,8 @@ export function readLaunchFile(uri: string, again = false): Promise<Meta | null>
   if (!uri) return Promise.resolve(null);
   const kept = cache.get(uri);
   if (kept && !(kept.failedAt !== undefined && (again || Date.now() - kept.failedAt >= RETRY_FAILED_MS))) return kept.read;
+  // on mainnet only a file the app API keeps is read; one on another site is named by its host (outsideFile) and not fetched
+  if (outsideFile(uri) !== null) return Promise.resolve(null);
   const entry: { read: Promise<Meta | null>; failedAt?: number } = { read: (async () => {
     const url = safeUrl(uri);
     if (!url) return null;
@@ -218,6 +228,9 @@ export function readLaunchFile(uri: string, again = false): Promise<Meta | null>
   cache.set(uri, entry);
   return entry.read;
 }
+
+/** On mainnet, for a launch whose file is on another site (not read here): that site's host ('' when the link names none). null otherwise, and always on the testnet */
+export const outsideFile = (uri: string | undefined | null): string | null => (NETWORK.outsideFiles ? null : outsideFileHost(uri, API_URL));
 
 /** A launch's file to show, or null (none, or it couldn't be read just now) */
 export const metaOf = (uri: string): Promise<Meta | null> => readLaunchFile(uri).catch(() => null);

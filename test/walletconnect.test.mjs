@@ -228,8 +228,13 @@ test('the testnet privacy page stays true: no bare “no tracking”, no Google 
 test('privacy and the Play data-safety text name the IPFS gateway the pages actually ask', () => {
   // src/lib/market.ts turns ipfs:// into https://ipfs.io/ipfs/… before fetch; that host must be disclosed
   assert.match(read('src/lib/market.ts'), /https:\/\/ipfs\.io\/ipfs\//);
-  assert.match(read('public/privacy/index.html'), /ipfs\.io/);
-  assert.match(read('docs/ANDROID.md'), /ipfs\.io/);
+  // only where a file on another site is read at all (the test network's build): its privacy page names the gateway. The mainnet
+  // pages, and the Android app, load nothing from a creator's own site, and say so.
+  assert.match(read('public/privacy-testnet/index.html'), /ipfs\.io/);
+  assert.doesNotMatch(read('public/privacy/index.html'), /ipfs\.io|is fetched from that host/);
+  assert.match(read('public/privacy/index.html'), /MINTA names that site on the token’s page and does not load anything from it/);
+  assert.match(read('docs/ANDROID.md'), /names that site on the token's page and loads nothing from it/);
+  assert.match(read('src/lib/network.ts'), /mainnet: \{[\s\S]*?outsideFiles: false/);
 });
 
 test('the connect sheet and the buttons: the sheet names no remote picture, the code is drawn as one path, the menu offers WalletConnect', () => {

@@ -65,6 +65,18 @@ export function taxSplitProblem(rows: readonly SplitRow[], refused: ReadonlySet<
     : bps.reduce((a, x) => a + x, 0) !== 10_000 ? 'The shares must add up to 100%.' : '';
 }
 
+/**
+ * The wallets of a split that have code on the chain (a contract: a Safe is fine, a contract that can't move WUSDC on would keep
+ * the tax for good), as typed, in order. `codeOf` reads one address's code; a read that fails throws, so nothing is saved unchecked.
+ */
+export async function taxWalletsWithCode(codeOf: (addr: string) => Promise<string | null | undefined>, addrs: readonly string[]): Promise<string[]> {
+  const codes = await Promise.all(addrs.map((a) => codeOf(a)));
+  return addrs.filter((_, i) => { const c = codes[i]; return typeof c === 'string' && c !== '0x' && c !== ''; });
+}
+
+/** One string for a set of addresses, whatever their order or letter case: what a "yes, these are contracts I control" answer is kept for */
+export const codeKey = (addrs: readonly string[]) => [...new Set(addrs.map((a) => a.toLowerCase()))].sort().join(',');
+
 /** Lowered taxes as typed (basis points, NaN for a field that isn't a plain percent with at most two decimals), and whether they can be sent: both read, neither below the pad's minimum (mainnet 1%), neither higher than now, at least one lower */
 export function loweredTaxes(buy: string, sell: string, now: { buyTaxBps: number; sellTaxBps: number }, minBps = 0): { buy: number; sell: number; ok: boolean } {
   const b = percentBps(buy), s = percentBps(sell);

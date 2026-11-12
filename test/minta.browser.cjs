@@ -837,7 +837,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
         if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
         const body = JSON.parse(route.request().postData() || 'null');
-        const one = (q) => { asks.push(q.method); return { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? answer : null }; };
+        const one = (q) => { asks.push(q.method); return q.method === 'eth_getTransactionReceipt' && answer === 'busy' ? { jsonrpc: '2.0', id: q.id, error: { code: -32000, message: 'server busy' } } : { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? answer : null }; };
         await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
       });
       const btn = pg.locator('#unread .tx > button');
@@ -873,7 +873,22 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(await pg.locator('#unread button:has-text("start over")').count() === 0, 'before any check there is no way to start over');
       await btn.click();
       await settle(/isn’t confirmed yet/);
+      ok(await pg.locator('#unread button:has-text("start over")').count() === 0 && /Keep checking/.test(await pg.locator('#unread').innerText()), 'a check that found nothing right after the send does not offer to start over yet');
+      // minutes later: a read that fails (the RPC is busy) still offers nothing; only the chain's own "no such transaction" does
+      await pg.evaluate(() => { const now = Date.now.bind(Date); Date.now = () => now() + 6 * 60_000; });
+      answer = 'busy';
+      await btn.click();
+      await pg.waitForFunction(() => /Couldn’t read it just now/.test(document.querySelector('#unread .status')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+      ok(/Couldn’t read it just now/.test(await status()) && await pg.locator('#unread button:has-text("start over")').count() === 0 && await runs() === 3, 'minutes later, after a read that failed: it says the read failed, and still no start over');
+      answer = null;
+      await btn.click();
+      await settle(/isn’t confirmed yet/);
+      ok(await pg.locator('#unread button:has-text("start over")').count() === 1, 'minutes later, when the chain answers that it has no such transaction: start over is offered');
+      // (start over reads the chain once more first; with the chain still answering "no such transaction" the button is armed again)
+      const readsBefore = asks.filter((m) => m === 'eth_getTransactionReceipt').length;
       await pg.locator('#unread button:has-text("start over")').click().catch(() => {});
+      await pg.waitForFunction(() => /Buy with 50 USDC/.test(document.querySelector('#unread .tx > button')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+      ok(asks.filter((m) => m === 'eth_getTransactionReceipt').length > readsBefore, 'start over reads the chain once more before arming the button');
       ok(await runs() === 3 && /Buy with 50 USDC/.test(await btn.innerText()), 'after a check found nothing, “start over” only re-arms the button (it sends nothing by itself)');
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
@@ -929,7 +944,33 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(await counter('__runs3') === 0 && /Check it/.test(await btnOf('kept').innerText()), 'pressing it after the reload only reads the chain: nothing is sent again');
       await pg.reload();
       await pg.waitForSelector('#kept .tx > button');
-      ok(/Check it/.test(await btnOf('kept').innerText()) && await pg.locator('#kept button:has-text("start over")').count() === 1, 'a check that found nothing is remembered too: after another reload, start over is offered');
+      ok(/Check it/.test(await btnOf('kept').innerText()) && await pg.locator('#kept button:has-text("start over")').count() === 0, 'after another reload it is still held, and start over is not offered so soon after the send');
+      // The kept record carries the send time. Dated four minutes back, a check now is still too soon; dated five minutes back (less
+      // two seconds), a check a few seconds from now is late enough. Both are counted from the SEND, across a reload: a record whose
+      // send time was reset when it was read back would never be late enough here.
+      const sentAgo = (ms) => pg.evaluate(([hash, back]) => {
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i); const v = sessionStorage.getItem(k);
+          if (!k.startsWith('minta.held.') || !v.includes(hash)) continue;
+          const h = JSON.parse(v); h.at = Date.now() - back; delete h.notFoundAt; sessionStorage.setItem(k, JSON.stringify(h));
+          return true;
+        }
+        return false;
+      }, [H3, ms]);
+      ok(await sentAgo(4 * 60_000), 'the held record is kept for the tab with its send time');
+      await pg.reload();
+      await pg.waitForSelector('#kept .tx > button');
+      await btnOf('kept').click();
+      await settleIn('kept', /isn’t confirmed yet/);
+      ok(await pg.locator('#kept button:has-text("start over")').count() === 0 && /Keep checking/.test(await pg.locator('#kept').innerText()), 'four minutes after the send, a check that finds nothing does not offer start over');
+      await sentAgo(5 * 60_000 - 2000);
+      await pg.reload();
+      await pg.waitForSelector('#kept .tx > button');
+      ok(await pg.locator('#kept button:has-text("start over")').count() === 0, 'five minutes after the send but with no fresh answer from the chain (only a reload): still not offered');
+      await pg.waitForTimeout(2500);
+      await btnOf('kept').click();
+      await settleIn('kept', /isn’t confirmed yet/);
+      ok(/Check it/.test(await btnOf('kept').innerText()) && await pg.locator('#kept button:has-text("start over")').count() === 1, 'the send time is remembered across reloads: five minutes after it, a check that finds nothing offers start over');
       receipts[H3] = rcpt(H3, '0x1', TO);
       await btnOf('kept').click();
       await settleIn('kept', /went through/);

@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { withMainnetPolicy } from './scripts/csp.mjs';
 
 const shim = (name: string) => fileURLToPath(new URL(`./src/lib/shims/${name}.ts`, import.meta.url));
 
@@ -9,6 +10,16 @@ const shim = (name: string) => fileURLToPath(new URL(`./src/lib/shims/${name}.ts
 // end) when building; on Vercel its production domain is used when that isn't set, and without either the preview image is
 // a relative address (which most crawlers ignore).
 const siteUrl = (process.env.VITE_SITE_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/$/, '');
+// A mainnet build (VITE_NETWORK=mainnet, or a production build that names none: see src/lib/network.ts) carries its own, narrower
+// content policy in its index.html (scripts/csp.mjs says why and which hosts)
+// The network is read from the very value the app gets as import.meta.env.VITE_NETWORK (the process environment or an .env file),
+// so the policy and the app can never be for different networks.
+let builtFor: unknown;
+const mainnetPolicyInHtml: Plugin = {
+  name: 'mainnet-policy-in-html', apply: 'build',
+  configResolved(config) { builtFor = config.env.VITE_NETWORK; },
+  transformIndexHtml: { order: 'pre', handler: (html) => (builtFor === 'mainnet' || builtFor === undefined || builtFor === '' ? withMainnetPolicy(html) : html) },
+};
 const siteUrlInHtml: Plugin = { name: 'site-url-in-html', transformIndexHtml: (html) => html.replaceAll('__SITE_URL__', siteUrl) };
 
 // Circle's web SDK (email sign-in, @circle-fin/w3s-pw-web-sdk) is loaded only when someone signs in with email. Three
@@ -16,7 +27,7 @@ const siteUrlInHtml: Plugin = { name: 'site-url-in-html', transformIndexHtml: (h
 // of it), and firebase/app and firebase/auth (used only for Apple sign-in, which the app doesn't offer).
 export default defineConfig({
   base: '/',
-  plugins: [react(), siteUrlInHtml],
+  plugins: [react(), siteUrlInHtml, mainnetPolicyInHtml],
   resolve: {
     // one copy of viem for the app and the SDK, or viem's errors from the app's clients aren't recognised by the SDK's
     // copy (a pending transaction then reads as a failure at the first poll)

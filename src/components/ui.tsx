@@ -15,6 +15,9 @@ import { IS_TWA, SITE_URL, TRUST_WALLET_LINK, TWA_NOTE } from '../lib/twa';
 import TokenArt from './TokenArt';
 import { FACE_ID_OFFERED, kept, useConfirmRequest } from '../lib/faceid';
 import { depositWaitOf, type DepositWait } from '../lib/deposit';
+import { mayStartOver, receiptNotFound } from '../lib/held';
+import { usePlatformWallet } from '../lib/platform';
+import { lookalikeNote, readAs } from '../lib/format';
 
 const WalletIcon = () => (
   <svg className="ic cb-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="4" y="8" width="16" height="11" rx="2.5" /><path d="M16 13.5h4" /></svg>
@@ -123,7 +126,7 @@ export function ConnectButton({ compact = false, header = false }: { compact?: b
             )}
             {available.map((w, i) => (
               <button key={w.id} role="menuitem" type="button" className="wallet-choice" disabled={!!busy || !!again} onClick={() => pick(i)}>
-                {w.icon && <img src={w.icon} alt="" width={20} height={20} />}{w.name}
+                {w.icon && <img src={w.icon} alt="" width={20} height={20} onError={(e) => { e.currentTarget.style.display = 'none'; }} />}{w.name}
               </button>
             ))}
             <button role="menuitem" type="button" className="wallet-choice" disabled={!!busy || !!again || (wcState.kind !== 'idle' && wcState.kind !== 'failed')} onClick={() => { setOpen(false); connectWalletConnect(); }}>WalletConnect</button>
@@ -243,7 +246,11 @@ function clientFor(chainId?: number): PublicClient {
  * found it hasn't shown up on VYRE yet). `deposit`: it is a deposit to VYRE (lib/deposit.ts), so what a check looks for once
  * it went through is the USDC arriving there, not only its receipt.
  */
-type Held = { hash: Hash; chainId?: number; looked: boolean; deposit?: DepositWait };
+type Held = { hash: Hash; chainId?: number; looked: boolean; deposit?: DepositWait;
+  /** when it was sent (a record kept before this was written counts from when it is read back) */ at: number;
+  /** the last read of its receipt was answered "no such transaction" (not a read that failed) */ notFound?: boolean;
+  /** when the chain gave that answer */ notFoundAt?: number;
+  /** a deposit whose receipt on Arc was read and went through (what is waited for is the USDC on VYRE) */ confirmed?: boolean };
 
 /** Held transactions are kept for this tab under this prefix and the button's `keepAs`, so leaving the page or reloading it doesn't re-arm the button */
 const HELD_KEY = scoped('minta.held.');
@@ -254,7 +261,9 @@ function readHeld(keepAs?: string): Held | null {
     if (v && typeof v.hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v.hash) && (v.chainId === undefined || Number.isSafeInteger(v.chainId))) {
       // a deposit's part must be exactly what lib/deposit.ts keeps: anything else makes the whole record unreadable
       const deposit = v.deposit === undefined ? undefined : depositWaitOf(v.deposit);
-      if (deposit !== null) return { hash: v.hash as Hash, ...(v.chainId !== undefined ? { chainId: v.chainId } : {}), looked: v.looked === true, ...(deposit ? { deposit } : {}) };
+      if (deposit !== null) return { hash: v.hash as Hash, ...(v.chainId !== undefined ? { chainId: v.chainId } : {}), looked: v.looked === true, ...(deposit ? { deposit } : {}),
+        at: typeof v.at === 'number' && Number.isFinite(v.at) && v.at <= Date.now() ? v.at : Date.now(), ...(v.notFound === true ? { notFound: true } : {}),
+        ...(v.notFound === true && typeof v.notFoundAt === 'number' && Number.isFinite(v.notFoundAt) && v.notFoundAt <= Date.now() ? { notFoundAt: v.notFoundAt } : {}), ...(v.confirmed === true ? { confirmed: true } : {}) };
     }
   } catch { /* storage blocked, or something unreadable kept: nothing held */ }
   return null;
@@ -290,8 +299,15 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   className?: string; onDone?: () => void; keepAs?: string; finalTo?: string; arrived?: (d: DepositWait) => Promise<boolean>;
 }) {
   const [held, keepHeld] = useState<Held | null>(() => readHeld(keepAs));
-  const [st, setSt] = useState<Status>(() => stillHeld(held));
-  const setHeld = (h: Held | null) => { keepHeld(h); writeHeld(keepAs, h); };
+  const [st, putSt] = useState<Status>(() => stillHeld(held));
+  // A run belongs to the action (`keepAs`: the account, say) it was pressed for. If the button has become another action's since
+  // (the account changed while it ran), the run's result is kept only in storage under its own name: it is never shown, held
+  // or reported as done under the other action.
+  const nowAs = useRef(keepAs);
+  nowAs.current = keepAs;
+  const mine = () => nowAs.current === keepAs;
+  const setSt = (s: Status) => { if (mine()) putSt(s); };
+  const setHeld = (h: Held | null) => { writeHeld(keepAs, h); if (mine()) keepHeld(h); };
   // another action under the same button (another account, say): what it holds, if anything
   const keptAs = useRef(keepAs);
   useEffect(() => {
@@ -299,7 +315,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     keptAs.current = keepAs;
     const h = readHeld(keepAs);
     keepHeld(h);
-    setSt(stillHeld(h));
+    putSt(stillHeld(h));
   }, [keepAs]);
   // one run at a time, even if a second click lands before the button shows it's busy
   const running = useRef(false);
@@ -308,16 +324,20 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     running.current = true;
     try { await (held ? check(held) : attempt()); } finally { running.current = false; }
   };
-  const done = () => { try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
+  const done = () => { if (!mine()) return; try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
   const check = async (h: Held) => {
     const at = { hash: h.hash, chainId: h.chainId };
     setSt({ kind: 'busy', text: 'Checking…', ...at });
     let r: TransactionReceipt;
     try {
       r = await clientFor(h.chainId).getTransactionReceipt({ hash: h.hash });
-    } catch {
-      setHeld({ ...h, looked: true });
-      setSt({ kind: 'err', text: 'It isn’t confirmed yet. Check again in a moment: checking doesn’t send anything.', ...at });
+    } catch (e) {
+      const notFound = receiptNotFound(e);
+      // (an earlier "not found" time is dropped with a read that failed: only the newest answer counts)
+      const { notFoundAt: _was, ...rest } = h;
+      setHeld({ ...rest, looked: true, notFound, ...(notFound ? { notFoundAt: Date.now() } : {}) });
+      setSt({ kind: 'err', text: notFound ? 'It isn’t confirmed yet. Check again in a moment: checking doesn’t send anything.'
+        : 'Couldn’t read it just now (the network may be busy), so nothing is known yet. Check again in a moment: checking doesn’t send anything.', ...at });
       return;
     }
     if (r.status !== 'success') {
@@ -330,7 +350,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
       let there: boolean | null = null;
       try { if (arrived) there = (await arrived(h.deposit)) === true; } catch { /* VYRE couldn't be read: no answer */ }
       if (!there) {
-        setHeld({ ...h, looked: true });
+        setHeld({ ...h, looked: true, notFound: false, notFoundAt: undefined, confirmed: true });
         setSt({
           kind: 'err',
           text: there === false ? 'It was sent from Arc and confirmed there, but it doesn’t show on VYRE yet. Check again in a minute: checking doesn’t send anything.'
@@ -352,6 +372,24 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     setSt({ kind: 'ok', text: 'It went through.', ...at });
     done();
   };
+  // "start over" reads the chain once more first: only if it still has no such transaction is the button armed again
+  const startOver = async (h: Held) => {
+    if (running.current) return;
+    running.current = true;
+    try {
+      try {
+        await clientFor(h.chainId).getTransactionReceipt({ hash: h.hash });
+      } catch (e) {
+        if (receiptNotFound(e)) { setHeld(null); setSt({ kind: 'idle' }); return; }
+        const { notFoundAt: _was, ...rest } = h;
+        setHeld({ ...rest, looked: true, notFound: false });
+        setSt({ kind: 'err', text: 'Couldn’t read it just now (the network may be busy), so nothing is known yet and nothing was started over. Check again in a moment: checking doesn’t send anything.', hash: h.hash, chainId: h.chainId });
+        return;
+      }
+      // it is on the chain after all: read as any check would
+      await check(h);
+    } finally { running.current = false; }
+  };
   const attempt = async () => {
     setSt({ kind: 'busy', text: 'Checking…' });
     let r: { hash?: string; text?: string; chainId?: number } | void;
@@ -364,7 +402,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
       if (e instanceof SentButUnconfirmedError && !e.userOperation) {
         const note = (e as { note?: unknown }).note;
         const deposit = depositWaitOf((e as { deposit?: unknown }).deposit);
-        setHeld({ hash: e.hash, chainId: e.chainId, looked: false, ...(deposit ? { deposit } : {}) });
+        setHeld({ hash: e.hash, chainId: e.chainId, looked: false, at: Date.now(), ...(deposit ? { deposit } : {}) });
         setSt({ kind: 'err', text: typeof note === 'string' && note ? note : 'Sent, but its result couldn’t be read yet. Check it before anything else: checking doesn’t send anything.', hash: e.hash, chainId: e.chainId });
         return;
       }
@@ -399,9 +437,11 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
           {st.hash && /^0x[0-9a-fA-F]{64}$/.test(st.hash) && <a href={txUrl(st.hash, st.chainId)} target="_blank" rel="noopener noreferrer">{chainName(st.chainId)[0] ? `See it on ${chainName(st.chainId)[0]}` : 'See it'}</a>}
         </p>
       )}
-      {held?.looked && st.kind === 'err' && (held.deposit
+      {held?.looked && st.kind === 'err' && (held.deposit && held.confirmed
         ? <p className="small muted">Still not on VYRE after a few minutes? Look at your recent activity on VYRE first: a deposit confirmed on Arc still arrives (if you’ve spent on VYRE since, it may already have), and sending again moves more USDC. To send another anyway, <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
-        : <p className="small muted">Not on the explorer after a few minutes? It never reached the chain: <button type="button" className="linkish small" onClick={() => { setHeld(null); setSt({ kind: 'idle' }); }}>start over</button>.</p>
+        : mayStartOver(held, Date.now())
+          ? <p className="small muted start-over">The chain answered that it has no such transaction, minutes after it was sent. If it isn’t on the explorer either, it never reached the chain: <button type="button" className="linkish small" onClick={() => startOver(held)}>start over</button>.</p>
+          : <p className="small muted">Keep checking: starting over is offered only once the chain has answered that it has no such transaction, some minutes after it was sent. Sending again before that could send it twice.</p>
       )}
     </div>
   );
@@ -434,4 +474,22 @@ export function AddressLink({ address, label }: { address: Address; label?: Reac
 
 export function Loading({ what = 'Loading' }: { what?: string }) {
   return <p className="muted loading">{what}…</p>;
+}
+
+/** Under an amount box: how an amount typed with a comma was read ("read as 1,000.5") */
+export function ReadAs({ input }: { input: string }) {
+  const r = readAs(input);
+  return r ? <p className="small muted read-as">{r}</p> : null;
+}
+
+/** A plain note on a token whose ticker or name reads as USDC, MINTA or VYRE and isn't it ("Not USDC") */
+export function NotThat({ l, className = '' }: { l: { symbol: string; name: string; token?: string | null }; className?: string }) {
+  const note = lookalikeNote(l, NETWORK.mintaToken, NETWORK.vyreToken);
+  return note ? <span className={`not-that ${className}`.trim()}>{note}</span> : null;
+}
+
+/** The platform wallet as the launchpad contract names it now, linked (with a note when the contract couldn't be read) */
+export function PlatformWalletLink() {
+  const { address, note } = usePlatformWallet();
+  return <><AddressLink address={address} />{note && <span className="muted small platform-note"> ({note})</span>}</>;
 }

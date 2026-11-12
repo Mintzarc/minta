@@ -7,9 +7,9 @@ import { NETWORK } from './network';
 const main = !NETWORK.testnet;
 
 /** Where the creator's tax goes, for a line next to a tax figure ("paid to you" on the testnet) */
-export const TAX_GOES = main ? 'in USDC; a tenth goes to the platform wallet, the rest to the creator’s tax wallets' : 'paid to you';
+export const TAX_GOES = main ? 'paid out as wrapped USDC (WUSDC); a tenth goes to the platform wallet, the rest to the creator’s tax wallets' : 'paid to you';
 
 /** The creator-facing sentence under the tax choice on the Create page; `range` is "1 to 10%" */
 export const creatorTaxLine = (range: string) => main
-  ? `The only fee a trader pays, in USDC: ${range} on each side. When it is paid out, a tenth of it goes to the platform wallet and the rest to your tax wallets (you, unless you split it). You can lower it later, never raise it.`
+  ? `The only fee a trader pays, in USDC: ${range} on each side. When it is paid out, a tenth of it goes to the platform wallet and the rest to your tax wallets (you, unless you split it). It arrives as wrapped USDC (WUSDC), which the Wallet page unwraps to USDC one for one. You can lower it later, never raise it.`
   : `Paid to you in USDC, ${range} each. You can lower it later, never raise it.`;

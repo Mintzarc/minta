@@ -204,18 +204,66 @@ test('a connection found gone after the wallet was asked is not a stop before as
   assert.equal(/Press Sell again\.$/.test(t), false);
 });
 
-test('the launch button after a send the wallet did not confirm: "Check your wallet first", then one more deliberate press, never "Try again"', () => {
-  assert.equal(W.createLabel({ replacing: false, unsure: 'no', failed: false }), 'Create token');
-  assert.equal(W.createLabel({ replacing: false, unsure: 'no', failed: true }), 'Try again');
-  assert.equal(W.createLabel({ replacing: false, unsure: 'ask', failed: true }), 'Check your wallet first');
-  assert.equal(W.createLabel({ replacing: false, unsure: 'armed', failed: true }), 'It isn’t in my wallet: create token');
-  assert.equal(W.createLabel({ replacing: true, unsure: 'ask', failed: true }), 'Create it in its place');
-  // the dialog: the state is set from the send-step reading, the first press only arms, and a new attempt resets it
-  const page = fs.readFileSync(new URL('../src/pages/Launch.tsx', import.meta.url), 'utf8');
-  assert.match(page, /setUnsure\(sendUnconfirmed\(e\) \? 'ask' : 'no'\)/);
-  assert.match(page, /onClick=\{\(\) => \(unsure === 'ask' \? setUnsure\('armed'\) : create\(\)\)\}/);
-  assert.match(page, /const create = async[\s\S]{0,600}setUnsure\('no'\)/);
-  assert.equal(/\? 'Try again' : 'Create token'/.test(page), false, 'the label comes from createLabel only');
+test('the launch button while a send the wallet did not confirm is unsettled: "Check your wallet first" (never "Try again"), in replacing mode too', () => {
+  assert.equal(W.createLabel({ replacing: false, unsure: false, failed: false }), 'Create token');
+  assert.equal(W.createLabel({ replacing: false, unsure: false, failed: true }), 'Try again');
+  assert.equal(W.createLabel({ replacing: true, unsure: false, failed: true }), 'Create it in its place');
+  for (const replacing of [false, true]) for (const failed of [false, true]) assert.equal(W.createLabel({ replacing, unsure: true, failed }), 'Check your wallet first');
+  assert.equal(W.AFTER_CHECK_MS, 1500);
+});
+
+test('a wallet that wraps its node’s revert under data (or data.originalError) is read as a revert, with a contract’s own 4-byte error too', async () => {
+  const custom = '0x8baa579f'; // a contract's own error, not Error(string) or Panic
+  for (const answer of [
+    { code: -32603, message: 'Internal JSON-RPC error.', data: { code: 3, message: 'execution reverted', data: custom } },
+    { code: -32603, message: 'Internal JSON-RPC error.', data: { originalError: { code: 3, message: 'execution reverted', data: custom } } },
+    { code: -32603, message: 'Internal JSON-RPC error.', data: { code: -32000, message: 'execution reverted: custom error', data: custom + '00'.repeat(32) } },
+    { code: -32603, message: 'Internal JSON-RPC error.', data: { code: 3, message: 'VM Exception' } },
+  ]) {
+    for (const send of [sendErr, sendTx]) {
+      const e = await send(answer);
+      assert.equal(W.realRevert(e), true, JSON.stringify(answer).slice(0, 90));
+      assert.equal(W.walletSendFailure(e), null, 'not "may still have gone out"');
+    }
+    assert.match(W.firstWords((await sendErr(answer)).shortMessage), /reverted/);
+  }
+  // the same hex without the node's code or words for a revert at that level is not one
+  for (const answer of [
+    { code: -32603, message: 'Internal JSON-RPC error.', data: { code: -32000, message: 'already known', data: custom } },
+    { code: -32603, message: 'Internal JSON-RPC error.', data: { originalError: { message: 'nonce too low', data: '0x' + 'ab'.repeat(32) } } },
+    { code: -32603, message: 'Internal JSON-RPC error.', data: { message: 'not at the start: execution reverted' } },
+  ]) {
+    const e = await sendErr(answer);
+    assert.ok(W.walletSendFailure(e)?.endsWith(MAYBE), JSON.stringify(answer).slice(0, 90));
+  }
+});
+
+test('whether this press’s approval is on the chain: the next step reached, or the allowance read (in time) covers it; never from an error that is the approval’s own', async () => {
+  const other = new Error('Circle’s fee could not be read');
+  const yes = async () => 5n, no = async () => 4n;
+  const is = (o) => W.approvalIsIn({ asked: true, reachedNext: false, error: other, read: yes, needed: 5n, ...o });
+  assert.equal(await is({ asked: false }), false, 'no approval was asked for in this press');
+  assert.equal(await is({ asked: false, reachedNext: true }), false);
+  assert.equal(await is({ reachedNext: true, read: async () => { throw new Error('never read'); } }), true, 'the transfer step had begun: it is in');
+  assert.equal(await is({}), true, 'the allowance covers the amount');
+  assert.equal(await is({ read: async () => 6n }), true);
+  assert.equal(await is({ read: no }), false, 'it does not');
+  assert.equal(await is({ read: async () => { throw new Error('rpc down'); } }), false, 'unreadable: not claimed');
+  assert.equal(await is({ read: async () => '5' }), false, 'an answer that is not a number is not trusted');
+  const t0 = Date.now();
+  assert.equal(await is({ read: () => new Promise(() => {}), timeoutMs: 60 }), false, 'a read that hangs is given up');
+  assert.ok(Date.now() - t0 < 2000);
+  // the error is the approval's own: nothing is claimed about it, even when an earlier approval makes the allowance look right
+  for (const error of [
+    await sendErr({ code: -32603, message: 'Request timed out' }), // the approval itself unconfirmed (it may or may not be mined)
+    await sendErr({ code: 4001, message: 'User rejected the request.' }), // the approval cancelled while an earlier one lands
+    Object.assign(new Error('sent'), { name: 'SentButUnconfirmedError' }),
+    Object.assign(new Error('replaced'), { name: 'TransactionReplacedError' }),
+  ]) assert.equal(await is({ error }), false);
+  // the page uses it for the transfer from another chain, with a read of the allowance
+  const page = fs.readFileSync(new URL('../src/pages/Wallet.tsx', import.meta.url), 'utf8');
+  assert.match(page, /approvalIsIn\(\{ asked: approval\.asked, reachedNext: approval\.mined, error: e, read, needed: burned \}\)/);
+  assert.match(page, /functionName: 'allowance', args: \[account, messenger\]/);
 });
 
 test('a wallet’s words are shown as one line, without web addresses, and no longer than 160 characters', async () => {

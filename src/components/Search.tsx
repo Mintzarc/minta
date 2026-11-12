@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBlocklistState, useHidden, useHiddenCreators } from './Hidden';
 import { visibleLaunches } from '../lib/hidden';
 import { getAddress } from 'viem';
-import { isAddr, price, tokenText } from '../lib/format';
+import { isAddr, price, tickerText, tokenText } from '../lib/format';
+import { NotThat } from './ui';
 import { cacheAge, cachedLaunches, listLaunches, type Listed } from '../lib/market';
 import { href } from '../lib/router';
 import { TokenPic } from './ui';
@@ -101,7 +102,7 @@ export function SearchPanel({ list: given, initial = '', onClose, onViewAll }: {
             <li key={l.token} id={opt(i)} role="option" aria-selected={active === i} className={active === i ? 'on' : ''}
               onMouseEnter={() => setActive(i)} onClick={() => open(i)}>
               <TokenPic uri={l.metadataURI} symbol={l.symbol} token={l.token} size={32} />
-              <span className="grow"><b>$<bdi>{tokenText(l.symbol)}</bdi></b> <bdi className="muted">{tokenText(l.name)}</bdi></span>
+              <span className="grow"><b>$<bdi>{tickerText(l.symbol, l.token)}</bdi></b> <bdi className="muted">{tokenText(l.name)}</bdi> <NotThat l={l} /></span>
               <span className="muted small">{l.market ? price(l.market.price) : ''}</span>
             </li>
           ))}

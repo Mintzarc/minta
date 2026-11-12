@@ -108,7 +108,7 @@ For people: ${SITE}/agents/
 ## Using MINTA from an AI assistant or a script
 
 - The assistant prepares a transaction (target contract, call data, USDC value); the user checks it and signs it in their own wallet. Never ask a user for a private key or seed phrase, and never accept one.
-- Prepare it with viem and the contract calls in llms-full.txt. Install: ${f.sdkInstall}. The SDK supplies the chain definition (vyreMainnet) and USDC helpers; use the contract addresses on this page, not the SDK's older launchpad entries.
+- Prepare it with viem and the contract calls in llms-full.txt. Install: ${f.sdkInstall}. This SDK release knows this launchpad (getAddresses(3045).padVersion is 2): it supplies the chain definition (vyreMainnet), these addresses, USDC helpers and typed launch, buy and sell calls. The first launchpad is kept only under its legacy record: do not use it.
 - Read before writing: check launchesOpen() on the launchpad, simulate the call, show the user the amounts, and set a spend limit.
 - Token pages are hash routes (${SITE}/#/token/<token address>) that need JavaScript; to read a launch use the contracts or the explorer.
 
@@ -163,13 +163,13 @@ MINTA (${SITE}) is a launchpad app on VYRE mainnet (chain ID ${f.chainId}). This
 | Multicall3 | ${f.multicall3} |
 | Platform wallet (a wallet, not a contract) | ${f.platformWallet} |
 
-Source of these addresses: MINTA's own code (${REFERENCE_CODE}: PAD_V2) and the SDK's mainnet record (chain, hosts, WUSDC, Multicall3). The SDK's older launchpad entries (pad, appRouter, feeSplitter) belong to the first launchpad, which mainnet launches no longer use: do not send launches or trades there.
+Source of these addresses: MINTA's own code (${REFERENCE_CODE}: PAD_V2) and the SDK's mainnet record (chain, hosts, WUSDC, Multicall3). The SDK's legacy record (pad, appRouter, feeSplitter) is the first launchpad, which mainnet launches no longer use: do not send launches or trades there.
 
 ## Launch rules (VyrePadV2)
 
 - Name 1 to ${f.maxNameBytes} bytes, symbol 1 to ${f.maxSymbolBytes} bytes.
 - totalSupply from ${f.minSupplyWhole} to ${f.maxSupplyWhole} whole tokens, written with 18 decimals.
-- startingMarketCap must be exactly ${f.openingMarketCapUsdc} USDC (${f.openingMarketCapUsdc}e18): every launch opens at that market cap.
+- startingMarketCap must be exactly ${f.openingMarketCapUsdc} USDC (${f.openingMarketCapUsdc}e18): the pool opens within about 1% of that market cap (its opening price is rounded to the pool's price grid).
 - buyTaxBps and sellTaxBps: whole numbers from ${f.minTaxBps} to ${f.maxTaxBps} (${f.minTaxPct}% to ${f.maxTaxPct}%), set separately.
 - metadataURI: at most ${f.maxMetadataBytes} bytes (the link to the token's picture and details; may be empty).
 - No partner fee and no promoter share.

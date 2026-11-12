@@ -41,7 +41,7 @@ export const sell: typeof v2.sell = main ? v2.sell : sdk.sell; // the last argum
 export const vyrePadAbi = (main ? v2.padV2Abi : sdk.vyrePadAbi) as unknown as typeof sdk.vyrePadAbi;
 
 /** Where a trade is sent, and where a sale's token approval goes: the SwapRouter on mainnet, the app router on the testnet */
-export const tradeRouter = (): Address => (main ? v2.PAD_V2.swapRouter : sdk.getAddresses(NETWORK.vyre.id).appRouter);
+export const tradeRouter = (): Address => (main ? v2.PAD_V2.swapRouter : sdk.getAddresses(NETWORK.vyre.id).appRouter!);
 
 /** The launchpad's own addresses a launch's tax must never be sent to (see padv2.padV2Contracts); on the testnet the SDK's own list is used by the caller */
 export const launchpadContracts = (): Address[] => (main ? v2.padV2Contracts() : []);

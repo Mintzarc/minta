@@ -33,7 +33,7 @@ For people: https://minta.vyrechain.com/agents/
 ## Using MINTA from an AI assistant or a script
 
 - The assistant prepares a transaction (target contract, call data, USDC value); the user checks it and signs it in their own wallet. Never ask a user for a private key or seed phrase, and never accept one.
-- Prepare it with viem and the contract calls in llms-full.txt. Install: npm install https://vyrechain.com/sdk/vyrechain-sdk-0.6.0.tgz viem. The SDK supplies the chain definition (vyreMainnet) and USDC helpers; use the contract addresses on this page, not the SDK's older launchpad entries.
+- Prepare it with viem and the contract calls in llms-full.txt. Install: npm install https://vyrechain.com/sdk/vyrechain-sdk-0.7.1.tgz viem. This SDK release knows this launchpad (getAddresses(3045).padVersion is 2): it supplies the chain definition (vyreMainnet), these addresses, USDC helpers and typed launch, buy and sell calls. The first launchpad is kept only under its legacy record: do not use it.
 - Read before writing: check launchesOpen() on the launchpad, simulate the call, show the user the amounts, and set a spend limit.
 - Token pages are hash routes (https://minta.vyrechain.com/#/token/<token address>) that need JavaScript; to read a launch use the contracts or the explorer.
 

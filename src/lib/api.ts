@@ -51,7 +51,7 @@ export async function saveLaunchFile(file: LaunchFile): Promise<string> {
       signal: AbortSignal.timeout(15000),
     });
   } catch {
-    throw new Error('The service that keeps launch files isn’t reachable right now. Launch without them (you can add them later), or paste your own link under “Your own file”.');
+    throw new Error(`The service that keeps launch files isn’t reachable right now. Launch without them (you can add them later)${NETWORK.outsideFiles ? ', or paste your own link under “Your own file”' : ''}.`);
   }
   const j = (await r.json().catch(() => ({}))) as { uri?: string; error?: string };
   if (!r.ok || !j.uri) throw new Error(j.error || 'The launch file couldn’t be saved.');

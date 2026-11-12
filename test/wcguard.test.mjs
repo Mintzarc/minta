@@ -304,3 +304,34 @@ test('a connection found gone when the wallet had already been asked is the page
   const before = await g.request({ method: 'eth_sendTransaction', params: [{ from: OTHER, to: OTHER }] }).then(() => null, (x) => x);
   assert.equal(walletError.ownRefusal(before), before.message);
 });
+
+// A session may list accounts on other chains too (and list them first). Whatever the library's default chain is, a signing
+// request is sent for VYRE's chain by name, and the guard's own checks of the chain and the account still stand.
+test('with another chain’s account listed first, a signing request still goes out for eip155:3045 only, and the chain and account checks hold', async () => {
+  const { guardWc } = loadGuard();
+  const out = [];
+  let libraryChain = '0xbe5';
+  const raw = {
+    async request(args, chain) {
+      if (args.method === 'eth_chainId') return libraryChain;
+      if (args.method === 'eth_accounts') return [ME];
+      out.push({ method: args.method, chain });
+      return '0xok';
+    },
+    on() {}, removeListener() {},
+    session: { topic: 't', expiry: Math.floor(Date.now() / 1000) + 3600, namespaces: { eip155: { accounts: [`eip155:1:${ME}`, `eip155:3045:${ME}`] } } },
+  };
+  const g = guardWc(raw, ME, () => {});
+  assert.equal(await g.request({ method: 'eth_sendTransaction', params: [{ from: ME, to: OTHER }] }), '0xok');
+  assert.equal(await g.request({ method: 'eth_signTypedData_v4', params: [ME, VYRE_TYPED] }), '0xok');
+  assert.deepEqual(out, [{ method: 'eth_sendTransaction', chain: 'eip155:3045' }, { method: 'eth_signTypedData_v4', chain: 'eip155:3045' }]);
+  // a transaction that names the other chain is refused, as before
+  out.length = 0;
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME, to: OTHER, chainId: 1 }] }), /another network/);
+  // another account is refused, as before
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: OTHER, to: OTHER }] }), /isn’t from the account you connected/);
+  // and if the library does answer with the other chain (not pinned), nothing is sent
+  libraryChain = '0x1';
+  await assert.rejects(() => g.request({ method: 'eth_sendTransaction', params: [{ from: ME, to: OTHER }] }));
+  assert.equal(out.length, 0, 'nothing reached the wallet');
+});

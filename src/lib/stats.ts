@@ -51,6 +51,8 @@ export interface Stats {
   /** The block of its latest trade */
   lastTradeBlock?: bigint;
   trades: number;
+  /** The price the pool opened at (from its launch event); absent when the event wasn't read */
+  openPrice?: number;
 }
 
 /** The last block at or before a unix time, from the explorer; 0 before the chain began; null if it can't tell */
@@ -160,6 +162,7 @@ export async function loadStats(list: Listed[]): Promise<Map<Address, Stats>> {
       reachedBlock: graduated ? reachedBlock : undefined,
       lastTradeBlock: logs.length ? logs[logs.length - 1]!.blockNumber : undefined,
       trades: logs.length,
+      openPrice: openPrice.get(k),
     });
   }
   return out;
@@ -180,7 +183,7 @@ async function contractHolders(list: Pair[]): Promise<void> {
   const due = list.filter((l) => !(Date.now() - (inContracts.get(l.token.toLowerCase())?.at ?? 0) < 600_000));
   if (!due.length) return;
   const a = addresses();
-  const ours = [a.pad, a.poolFactory, a.poolDeployer, a.feeSplitter, a.appRouter, a.swapRouter, a.quoter, a.tickLens, a.referrals, a.wusdc];
+  const ours = [a.pad, a.poolFactory, a.poolDeployer, a.feeSplitter, a.appRouter, a.swapRouter, a.quoter, a.tickLens, a.referrals, a.wusdc].filter((x): x is Address => !!x);
   await Promise.all(due.map(async (l) => {
     const who = [...new Set([l.pool, ...ours].map((x) => getAddress(x)))];
     try {

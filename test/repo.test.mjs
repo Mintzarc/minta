@@ -129,3 +129,60 @@ test('.gitignore hides no file the repository tracks', () => {
   const hidden = execFileSync('git', ['ls-files', '-ci', '--exclude-per-directory=.gitignore'], { cwd: ROOT, env, encoding: 'utf8' }).split('\n').filter(Boolean);
   assert.deepEqual(hidden, []);
 });
+
+// ---- build, CI and header settings: each is compared with what it must be, so a change to one fails here ----
+test('every package in the lockfile comes from the npm registry with its checksum, except the vendored SDK file', () => {
+  const lock = JSON.parse(text('package-lock.json'));
+  const odd = Object.entries(lock.packages).filter(([k, v]) => k && !v.link && !(typeof v.resolved === 'string' && v.resolved.startsWith('https://registry.npmjs.org/') && /^sha512-/.test(v.integrity || '')));
+  assert.deepEqual(odd.map(([k, v]) => [k, v.resolved]), [['node_modules/@vyrechain/sdk', JSON.parse(text('package.json')).dependencies['@vyrechain/sdk']]]);
+  assert.match(odd[0][1].integrity || '', /^sha512-/, 'the vendored file has its checksum too');
+});
+
+test('no package install script runs, and the build writes no source maps', () => {
+  assert.match(text('.npmrc'), /^ignore-scripts=true$/m);
+  assert.match(text('vite.config.ts'), /build: \{[^}]*sourcemap: false[^}]*\}/);
+});
+
+test('every workflow has read-only permissions at the top, runs on a named image, and none runs on a fork’s pull request with secrets or after another workflow', () => {
+  const flows = files.filter((f) => /^\.github\/workflows\/.+\.ya?ml$/.test(f));
+  assert.ok(flows.length >= 4);
+  for (const f of flows) {
+    const t = text(f);
+    assert.match(t, /^permissions:\n  contents: read\n(?!  )/m, `${f}: permissions are contents: read and nothing else`);
+    assert.equal((t.match(/^\s*permissions:/gm) || []).length, 1, `${f}: no job widens them`);
+    assert.doesNotMatch(t, /pull_request_target|workflow_run/, f);
+    const images = [...t.matchAll(/^\s*runs-on:\s*(\S+)/gm)].map((m) => m[1]);
+    assert.ok(images.length > 0 && images.every((i) => i === 'ubuntu-24.04'), `${f}: the image the pinned browser-test tool supports, not "latest" or a newer one (a new image once stopped the browser tests): ${images}`);
+  }
+  const ci = text('.github/workflows/ci.yml');
+  for (const step of ['npm ci', 'npm run typecheck', 'npm run build', 'npm test', 'npx playwright install --with-deps chromium', 'npm run test:browser']) assert.ok(ci.includes(`- run: ${step}\n`), `CI runs ${step}`);
+});
+
+test('the headers every page is served with are exactly these', () => {
+  const all = JSON.parse(text('vercel.json')).headers.find((h) => h.source === '/(.*)').headers;
+  assert.deepEqual(all, [
+    { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: data:; media-src 'self'; connect-src 'self' https: wss://relay.walletconnect.org; frame-src https://pw-auth.circle.com https://verify.walletconnect.org; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'" },
+    { key: 'X-Frame-Options', value: 'DENY' },
+    { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+    { key: 'X-Content-Type-Options', value: 'nosniff' },
+    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+    { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+  ]);
+});
+
+// The header above is one for every build, and the test network's build needs its wide lists. A mainnet build adds its own policy
+// in its index.html; a browser holds the page to both.
+test('a mainnet build adds a policy that lists the only hosts it talks to, draws pictures from and frames', async () => {
+  const csp = await import('../scripts/csp.mjs');
+  assert.equal(csp.mainnetPolicy(), "connect-src 'self' https://rpc.vyrechain.com https://api.vyrechain.com https://explorer.vyrechain.com https://rpc.mainnet.arc.io wss://relay.walletconnect.org https://verify.walletconnect.org; img-src 'self' data: https://api.vyrechain.com; frame-src https://verify.walletconnect.org");
+  assert.doesNotMatch(csp.mainnetPolicy(), /\*|https:(?!\/\/)|wss:(?!\/\/)|circle|testnet/);
+  const html = csp.withMainnetPolicy('<html>\n  <head>\n    <meta charset="utf-8">\n  </head></html>');
+  assert.ok(html.indexOf('http-equiv="Content-Security-Policy"') < html.indexOf('charset'), 'first in the head');
+  assert.throws(() => csp.withMainnetPolicy('<html></html>'), /no <head>/);
+  const cfg = text('vite.config.ts');
+  // decided from the value the app itself is built with (the process environment or an .env file), never from the process environment alone
+  assert.match(cfg, /configResolved\(config\) \{ builtFor = config\.env\.VITE_NETWORK; \}/);
+  assert.doesNotMatch(cfg, /process\.env\.VITE_NETWORK/);
+  assert.match(cfg, /plugins: \[react\(\), siteUrlInHtml, mainnetPolicyInHtml\]/);
+  assert.match(cfg, /handler: \(html\) => \(builtFor === 'mainnet' \|\| builtFor === undefined \|\| builtFor === '' \? withMainnetPolicy\(html\) : html\)/);
+});

@@ -4,7 +4,8 @@
 // the picture service keeps (lib/picture.ts shownPicture), so one would never show. A launch file that already has one (from
 // before, or the creator's own) shows it in the field as a link that isn't drawn; saving the fields leaves it out of the new file
 // (lib/api.ts storable), and the field says so first.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { NETWORK } from '../lib/network';
 import { API_URL, type LaunchFile } from '../lib/api';
 import { preparePicture, shownPicture, type Picture } from '../lib/picture';
 
@@ -58,7 +59,10 @@ export function LaunchFileFields({ value, onChange, part = 'all' }: { value: Lau
   const set = (patch: Partial<LaunchFileState['file']>) => onChange({ ...value, file: { ...f, ...patch } });
   const basics = part === 'all' || part === 'basics' || part === 'info';
   const links = part === 'all' || part === 'links' || part === 'info';
-  const own = part === 'all' || part === 'own';
+  // "Your own file" is offered only where the pages read a file on another site (lib/network.ts outsideFiles). Where they
+  // don't, a state that is still in that mode (a kept draft, a launch whose file is elsewhere) goes back to the fields.
+  const own = NETWORK.outsideFiles && (part === 'all' || part === 'own');
+  useEffect(() => { if (!NETWORK.outsideFiles && value.useOwn) onChange({ ...value, useOwn: false }); }, [value.useOwn]);
   return (
     <div className="launch-file">
       {!value.useOwn && (

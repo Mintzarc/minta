@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Address } from 'viem';
 import { getLaunchCount } from '../lib/pad';
 import { vyre } from '../lib/chain';
-import { amount, price, tokenText, usd } from '../lib/format';
+import { price, shortAmount, tickerText, tokenText, usd } from '../lib/format';
 import { listLaunches, tokenBalance, usdcBalance, type Listed } from '../lib/market';
 import { href } from '../lib/router';
 import { useWallet } from '../lib/wallet';
-import { ConnectButton, Loading, TokenPic } from '../components/ui';
+import { ConnectButton, Loading, NotThat, TokenPic } from '../components/ui';
 import { useBlocklistState } from '../components/Hidden';
 import { pairVisible, visibleLaunches } from '../lib/hidden';
 
@@ -29,11 +29,14 @@ export default function Portfolio() {
   const { block, ready } = useBlocklistState();
 
   useEffect(() => {
+    // another account: the last one's balances go at once, and its late answers are dropped
+    setUsdc(null); setRaw(null); setFailed('');
     if (!account || !ready) return;
     let live = true;
     (async () => {
-      setFailed('');
-      setUsdc(await usdcBalance(account));
+      const held = await usdcBalance(account);
+      if (!live) return;
+      setUsdc(held);
       const [total, list] = await Promise.all([getLaunchCount(vyre), listLaunches(SCAN)]);
       // a balance that couldn't be read is said so, not counted as none
       const balances = await Promise.all(list.map((l) => tokenBalance(l.token, account as Address).catch(() => null)));
@@ -61,7 +64,7 @@ export default function Portfolio() {
       {failed && <p className="err small">{failed}</p>}
 
       <div className="card row-between">
-        <div><p className="muted small">USDC on VYRE</p><p className="big">{usdc === null ? '…' : amount(usdc)}</p></div>
+        <div><p className="muted small">USDC on VYRE</p><p className="big">{usdc === null ? '…' : shortAmount(usdc, 4)}</p></div>
         <a className="btn btn-line btn-sm" href={href({ page: 'wallet' })}>Add USDC</a>
       </div>
 
@@ -74,7 +77,7 @@ export default function Portfolio() {
             <li key={h.launch.token}>
               <a className="row-link" href={href({ page: 'token', token: h.launch.token })}>
                 <TokenPic uri={h.launch.metadataURI} symbol={h.launch.symbol} token={h.launch.token} size={36} />
-                <span className="grow"><b><bdi>{tokenText(h.launch.symbol)}</bdi></b> <span className="muted small">{amount(h.balance, 2)}</span></span>
+                <span className="grow"><b>$<bdi>{tickerText(h.launch.symbol, h.launch.token)}</bdi></b> <NotThat l={h.launch} /> <span className="muted small">{shortAmount(h.balance, 2)}</span></span>
                 <span className="right"><b>{usd(h.value)}</b><br /><span className="muted small">{h.launch.market ? price(h.launch.market.price) : ''}</span></span>
               </a>
             </li>
@@ -91,7 +94,7 @@ export default function Portfolio() {
               <li key={l.token}>
                 <a className="row-link" href={href({ page: 'manage', token: l.token })}>
                   <TokenPic uri={l.metadataURI} symbol={l.symbol} token={l.token} size={36} />
-                  <span className="grow"><b><bdi>{tokenText(l.symbol)}</bdi></b> <bdi className="muted small">{tokenText(l.name)}</bdi></span>
+                  <span className="grow"><b>$<bdi>{tickerText(l.symbol, l.token)}</bdi></b> <bdi className="muted small">{tokenText(l.name)}</bdi> <NotThat l={l} /></span>
                   <span className="right small">Manage →</span>
                 </a>
               </li>

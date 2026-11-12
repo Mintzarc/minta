@@ -67,6 +67,11 @@ export function wcNext(s: WcState, e: WcEvent): WcState {
   }
 }
 
+/** Shown above the "Move to Arc" form to someone connected through WalletConnect, before they start a withdrawal */
+export const WC_CLAIM_NOTE = 'You’re connected through WalletConnect, which works on VYRE only. You can start the move here, but the second step, the claim on Arc, needs a browser wallet with this same account. Make sure you can open this account in one before you start.';
+/** Shown in place of the claim button to someone connected through WalletConnect */
+export const WC_CLAIM_HERE = 'Ready. To claim it on Arc, connect a browser wallet with this same account.';
+
 /** What to tell the person, in plain words, for each way a connection can fail or end */
 export function wcMessage(why: WcFailure): string {
   switch (why) {

@@ -16,7 +16,7 @@ MINTA never holds your funds or your keys, and has no accounts, no ads, and no a
 
 WHAT IT COSTS
 - The creator of a token sets a tax of 1% to 10% on buys and 1% to 10% on sells. That tax is the only fee a trade pays.
-- The network fee for a transaction is paid in USDC: about a twentieth of a cent.
+- The network fee is paid in USDC: about a twentieth of a cent for a trade, about two cents for a launch.
 - Moving USDC back to Arc takes about a day.
 
 RISKS

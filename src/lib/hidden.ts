@@ -77,17 +77,28 @@ export function parseBlocklist(v: unknown): Blocklist {
   return { tokens: list((v as Blocklist).tokens), creators: list((v as Blocklist).creators) };
 }
 
-/** True when the file or the visitor's own lists hide this launch: its token, or everything from its creator */
+// Who launched each token (token -> the creator named in its launch event), lower-cased. A launch can be handed to another wallet,
+// and its `creator` is then the new one: a hidden or blocked creator's tokens stay hidden all the same, because a creator is matched
+// against who LAUNCHED the token as well as who holds it now. Filled by the page (components/Hidden.tsx) from the launch events when
+// any creator is hidden or blocked; a token not in it yet is matched on its current creator alone.
+let launchedBy: ReadonlyMap<string, string> = new Map();
+/** Sets who launched each token (both lower-cased) */
+export function setFirstCreators(m: ReadonlyMap<string, string>): void { launchedBy = m; }
+/** Who launched a token, when known */
+export const firstCreatorOf = (token: string): string | undefined => launchedBy.get(token.toLowerCase());
+
+/** True when the file or the visitor's own lists hide this launch: its token, or everything from its creator (the one it has now, or the one who launched it) */
 export function isHidden(l: { token: string; creator: string }, hiddenTokens: readonly string[], hiddenCreators: readonly string[], block: Blocklist): boolean {
-  const t = l.token.toLowerCase(), c = l.creator.toLowerCase();
-  return hiddenTokens.includes(t) || hiddenCreators.includes(c) || block.tokens.includes(t) || block.creators.includes(c);
+  const t = l.token.toLowerCase(), c = l.creator.toLowerCase(), first = launchedBy.get(t);
+  return hiddenTokens.includes(t) || hiddenCreators.includes(c) || block.tokens.includes(t) || block.creators.includes(c)
+    || (first !== undefined && (hiddenCreators.includes(first) || block.creators.includes(first)));
 }
 
 /** The launches that are not hidden by the file or by the visitor */
 export function visibleLaunches<T extends { token: string; creator: string }>(rows: T[], hiddenTokens: readonly string[], hiddenCreators: readonly string[], block: Blocklist): T[] {
   if (!hiddenTokens.length && !hiddenCreators.length && !block.tokens.length && !block.creators.length) return rows;
   const ht = new Set(hiddenTokens), hc = new Set(hiddenCreators), bt = new Set(block.tokens), bc = new Set(block.creators);
-  return rows.filter((r) => { const t = r.token.toLowerCase(), c = r.creator.toLowerCase(); return !(ht.has(t) || hc.has(c) || bt.has(t) || bc.has(c)); });
+  return rows.filter((r) => { const t = r.token.toLowerCase(), c = r.creator.toLowerCase(), first = launchedBy.get(t); return !(ht.has(t) || hc.has(c) || bt.has(t) || bc.has(c) || (first !== undefined && (hc.has(first) || bc.has(first)))); });
 }
 
 /** What the ticker shows once hidden tokens are out: its trades and launches of a hidden token or of a hidden creator's tokens go; its totals stay.

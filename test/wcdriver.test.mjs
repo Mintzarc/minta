@@ -40,7 +40,16 @@ function makeLibrary() {
     on(e, f) { if (e === 'display_uri') listeners.add(f); },
     removeListener(e, f) { listeners.delete(f); },
     abortPairingAttempt() {},
-    async request() { return null; },
+    // as the library does: its default chain is the one of the FIRST account the session lists, unless it was told another
+    defaultChain: undefined,
+    asked: [],
+    setDefaultChain(chain) { if (/^eip155:\d+$/.test(chain)) lib.defaultChain = chain; /* a bare number is ignored, as in the library */ },
+    async request({ method }) {
+      const first = lib.session?.namespaces?.eip155?.accounts?.[0]?.split(':').slice(0, 2).join(':');
+      const chain = lib.defaultChain ?? first;
+      if (method === 'eth_chainId') return chain ? `0x${Number(chain.split(':')[1]).toString(16)}` : null;
+      return null;
+    },
     client: {
       session: { getAll: () => [...sessions.values()] },
       async disconnect({ topic }) { ended.push(topic); sessions.delete(topic); },
@@ -50,7 +59,8 @@ function makeLibrary() {
       await lib.client.disconnect({ topic: lib.session.topic });
       counts.cleanups++; pairings.clear(); lib.session = undefined; // cleanup(): the pointer and every pairing
     },
-    connect() {
+    connect(options) {
+      lib.asked.push(options);
       const n = attempts.length + 1;
       const pairing = pairingN(n);
       pairings.add(pairing);
@@ -203,4 +213,37 @@ test('a normal connection: approved, refused nothing, nothing ended', async () =
   await attempts[0].approve({ topic: 'topic-A' });
   assert.equal((await s.out).session.topic, 'topic-A');
   assert.deepEqual(ended, []);
+});
+
+// A wallet may approve with accounts on several chains and list VYRE's second. The library takes its default chain from the first
+// account, so without being told it would answer "chain 1" and the connection would be refused as "not on VYRE".
+test('a session that lists another chain’s account before VYRE’s is accepted, and the library is pointed at VYRE', async () => {
+  const { lib, ended, attempts } = makeLibrary();
+  const d = load(lib).wcDriver();
+  const s = begin(d); await tick(); attempts[0].emitUri();
+  assert.equal(lib.asked[0].optionalNamespaces.eip155.defaultChain, '3045', 'the proposal names VYRE as the default chain');
+  assert.deepEqual(lib.asked[0].optionalNamespaces.eip155.chains, ['eip155:3045'], 'and asks for no other chain');
+  await attempts[0].approve({ topic: 'topic-M', accounts: [`eip155:1:${ME}`, `eip155:3045:${ME}`] });
+  assert.equal(await s.outcome, 'connected');
+  assert.deepEqual(ended, []);
+  assert.equal(lib.defaultChain, 'eip155:3045', 'told in the chain’s full form');
+  assert.equal(await lib.request({ method: 'eth_chainId' }), '0xbe5', 'so the library answers VYRE’s chain');
+});
+
+test('a restored session with another chain listed first is pointed at VYRE too; one with no VYRE account is still ended', async () => {
+  const { lib } = makeLibrary();
+  globalThis.__mark = '1';
+  const m = load(lib);
+  globalThis.localStorage = { getItem: () => '1', setItem() {}, removeItem() {} };
+  lib.session = { topic: 'topic-R', expiry: Math.floor(Date.now() / 1000) + 3600, namespaces: { eip155: { accounts: [`eip155:1:${ME}`, `eip155:3045:${ME}`] } } };
+  const p = await m.wcDriver().restore();
+  assert.ok(p, 'restored');
+  assert.equal(lib.defaultChain, 'eip155:3045');
+  const other = makeLibrary();
+  const m2 = load(other.lib);
+  globalThis.localStorage = { getItem: () => '1', setItem() {}, removeItem() {} };
+  other.lib.session = { topic: 'topic-X', expiry: Math.floor(Date.now() / 1000) + 3600, namespaces: { eip155: { accounts: [`eip155:1:${ME}`] } } };
+  assert.equal(await m2.wcDriver().restore(), null);
+  assert.equal(other.lib.defaultChain, undefined, 'never pointed anywhere');
+  globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 });

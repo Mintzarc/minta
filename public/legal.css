@@ -44,3 +44,6 @@ footer p + p { margin-top: 6px; }
   .top nav a.hide-sm { display: none; }
   main { padding-top: 34px; }
 }
+
+/* a notice above a page's title (the test network's terms, on the mainnet site) */
+.note { margin: 0 0 18px; padding: 12px 14px; border: 1px solid currentColor; border-radius: 10px; font-size: 15px; }
