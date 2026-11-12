@@ -60,37 +60,55 @@ export function userRejected(e: unknown): boolean {
   return SAID_NO.some((r) => r.test(words));
 }
 
-/** The hex a node or a wallet attached to an error, wherever it puts it (`data`, `data.data`, `data.originalError.data`), or '' */
+/** The hex a node or a wallet attached to an error, wherever it puts it (`data`, `data.data`, `data.originalError.data`, `data.cause.data`), or '' */
 function attached(d: unknown, depth = 0): string {
   if (typeof d === 'string') return /^0x(?:[0-9a-fA-F]{2}){4,}$/.test(d) ? d.toLowerCase() : '';
   if (!d || typeof d !== 'object' || depth > 3) return '';
-  const o = d as { data?: unknown; originalError?: unknown };
-  return attached(o.data, depth + 1) || attached(o.originalError, depth + 1);
+  const o = d as { data?: unknown; originalError?: unknown; cause?: unknown };
+  return attached(o.data, depth + 1) || attached(o.originalError, depth + 1) || attached(o.cause, depth + 1);
 }
+/** The node's own words for a revert: they open its message (a message that only quotes them, "rate limited (last error: execution reverted)", does not) */
+const REVERT_WORDS = /^execution reverted\b/i;
+/**
+ * The codes a revert in words comes under: 3 (what a node gives one: VYRE's RPC answers every revert as code 3 and a message
+ * opening "execution reverted"), the general -32000 (some nodes), -32603 (an older wallet provider puts its node's revert there,
+ * keeping the node's message, because 3 is no code it knows), or none at all. Under any other code (a limit's -32005, say) the
+ * words are a quotation, not the node's verdict.
+ */
+const revertCode = (c: unknown): boolean => c === undefined || c === null || c === 3 || c === -32000 || c === -32603;
 /** Revert data that says so by itself: Solidity's Error(string) or Panic(uint256). (Any other hex may be a contract's own error,
  *  or may be anything at all: it counts only next to a node's "execution reverted".) */
 export const hasRevertData = (d: unknown): boolean => /^0x(?:08c379a0|4e487b71)/.test(attached(d));
 
-/** A wallet that wraps its node's answer puts it under `data` (or `data.originalError`): {code: 3, message: 'execution reverted',
- *  data: '0x…'}. That inner answer is the node's own, so its code 3 or its "execution reverted" counts, whatever hex is beside it
- *  (a contract's own 4-byte error, say). */
+/** A wallet's provider that wraps its node's answer puts it under `data` (or `data.originalError`, `data.cause`): {code: -32603,
+ *  message: 'Internal JSON-RPC error.', data: {code: 3, message: 'execution reverted', data: '0x…'}}. That inner answer is the node's
+ *  own, so its code 3 or its "execution reverted" (under a code a revert comes with) counts, whatever hex is beside it (none, or a
+ *  contract's own 4-byte error). */
 function saysRevert(d: unknown, depth = 0): boolean {
   if (!d || typeof d !== 'object' || depth > 3) return false;
-  const o = d as { code?: unknown; message?: unknown; data?: unknown; originalError?: unknown };
-  if (o.code === 3 || (typeof o.message === 'string' && /^execution reverted/i.test(o.message.trim()))) return true;
-  return saysRevert(o.data, depth + 1) || saysRevert(o.originalError, depth + 1);
+  const o = d as { code?: unknown; message?: unknown; data?: unknown; originalError?: unknown; cause?: unknown };
+  if (o.code === 3 || (revertCode(o.code) && typeof o.message === 'string' && REVERT_WORDS.test(o.message.trim()))) return true;
+  return saysRevert(o.data, depth + 1) || saysRevert(o.originalError, depth + 1) || saysRevert(o.cause, depth + 1);
 }
 
-/** True when a call really reverted on the chain's own terms: the node answered "execution reverted" (code 3, or in so many words),
- *  or gave Solidity's own revert data. A node that could not be reached, or answered with an internal error and nothing else (or with
- *  some other hex attached), did not say that. */
+/**
+ * Whether a call really reverted, on the chain's own terms. One rule (the same as the SDK's own):
+ *   - code 3 anywhere in the error, or in the node's answer a wallet's provider wrapped (under `data`, `data.originalError`, `data.cause`);
+ *   - a message that OPENS with "execution reverted" (any letter case), as the node's own answer or the wrapped one, under code 3,
+ *     -32000, -32603 or no code;
+ *   - Solidity's own revert data, Error(string) or Panic(uint256), wherever it is attached;
+ *   - nothing returned where a value was due.
+ * Anything else is not a revert: a node that could not be reached, a limit (whatever its message quotes), an internal error whose
+ * message is not the node's "execution reverted", an EVM failure in other words (out of gas), some other hex attached.
+ */
 export function realRevert(e: unknown): boolean {
   for (const x of links(e)) if (x.code === 3 || hasRevertData(x.data) || saysRevert(x.data) || x.name === 'ContractFunctionZeroDataError') return true;
   // in words: only the node's or wallet's own answer counts (the library's wrappers say "reverted" for any failure, and repeat the
-  // call's arguments)
+  // call's arguments), only when the words open it, and only under a code a revert comes with
   const a = answer(e);
-  const own = typeof a === 'string' ? a : a && typeof a === 'object' && !notAWalletsWords(a) ? [(a as Link).message, (a as Link).details].filter((t) => typeof t === 'string').join(' ') : '';
-  return /execution reverted/i.test(own);
+  if (typeof a === 'string') return REVERT_WORDS.test(a.trim());
+  if (!a || typeof a !== 'object' || notAWalletsWords(a) || !revertCode((a as Link).code)) return false;
+  return [(a as Link).message, (a as Link).details].some((t) => typeof t === 'string' && REVERT_WORDS.test(t.trim()));
 }
 
 // Every mark that could pass for a quotation mark (the page puts its own pair around a wallet's words; none may be faked inside them)
