@@ -1,6 +1,7 @@
 // The chains the app talks to, and the browser wallet.
 // Reads go to VYRE's public RPC through Multicall3 (the RPC serves one request at a time per visitor, so reads made
 // together travel as one). Writes go through the visitor's wallet, and every one is simulated first (the SDK does it).
+import { afterApprovalFailure, firstWords, fromSendStep, ownRefusal, sentUnread, userRejected, walletSendFailure } from './walletError';
 import {
   createPublicClient,
   createWalletClient,
@@ -182,11 +183,27 @@ export function faceIdReason(e: unknown): string | null {
 
 export function reason(e: unknown): string {
   if (e === null || e === undefined) return 'It stopped without saying why: check your wallet before trying again.';
+  // sent, with its result unread (a caller that did not keep it to check): never "nothing was sent", whatever its cause says
+  const unread = sentUnread(e);
+  if (unread) return unread;
+  // something that stopped after its approval was mined: the approval is always mentioned, whatever stopped the rest (a busy network too)
+  const afterApproval = afterApprovalFailure(e);
+  if (afterApproval) return afterApproval;
+  const err = e as { shortMessage?: string; message?: string };
+  if (wasCancelledByCheck(e)) return 'Cancelled. Nothing was sent.';
+  // the page's own guard stopped it before the wallet was asked: its words, as they are
+  const own = ownRefusal(e);
+  if (own) return own;
+  // a refusal in the wallet, by its code or by one of the exact wordings wallets use for it
+  if (userRejected(e)) return 'Cancelled in your wallet.';
+  const m = typeof e === 'string' ? e : err?.shortMessage || err?.message || String(e);
+  // An error from the send step ends here, whatever words or data it carries: the wallet did not confirm it (it may have gone out),
+  // or it is a revert with its reason, or the library stopped before asking. It never reaches the readings below, which would turn
+  // "already known" into "wait a moment, then try again", or a busy node into "nothing was sent".
+  const unconfirmed = walletSendFailure(e);
+  if (fromSendStep(e)) return unconfirmed ?? firstWords(m);
+  if (unconfirmed) return unconfirmed; // (a connection found gone after the wallet was asked, raised outside the library's send step)
   const face = faceIdReason(e);
   if (face) return face;
-  const err = e as { code?: number; shortMessage?: string; message?: string; cause?: { code?: number } };
-  if (wasCancelledByCheck(e)) return 'Cancelled. Nothing was sent.';
-  if (err?.code === 4001 || err?.cause?.code === 4001 || /user rejected|denied/i.test(err?.message || '')) return 'Cancelled in your wallet.';
-  const m = err?.shortMessage || err?.message || String(e);
-  return m.split('\n')[0].slice(0, 220);
+  return firstWords(m);
 }

@@ -251,6 +251,19 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.fill('.trade-card input', '100');
     await pg.waitForTimeout(700);
     ok(!/promoter/i.test(await pg.locator('.trade-card').innerText()), 'the trade panel has no promoter note');
+    // the full amount is written under the box whenever the button would show it shortened, and not otherwise
+    const exactLine = async () => (await pg.locator('.trade-card .exact-amount').count()) ? (await pg.locator('.trade-card .exact-amount').innerText()).trim() : null;
+    const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 15000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+    ok(await exactLine() === null, 'a round amount has no “Exactly” line');
+    await pg.fill('.trade-card input', '1.123456');
+    ok(await soon(async () => (await exactLine()) === 'Exactly 1.123456 USDC'), 'a buy with more than four decimals shows the full amount under the box');
+    await pg.fill('.trade-card input', '1000.5');
+    ok(await soon(async () => (await exactLine()) === null), 'and one the button shows whole does not');
+    await pg.locator('.trade-card .seg button', { hasText: 'Sell' }).click();
+    await pg.fill('.trade-card input', '11714096.582707705307803293');
+    ok(await soon(async () => /^Exactly 11,714,096\.582707705307803293 /.test((await exactLine()) || '')), 'a sale of an amount with 18 decimals shows every one of them under the box');
+    await pg.fill('.trade-card input', '5');
+    ok(await soon(async () => (await exactLine()) === null), 'and a round sale does not');
     ok(errs.length === 0, 'nothing throws on the token page' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }

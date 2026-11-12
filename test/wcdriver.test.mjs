@@ -18,7 +18,7 @@ function load(fake) {
   const js = cjs('../src/lib/wc.ts').replace(/import\.meta\.env\.VITE_WALLETCONNECT_PROJECT_ID/g, 'undefined').replace(/window\.location\.origin/g, "'https://minta.vyrechain.com'");
   const stubs = {
     viem: {}, './chain': { VYRE_CHAIN: { id: 3045, name: 'VYRE', rpcUrls: { default: { http: ['https://rpc.example'] } } } },
-    './twa': { SITE_URL: 'https://minta.vyrechain.com' }, './wcstate': wmod.exports,
+    './twa': { SITE_URL: 'https://minta.vyrechain.com' }, './wcstate': wmod.exports, './walletError': { markOwn() {} },
     '@walletconnect/universal-provider': { __esModule: true, default: { init: async () => fake } },
   };
   globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };

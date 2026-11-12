@@ -12,17 +12,18 @@
 //  - trades go through Uniswap's SwapRouter against the pool found by the token pair and the fee key 10000; the app router of the
 //    first launchpad is not involved, and there is no app fee.
 //
-// Imports only viem and the SDK, so node runs this file in the unit tests (test/padv2.test.mjs).
+// Imports only viem, the SDK and lib/walletError.ts (which imports nothing), so node runs this file in the unit tests (test/padv2.test.mjs).
 import {
   encodeFunctionData, getAddress, isAddress, isAddressEqual, parseAbi, parseEventLogs, parseSignature, zeroAddress,
   type Address, type Hash, type Hex, type TransactionReceipt,
 } from 'viem';
 import { getChainId, readContract, signTypedData, simulateContract } from 'viem/actions';
 import {
-  isSmart, quoterV2Abi, sendCall, vyreTokenAbi,
+  SentButUnconfirmedError, isSmart, quoterV2Abi, sendCall, vyreTokenAbi,
   type BuyParams, type BuyResult, type Launch, type LaunchParams, type LaunchResult, type ReadClient, type SellParams, type SellResult,
   type TaxWallets, type WalletLike,
 } from '@vyrechain/sdk';
+import { SALE_AFTER_APPROVAL, realRevert, userRejected } from './walletError.ts';
 
 /** VYRE mainnet's chain ID */
 export const MAINNET_ID = 3045;
@@ -290,20 +291,32 @@ function moved(receipt: TransactionReceipt, token: Address, who: Address): { in:
 }
 const sum = (xs: bigint[]) => xs.reduce((a, x) => a + x, 0n);
 
-const userRejected = (e: unknown): boolean => {
-  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 6; x = (x as { cause?: unknown }).cause, i++) {
-    const o = x as { code?: unknown; name?: unknown };
-    if (o.code === 4001 || o.name === 'UserRejectedRequestError') return true;
+/**
+ * A sale that stopped after its exact approval was mined: the approval is on the chain (`approvalHash`), the sale is not (`cause`
+ * says why). Not used for a sale that was sent and whose result is unknown: that error carries the sale's own hash and is passed on.
+ */
+export class SaleAfterApprovalError extends Error {
+  approvalHash: Hash;
+  constructor(approvalHash: Hash, cause: unknown) {
+    super('the approval went through, but the sale did not', { cause });
+    this.name = SALE_AFTER_APPROVAL;
+    this.approvalHash = approvalHash;
   }
-  return false;
-};
+}
+/** The sale itself went out and its result is not known (a transaction to check, a Face ID operation): the caller follows that one,
+ *  and must not be told to sell again. Everything else after a mined approval (a sale cancelled or replaced in the wallet, one that
+ *  was mined and failed, one never sent) is a sale that did not happen. */
+const saleMayBeOut = (e: unknown): boolean =>
+  e instanceof SentButUnconfirmedError || (!!e && typeof e === 'object' && (e as { userOperation?: unknown }).userOperation === true);
 
 /**
  * Sells launch tokens through the SwapRouter for native USDC (or WUSDC). If the router's allowance is short: a signed permit for
  * exactly `amountIn` (VyreToken supports EIP-2612) in the same transaction, or an exact approval sent first when the wallet can't
- * sign one (a smart-contract wallet) or the token refuses it. Never an open-ended approval.
+ * sign one (a smart-contract wallet) or the token refuses it. Never an open-ended approval. `note` hears when the permit could not
+ * be used and an exact approval is about to be asked for instead, so the page can say so before the wallet opens again.
  */
-export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams): Promise<SellResult> {
+export type SellNote = 'permit-unsigned' | 'permit-refused';
+export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams, note?: (what: SellNote) => void): Promise<SellResult> {
   if (p.amountIn <= 0n) throw new Error('amountIn must be more than 0');
   const account = accountOf(wallet);
   noRecipient(p.recipient, account.address);
@@ -324,15 +337,21 @@ export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams
     sent = await sendCall(wallet, client, sale());
   } else {
     if (p.permit !== false && !isSmart(wallet)) {
-      sent = await sellWithPermit(wallet, client, account.address, p, deadline, sale);
-      if (sent) approval = 'permit';
+      const tried = await sellWithPermit(wallet, client, account.address, p, deadline, sale);
+      if (typeof tried === 'string') { try { note?.(tried); } catch { /* the caller's own failure */ } } else { sent = tried; approval = 'permit'; }
     }
     if (!sent) {
       // an approval for exactly this sale, mined before the sale is simulated (the simulation needs it)
       const approved = await sendCall(wallet, client, { address: p.token, abi: vyreTokenAbi, functionName: 'approve', args: [PAD_V2.swapRouter, p.amountIn] });
       approval = 'approve';
       approvalHash = approved.hash;
-      sent = await sendCall(wallet, client, sale());
+      try {
+        sent = await sendCall(wallet, client, sale());
+      } catch (err) {
+        // the approval is mined: whatever stopped the sale, the page must not say that nothing happened
+        if (saleMayBeOut(err)) throw err;
+        throw new SaleAfterApprovalError(approved.hash, err);
+      }
     }
   }
   const t = moved(sent.receipt, p.token, account.address);
@@ -346,11 +365,12 @@ export async function sell(wallet: WalletLike, client: ReadClient, p: SellParams
   };
 }
 
-/** Signs a permit for exactly the sale and sells with it in one transaction; null when the permit can't be used (the caller approves instead) */
+/** Signs a permit for exactly the sale and sells with it in one transaction; when the permit can't be used, says why (the caller
+ *  approves instead): the wallet could not sign it, or the token itself refuses it. A node that cannot be reached is an error, not a refusal. */
 async function sellWithPermit(
   wallet: WalletLike, client: ReadClient, owner: Address, p: SellParams, deadline: bigint,
   sale: Sale,
-): Promise<{ hash: Hash; receipt: TransactionReceipt } | null> {
+): Promise<{ hash: Hash; receipt: TransactionReceipt } | SellNote> {
   const [name, nonce, chainId] = await Promise.all([
     readContract(client, { address: p.token, abi: vyreTokenAbi, functionName: 'name' }),
     readContract(client, { address: p.token, abi: vyreTokenAbi, functionName: 'nonces', args: [owner] }),
@@ -371,23 +391,27 @@ async function sellWithPermit(
     });
   } catch (err) {
     if (userRejected(err)) throw err;
-    return null;
+    return 'permit-unsigned';
   }
   let sig;
-  try { sig = parseSignature(signature); } catch { return null; }
+  try { sig = parseSignature(signature); } catch { return 'permit-unsigned'; }
   const v = sig.v !== undefined ? Number(sig.v) : 27 + (sig.yParity ?? 0);
   const permit = encodeFunctionData({ abi: swapRouterAbi, functionName: 'selfPermitIfNecessary', args: [p.token, p.amountIn, deadline, v, sig.r, sig.s] });
   try {
     await simulateContract(client, { account: wallet.account!, ...sale([permit]) });
   } catch (err) {
+    // the node could not be asked (or answered with an error of its own): that says nothing about the permit, so it is the error
+    if (!realRevert(err)) throw err;
     // Was it the permit? Tried on its own: if the token takes it, the sale failed for another reason (the price moved past the
-    // minimum, say) and an approval wouldn't help
+    // minimum, say) and an approval wouldn't help. Only a real revert of the permit alone means the token refuses it.
+    let alone: unknown = null;
     const permitWorks = await simulateContract(client, {
       account: wallet.account!, address: p.token, abi: vyreTokenAbi, functionName: 'permit',
       args: [owner, PAD_V2.swapRouter, p.amountIn, deadline, v, sig.r, sig.s],
-    }).then(() => true, () => false);
+    }).then(() => true, (e: unknown) => { alone = e; return false; });
     if (permitWorks) throw err;
-    return null;
+    if (!realRevert(alone)) throw alone;
+    return 'permit-refused';
   }
   return sendCall(wallet, client, sale([permit]));
 }

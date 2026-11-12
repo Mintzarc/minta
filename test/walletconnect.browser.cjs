@@ -130,6 +130,67 @@ const until = async (pg, fn, arg, ms = 15000) => { try { await pg.waitForFunctio
     await ctx.close();
   }
 
+  // ---- a sale whose permit the wallet cannot sign asks for an exact approval instead and says so; when the wallet then answers the
+  // send with an error of its own (the page's simulation had passed), the wallet's words are shown and nothing claims a contract revert
+  {
+    const { pg, ctx } = await open();
+    await chooseWc(pg); await pg.waitForSelector('.wc-qr'); await pg.evaluate(() => window.__pair.resolve());
+    await until(pg, () => document.querySelector('#who').textContent !== 'none');
+    const sellNow = async (sendError, sendErrorAfter = 0) => {
+      await pg.evaluate(([e, n]) => { window.__sent.length = 0; window.__notes.length = 0; window.__sendsOk = 0; window.__fake.signError = true; window.__fake.sendError = e; window.__fake.sendErrorAfter = n; }, [sendError, sendErrorAfter]);
+      await pg.locator('#sell button').first().click();
+      await until(pg, () => /Nothing was sent|gone out|revert|Sold\.|Press Sell again|press Sell again|pressing Sell again/i.test(document.querySelector('#sell .status')?.textContent || ''), null, 30000);
+      return (await pg.locator('#sell .status').innerText()).trim();
+    };
+    const t = await sellNow({ code: -32603, message: 'Internal JSON-RPC error. insufficient funds for gas * price + value' });
+    ok(t === 'Your wallet didn’t confirm this. It said: “Internal JSON-RPC error. insufficient funds for gas * price + value”. It may still have gone out: check your wallet’s activity before trying again.', `an internal error, whatever its words, is shown with the wallet’s own words and may have gone out (${t})`);
+    ok(!/revert|contract function|following reason|Nothing was sent/i.test(t), 'and nothing calls it a contract revert, or says nothing was sent');
+    ok(JSON.stringify(await pg.evaluate(() => window.__notes)) === '["permit-unsigned"]', 'the page was told an exact approval is asked for instead of the permit');
+    const asked = await sent(pg);
+    ok(asked.length === 2 && asked[0].method === 'eth_signTypedData_v4' && asked[1].method === 'eth_sendTransaction', 'the wallet was asked for the permit, then for one send (the approval)');
+    ok(asked[1].params[0].to.toLowerCase() === '0x1111111111111111111111111111111111111111' && asked[1].params[0].data.startsWith('0x095ea7b3'), 'that send is approve() on the token, for the sale’s amount only');
+    // no code from the wallet makes the page say "Nothing was sent.": it was asked to send, so it may have
+    const coded = await sellNow({ code: 4100, message: 'The requested account has not been authorized' });
+    ok(coded === 'Your wallet didn’t confirm this. It said: “The requested account has not been authorized”. It may still have gone out: check your wallet’s activity before trying again.', `a provider code changes nothing (${coded})`);
+    // an answer that may only have been lost (the wallet may have sent it): never "Nothing was sent"
+    const lost = await sellNow({ code: -32603, message: 'Request timed out' });
+    ok(lost === 'Your wallet didn’t confirm this. It said: “Request timed out”. It may still have gone out: check your wallet’s activity before trying again.', `a lost answer says it may have gone out (${lost})`);
+    ok(!/Nothing was sent|revert/i.test(lost), 'and does not say nothing was sent');
+    // the wallet's node says it reverts (no data): a revert, not the wallet's failure
+    const t3 = await sellNow({ code: 3, message: 'execution reverted: Too little received' });
+    ok(/reverted with the following reason: execution reverted: Too little received$/.test(t3), `a revert the wallet’s node reports reads as a revert, with its reason (${t3})`);
+    ok(!/Your wallet/.test(t3), 'and is not blamed on the wallet');
+    // the approval is mined, then the wallet does not confirm the sale: the page says both
+    const after = await sellNow({ code: -32603, message: 'Request timed out' }, 1);
+    ok(after === 'The approval went through, but your wallet didn’t confirm the sale. It said: “Request timed out”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.', `after a mined approval the page says so, and that the sale may have gone out (${after})`);
+    const after2 = await sellNow({ code: 4100, message: 'The requested account has not been authorized' }, 1);
+    ok(after2 === 'The approval went through, but your wallet didn’t confirm the sale. It said: “The requested account has not been authorized”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.', `and the same whatever code the wallet gives (${after2})`);
+    // -32000 makes the library ask again as wallet_sendTransaction: the wallet's own first answer is what is shown, as one that may have gone out
+    const after3 = await sellNow({ code: -32000, message: 'insufficient funds for gas * price + value' }, 1);
+    ok(after3 === 'The approval went through, but your wallet didn’t confirm the sale. It said: “insufficient funds for gas * price + value”. The sale may still have gone out: check your wallet’s activity before pressing Sell again.', `a -32000 answer keeps the wallet’s own words (${after3})`);
+    ok(!/Nothing was sent/.test(after + after2), 'neither says "Nothing was sent" (the approval was)');
+    ok((await sent(pg)).filter((x) => x.method === 'eth_sendTransaction').length === 2, 'the wallet was asked for the approval and then the sale');
+    await ctx.close();
+  }
+
+  // ---- the trade button at a narrow phone's width (320 px): a shortened amount, and words that wrap inside the card, never past the edges
+  {
+    const { pg, ctx } = await open(() => {}, { width: 320, height: 640 });
+    await pg.waitForSelector('#narrow button');
+    const m = await pg.evaluate(() => {
+      const card = document.querySelector('#narrow').getBoundingClientRect();
+      return {
+        page: document.documentElement.scrollWidth, view: window.innerWidth,
+        buttons: [...document.querySelectorAll('#narrow button')].map((b) => { const r = b.getBoundingClientRect(); return { text: b.textContent, left: r.left, right: r.right, inside: b.scrollWidth <= b.clientWidth + 1, inCard: r.left >= card.left - 0.5 && r.right <= card.right + 0.5 }; }),
+      };
+    });
+    ok(m.buttons[0].text === 'Sell 11,714,096.58 MINTA', `the button shows the amount shortened (${m.buttons[0].text})`);
+    ok(m.buttons.every((b) => b.left >= 0 && b.right <= m.view && b.inCard), `both buttons stay inside the card and the screen (${JSON.stringify(m.buttons.map((b) => [Math.round(b.left), Math.round(b.right)]))} of ${m.view})`);
+    ok(m.buttons.every((b) => b.inside), 'their words fit inside them (wrapped, not cut off or spilling)');
+    ok(m.page <= m.view, `the page does not scroll sideways (${m.page} of ${m.view})`);
+    await ctx.close();
+  }
+
   // ---- eth_accounts and the session name different accounts on VYRE: refused at connect, nothing connected
   {
     const { pg, ctx } = await open(() => {});

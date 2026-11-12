@@ -36,7 +36,7 @@ export const quoteBuy: typeof sdk.quoteBuy = main ? v2.quoteBuy : sdk.quoteBuy;
 export const quoteSell: typeof sdk.quoteSell = main ? v2.quoteSell : sdk.quoteSell;
 export const launch: typeof sdk.launch = main ? v2.launch : sdk.launch;
 export const buy: typeof sdk.buy = main ? v2.buy : sdk.buy;
-export const sell: typeof sdk.sell = main ? v2.sell : sdk.sell;
+export const sell: typeof v2.sell = main ? v2.sell : sdk.sell; // the last argument (a note when an approval is asked for instead of a permit) is the new pad's
 /** The launchpad contract's ABI for the calls the pages make (reads, launch events, the creator's controls) */
 export const vyrePadAbi = (main ? v2.padV2Abi : sdk.vyrePadAbi) as unknown as typeof sdk.vyrePadAbi;
 

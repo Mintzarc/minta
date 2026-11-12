@@ -21,6 +21,7 @@
 // No imports from the app (only viem and the SDK) so that node can run this file in the unit tests.
 import { BaseError, isAddress, type Address, type EIP1193Provider } from 'viem';
 import { checkTransaction, vyreTestnet, type TxCheck } from '@vyrechain/sdk';
+import { markOwn } from './walletError.ts';
 
 /** The most the check may add before the wallet's own prompt, in milliseconds (everything counted: connecting, the answer, reading it) */
 export const CHECK_BUDGET_MS = 800;
@@ -111,6 +112,7 @@ export class CheckCancelled extends Error {
   constructor() {
     super('Cancelled. Nothing was sent.');
     this.name = 'CheckCancelled';
+    markOwn(this);
   }
 }
 
@@ -121,13 +123,14 @@ export class CheckCancelled extends Error {
 export class WalletMovedNetwork extends BaseError {
   constructor() {
     super('Your wallet moved to another network before this was sent, so nothing was sent. Switch it back to VYRE, then try again.', { name: 'WalletMovedNetwork' });
+    markOwn(this); // the page's own stop, before the wallet was asked to send: shown in these words
   }
 }
 
 /** Whether an error, or anything it was caused by, is a Cancel from the check's dialog (viem wraps a wallet's refusal around it) */
 export function wasCancelledByCheck(e: unknown): boolean {
   for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 6; x = (x as { cause?: unknown }).cause, i++) {
-    if ((x as { name?: unknown }).name === 'CheckCancelled') return true;
+    if (x instanceof CheckCancelled) return true; // the check's own error, not anything that merely carries its name
   }
   return false;
 }
@@ -262,28 +265,46 @@ export async function reviewBeforeSend(params: unknown, o: GuardOptions): Promis
 const chainIdOf = (v: unknown): number =>
   typeof v === 'number' ? v : typeof v === 'string' && /^(0x[0-9a-fA-F]{1,16}|[1-9][0-9]{0,15})$/.test(v) ? Number(v) : NaN;
 
-/** The sends the check looks at: viem uses `wallet_sendTransaction` for a wallet that refuses `eth_sendTransaction`, with the same parameter */
+/** The sends the check looks at */
 const SENDS: ReadonlySet<string> = new Set(['eth_sendTransaction', 'wallet_sendTransaction']);
-/** The error codes for which viem resends a refused `eth_sendTransaction` as `wallet_sendTransaction` (invalid input or params, method not found or not supported) */
-const RESENT_ON: ReadonlySet<unknown> = new Set([-32000, -32602, -32601, -32004]);
+/** How long a wallet's answer to a send is kept for the library's follow-up ask (it comes at once) */
+const FIRST_ANSWER_MS = 5000;
+/** A wallet may reject with anything: a bare string, a number, nothing. The wallet library can only read an object (anything else
+ *  ends in its own internal error, whose text is not for people), so a string becomes an error with those words, and anything
+ *  else an error with none. */
+export const asError = (thrown: unknown): unknown =>
+  thrown && typeof thrown === 'object' ? thrown : new Error(typeof thrown === 'string' ? thrown : '');
+
+/** A wallet's codes for "I have no such method": method not found, method not supported, unsupported method */
+const NO_SUCH_METHOD: ReadonlySet<unknown> = new Set([-32601, -32004, 4200]);
 const keyOf = (params: unknown): string | null => { try { return JSON.stringify(params) ?? null; } catch { return null; } };
 
 /**
- * The wallet's provider with its sends going through the check first, and the wallet's network asked again after it;
- * everything else is passed to the wallet as it is. For any chain but VYRE's, the provider itself comes back, untouched.
+ * The wallet's provider with its sends going through the check first (on VYRE), and the wallet's network asked again after it;
+ * everything else is passed to the wallet as it is.
+ *
+ * On every chain, one more thing: when a wallet answers `eth_sendTransaction` with certain codes (-32000, -32602, -32601, -32004)
+ * the wallet library asks again as `wallet_sendTransaction` and reports the SECOND answer. A wallet whose first answer was
+ * "already known" (the transaction went out) and whose second is "unsupported method" would then look as if it had sent nothing.
+ * So the follow-up for the very same transaction is not passed to the wallet: its answer is the wallet's own first answer (once,
+ * within a few seconds), and the wallet is asked to send a transaction once.
  */
 export function guardProvider(provider: EIP1193Provider, o: GuardOptions): EIP1193Provider {
-  if (o.chainId !== (o.vyreChainId ?? vyreTestnet.id)) return provider;
+  const checked = o.chainId === (o.vyreChainId ?? vyreTestnet.id);
   const toWallet = (args: { method: string; params?: unknown }) => provider.request(args as Parameters<EIP1193Provider['request']>[0]);
-  // the send the wallet has just refused as `eth_sendTransaction`: viem's very next request is the same one as
-  // `wallet_sendTransaction`, which was checked a moment ago and isn't asked about twice
-  let refused: string | null = null;
+  let first: { key: string; error: unknown; at: number } | null = null;
   const request = async (args: { method: string; params?: unknown }) => {
-    const resent = refused;
-    refused = null;
+    const was = first;
+    first = null;
     if (!args || !SENDS.has(args.method)) return toWallet(args);
     const key = keyOf(args.params);
-    if (!(args.method === 'wallet_sendTransaction' && key !== null && key === resent)) {
+    // (the one exception: a wallet whose first answer was that it has no such method, which is what the follow-up exists for: nothing
+    // was sent by an ask the wallet does not know, so that follow-up is the send, and it is checked and passed on like any other)
+    if (args.method === 'wallet_sendTransaction' && was && key !== null && key === was.key && Date.now() - was.at < FIRST_ANSWER_MS) {
+      if (!NO_SUCH_METHOD.has((was.error as { code?: unknown } | null)?.code)) throw was.error;
+      try { return await toWallet(args); } catch (thrown) { throw asError(thrown); } // (checked a moment ago as eth_sendTransaction: not asked about twice)
+    }
+    if (checked) {
       // the check may have taken a while (or waited on the person): the send goes to whatever network the wallet is on now
       if (await reviewBeforeSend(args.params, o)) {
         const now = chainIdOf(await toWallet({ method: 'eth_chainId' }));
@@ -292,8 +313,9 @@ export function guardProvider(provider: EIP1193Provider, o: GuardOptions): EIP11
     }
     try {
       return await toWallet(args);
-    } catch (e) {
-      if (args.method === 'eth_sendTransaction' && key !== null && RESENT_ON.has((e as { code?: unknown } | null)?.code)) refused = key;
+    } catch (thrown) {
+      const e = asError(thrown);
+      if (args.method === 'eth_sendTransaction' && key !== null) first = { key, error: e, at: Date.now() };
       throw e;
     }
   };

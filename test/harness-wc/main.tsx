@@ -5,7 +5,11 @@
 // (eth_chainId and eth_accounts from its own session).
 import '../../src/styles.css';
 import { createRoot } from 'react-dom/client';
-import type { Address, WalletClient } from 'viem';
+import { createPublicClient, custom, decodeFunctionData, encodeFunctionResult, toHex, type Address, type WalletClient } from 'viem';
+import { quoterV2Abi, vyreTokenAbi } from '@vyrechain/sdk';
+import * as v2 from '../../src/lib/padv2';
+import { PERMIT_REFUSED_NOTE, PERMIT_UNSIGNED_NOTE } from '../../src/lib/walletError';
+import { exact, parse, tradeLabel } from '../../src/lib/format';
 import { WalletProvider, useWallet } from '../../src/lib/wallet';
 import { ConnectButton, TxButton } from '../../src/components/ui';
 import WalletConnectSheet from '../../src/components/WalletConnectSheet';
@@ -16,15 +20,15 @@ const PAD: Address = '0x3333333333333333333333333333333333333333';
 const OTHER: Address = '0x4444444444444444444444444444444444444444';
 const URI = `wc:${'ab'.repeat(32)}@2?expiryTimestamp=1793462181&relay-protocol=irn&symKey=${'cd'.repeat(32)}`;
 
-interface Fake { account: string; chain: number; reject: boolean; lost: boolean; expiry?: number; sessionAccount?: string }
+interface Fake { account: string; chain: number; reject: boolean; lost: boolean; expiry?: number; sessionAccount?: string; signError?: boolean; sendError?: { code: number; message: string }; sendErrorAfter?: number }
 type W = {
   __fake: Fake; __sent: { method: string; params: unknown; chain?: string }[]; __asked: string[]; __starts: number; __disconnects: number;
   __pair: { resolve: () => void; reject: (e: unknown) => void } | null; __pairs: { resolve: () => void; reject: (e: unknown) => void }[]; __restoreable: boolean; __emit: (e: string, v: unknown) => void;
-  __lastTrade: string; __ids: { PAD: string; OTHER: string; URI: string };
+  __lastTrade: string; __notes: string[]; __sendsOk: number; __ids: { PAD: string; OTHER: string; URI: string };
 };
 const w = window as unknown as W;
 w.__fake = { account: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', chain: VYRE_CHAIN.id, reject: false, lost: false };
-w.__sent = []; w.__asked = []; w.__starts = 0; w.__disconnects = 0; w.__pair = null; w.__pairs = []; w.__restoreable = false; w.__lastTrade = '';
+w.__sent = []; w.__asked = []; w.__starts = 0; w.__disconnects = 0; w.__pair = null; w.__pairs = []; w.__restoreable = false; w.__lastTrade = ''; w.__notes = []; w.__sendsOk = 0;
 w.__ids = { PAD, OTHER, URI };
 
 const listeners = new Map<string, Set<(x: unknown) => void>>();
@@ -41,6 +45,11 @@ const provider: WcProvider = {
       w.__sent.push({ method, params, chain });
       if (f.lost) throw new Error('No matching key. session topic doesn\'t exist: abc');
       if (f.reject) throw Object.assign(new Error('User rejected.'), { code: 5000 });
+      // a wallet that cannot sign typed data (not a refusal), and one that answers a send with an error of its own
+      if (method === 'eth_signTypedData_v4' && f.signError) throw Object.assign(new Error('Method not supported'), { code: -32601 });
+      // (after `sendErrorAfter` sends that went through, when that is set: an approval that is mined, then a sale that is not)
+      if (method === 'eth_sendTransaction' && f.sendError && w.__sendsOk >= (f.sendErrorAfter ?? 0)) throw Object.assign(new Error(f.sendError.message), { code: f.sendError.code });
+      if (method === 'eth_sendTransaction') w.__sendsOk++;
       return `0x${'11'.repeat(32)}`;
     }
     throw new Error(`stand-in wallet: unexpected ${method}`);
@@ -69,6 +78,36 @@ setWcDriver({
   restore: async () => (w.__restoreable ? provider : null),
 });
 
+// A stand-in node for a sale on the new pad: no allowance yet, a quote, and every simulation passes (so whatever stops a sale after
+// that is the wallet's doing, not a contract's)
+const TOKEN: Address = '0x1111111111111111111111111111111111111111';
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const node = createPublicClient({ chain: VYRE_CHAIN, transport: custom({ request: async ({ method, params }: { method: string; params?: unknown }) => {
+  switch (method) {
+    case 'eth_chainId': return toHex(VYRE_CHAIN.id);
+    case 'eth_blockNumber': return '0x10';
+    case 'eth_getTransactionCount': return '0x1';
+    case 'eth_estimateGas': return '0x7a120';
+    case 'eth_gasPrice': case 'eth_maxPriorityFeePerGas': return '0x1';
+    case 'eth_getBlockByNumber': return { number: '0x10', hash: `0x${'0c'.repeat(32)}`, timestamp: '0x6000', baseFeePerGas: '0x1', gasLimit: '0x1c9c380', transactions: [] };
+    case 'eth_getTransactionByHash': return { hash: `0x${'11'.repeat(32)}`, from: w.__fake.account, nonce: '0x1', blockNumber: '0x5', blockHash: `0x${'0b'.repeat(32)}`, transactionIndex: '0x0', input: '0x', to: TOKEN, value: '0x0', gas: '0x1', gasPrice: '0x1', type: '0x0' };
+    case 'eth_getTransactionReceipt': return { transactionHash: `0x${'11'.repeat(32)}`, transactionIndex: '0x0', blockHash: `0x${'0b'.repeat(32)}`, blockNumber: '0x5', from: w.__fake.account, to: TOKEN, cumulativeGasUsed: '0x1', gasUsed: '0x1', effectiveGasPrice: '0x1', status: '0x1', logs: [], logsBloom: `0x${'00'.repeat(256)}`, type: '0x0', contractAddress: null };
+    case 'eth_call': {
+      const { to, data, input } = (params as { to: string; data?: `0x${string}`; input?: `0x${string}` }[])[0];
+      const d = (data ?? input)!;
+      if (same(to, v2.PAD_V2.quoter)) return encodeFunctionResult({ abi: quoterV2Abi, functionName: 'quoteExactInputSingle', result: [50n * 10n ** 18n, 0n, 0, 0n] });
+      if (same(to, v2.PAD_V2.swapRouter)) return encodeFunctionResult({ abi: v2.swapRouterAbi, functionName: 'multicall', result: [] });
+      const f = decodeFunctionData({ abi: vyreTokenAbi, data: d });
+      if (f.functionName === 'allowance') return encodeFunctionResult({ abi: vyreTokenAbi, functionName: 'allowance', result: 0n });
+      if (f.functionName === 'name') return encodeFunctionResult({ abi: vyreTokenAbi, functionName: 'name', result: 'My Token' });
+      if (f.functionName === 'nonces') return encodeFunctionResult({ abi: vyreTokenAbi, functionName: 'nonces', result: 3n });
+      if (f.functionName === 'approve') return encodeFunctionResult({ abi: vyreTokenAbi, functionName: 'approve', result: true });
+      return '0x';
+    }
+    default: throw new Error(`stand-in node: unexpected ${method}`);
+  }
+} }) });
+
 function Page() {
   const { account, onVyre, provider: p, disconnect } = useWallet();
   return (
@@ -84,6 +123,21 @@ function Page() {
           w.__lastTrade = hash;
           return { hash, text: 'Sent.' };
         }} />
+      </div>
+      <div id="sell">
+        <TxButton label="Sell" run={async (say) => {
+          const wallet = await onVyre();
+          const r = await v2.sell(wallet as never, node as never, { token: TOKEN, amountIn: 3n * 10n ** 18n, minUsdcOut: 1n }, (what) => {
+            w.__notes.push(what);
+            say(what === 'permit-unsigned' ? PERMIT_UNSIGNED_NOTE : PERMIT_REFUSED_NOTE);
+          });
+          return { hash: r.hash, text: 'Sold.' };
+        }} />
+      </div>
+      {/* the trade panel's button on a narrow phone: the label the page makes for a long amount, and a worst case (every decimal, a long ticker) */}
+      <div className="trade-card" id="narrow">
+        <TxButton label={tradeLabel('sell', parse('11714096.582707705307803293'), 'MINTA')} run={async () => ({ text: 'x' })} />
+        <TxButton label={`Sell ${exact(parse('11714096.582707705307803293')!)} ${'W'.repeat(28)}`} run={async () => ({ text: 'x' })} />
       </div>
       <div id="other">
         <TxButton label="Send from another account" run={async () => {

@@ -9,6 +9,7 @@
 // The connection is for VYRE's chain only.
 import type { EIP1193Provider } from 'viem';
 import { VYRE_CHAIN } from './chain';
+import { markLostAfterAsking, markOwn } from './walletError';
 import { SITE_URL } from './twa';
 import {
   WC_EVENTS, WC_OPTIONAL_METHODS, WC_RELAY_TIMEOUT_MS, WC_RELAY_URL, WC_REQUIRED_METHODS,
@@ -33,7 +34,9 @@ export interface WcDriver {
 }
 
 export class WcError extends Error {
-  constructor(public why: WcFailure, message?: string) { super(message ?? wcMessage(why)); this.name = 'WcError'; }
+  // (registered as the page's own refusal: lib/walletError.ts shows only these in their own words, never an object that borrows the name)
+  // `asked`: made after the wallet was asked (a connection found gone): the page's own error still, but not a stop before asking
+  constructor(public why: WcFailure, message?: string, asked = false) { super(message ?? wcMessage(why)); this.name = 'WcError'; if (asked) markLostAfterAsking(this); else markOwn(this); }
 }
 
 const PROJECT_ID = wcProjectId(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID);
@@ -208,6 +211,8 @@ const SIGNS: ReadonlySet<string> = new Set(['eth_sendTransaction', 'eth_signType
 /** The few plain reads the app makes through this connection (answered by the library from the session) */
 const READS: ReadonlySet<string> = new Set(['eth_chainId', 'eth_accounts', 'eth_requestAccounts']);
 const SWITCHES: ReadonlySet<string> = new Set(['wallet_switchEthereumChain', 'wallet_addEthereumChain']);
+/** How long a wallet's refusal of a send is kept for the library's follow-up ask (it comes at once) */
+const REFUSED_SEND_MS = 5000;
 const LOST = /no matching key|session topic doesn.?t exist|missing or invalid\. (?:request|session)|session (?:not found|deleted)|pairing .*(?:not found|expired)/i;
 
 /** The address a signing request names, or null when it names none / can’t be read */
@@ -272,6 +277,7 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
       throw new WcError('other', 'The account in your wallet changed, so nothing was sent. Disconnect and connect again.');
     }
   };
+  let refusedSend: { error: unknown; at: number; key: string } | null = null;
   const request = async (given: { method: string; params?: unknown }) => {
     // read the request once: what is checked is exactly what is sent (a getter that answers differently the second time changes nothing)
     let args: { method: string; params?: unknown };
@@ -287,6 +293,15 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
     }
     if (!args || typeof args.method !== 'string') throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
     if (READS.has(args.method)) return raw.request(args as Parameters<EIP1193Provider['request']>[0]);
+    // The wallet library asks again as `wallet_sendTransaction` when a wallet turns `eth_sendTransaction` down with certain codes.
+    // That second ask never reaches the wallet (it is not on the list below), and its answer is the wallet's own first answer, so
+    // the page shows what the wallet said (not enough funds for gas, say) and not this guard's words.
+    // Only for the very same transaction (the same checked parameters), within a few seconds, and only once.
+    if (args.method === 'wallet_sendTransaction' && refusedSend) {
+      const was = refusedSend;
+      refusedSend = null;
+      if (Date.now() - was.at < REFUSED_SEND_MS && was.key === JSON.stringify(args.params ?? null)) throw was.error;
+    }
     // an allow-list: anything that is not a read above or a bound signing request below never reaches the wallet
     if (!SIGNS.has(args.method)) throw new WcError('other', 'That kind of request isn’t used here, so nothing was sent.');
     await live();
@@ -299,10 +314,17 @@ export function guardWc(raw: WcProvider, account: string, onLostRaw: (why: WcFai
       throw new WcError('chain', `That request is for another network. This connection works on ${VYRE_CHAIN.name} only, so nothing was sent.`);
     }
     try {
-      return await (raw.request as (a: unknown, chain?: string) => Promise<unknown>)(args, CAIP);
-    } catch (e) {
+      const answer = await (raw.request as (a: unknown, chain?: string) => Promise<unknown>)(args, CAIP);
+      if (args.method === 'eth_sendTransaction') refusedSend = null; // a send that went through: nothing of an earlier refusal is kept
+      return answer;
+    } catch (thrown) {
+      // (a wallet may reject with a bare string or with nothing: made an error the wallet library can read, with those words or none)
+      const e: unknown = thrown && typeof thrown === 'object' ? thrown : new Error(typeof thrown === 'string' ? thrown : '');
       const text = `${(e as { message?: string })?.message ?? ''}`;
-      if (LOST.test(text)) { onLost('closed'); throw new WcError('closed'); }
+      // the wallet had been asked by now: this is not a stop before asking, and says nothing of what the wallet did
+      if (LOST.test(text)) { onLost('closed'); throw new WcError('closed', undefined, true); }
+      // remembered for the library's one follow-up (see above): a refused send only, never a signature
+      refusedSend = args.method === 'eth_sendTransaction' ? { error: e, at: Date.now(), key: JSON.stringify(args.params ?? null) } : refusedSend;
       throw e;
     }
   };
