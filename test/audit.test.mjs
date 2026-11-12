@@ -596,10 +596,18 @@ test('look-alikes: a bar before punctuation, bar-shaped letters of other scripts
   }
   assert.equal(note('MINTA|!'), 'Not MINTA’s token');
   assert.equal(note('VYRE|.'), 'Not VYRE’s token');
-  // a capital I (in any of the scripts that have one) at either end of the capitals, taken off again and again with the bars
-  for (const s of ['USDCI', 'IUSDC', 'USDCӏ', 'USDCΙ', 'USDCı', 'USDCІ', 'USDCI|', 'USDC|I', 'IUSDCI', '|IUSDC|I|', 'USDCIl', 'USDCII']) assert.equal(note(s), 'Not USDC', JSON.stringify(s));
-  assert.equal(note('MINTAI'), 'Not MINTA’s token');
-  assert.equal(note('IVYRE'), 'Not VYRE’s token');
+  // letters of other scripts drawn as a capital I, at either end of the capitals, are taken off again and again with the bars
+  for (const s of ['USDCӏ', 'USDCΙ', 'USDCı', 'USDCІ', 'ІUSDC', 'USDCІ|', 'USDC|Ι', '|ІUSDC|ӏ|', 'USDCІІ']) assert.equal(note(s), 'Not USDC', JSON.stringify(s));
+  assert.equal(note('MINTAІ'), 'Not MINTA’s token');
+  assert.equal(note('ΙVYRE'), 'Not VYRE’s token');
+  // the plain Latin capital I is a real letter: these honest names carry no note, as a ticker or as a name
+  for (const s of ['Mint AI', 'MINT AI', 'MintAI', 'Mint-AI', 'MINTAI', 'IMINTA', 'IUSDC', 'USDCI', 'VYREI', 'IVYRE', 'USDCII', 'IUSDCI']) {
+    assert.equal(note(s), '', JSON.stringify(s));
+    assert.equal(note('X', s), '', `as a name: ${JSON.stringify(s)}`);
+  }
+  // pinned: a lower-case l comes off only after something that is not a lower-case letter; a Latin capital I never does
+  for (const s of ['usdcl', 'Usdcl', 'usdcI', 'MintaI']) assert.equal(note(s), '', JSON.stringify(s));
+  for (const s of ['USDCl', 'USDCll', 'USDC|l']) assert.equal(note(s), 'Not USDC', JSON.stringify(s));
   // a slash (or other punctuation) inside a word of a longer name makes no protected word
   for (const s of ['Pay USD/C fast', 'Send US.DC now', 'My MIN-TA token', 'A VY/RE thing']) assert.equal(note('X', s), '', s);
   const honest = ['DOGE', 'PEPE', 'SHIB', 'WIF', 'BONK', 'FLOKI', 'MOG', 'TURBO', 'BRETT', 'POPCAT', 'MEW', 'NEIRO', 'GOAT', 'PNUT', 'FART', 'CHAD', 'GIGA', 'SPX', 'TOSHI', 'DEGEN',

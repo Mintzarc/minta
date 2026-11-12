@@ -564,6 +564,18 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(!/didn’t confirm|timed out/i.test(await card.innerText()), 'A’s answer is not shown under B');
     await pg.evaluate((a) => window.__switch(a), A);
     ok(await soon(async () => /Your wallet didn’t confirm this\. It said: “Request timed out”\. It may still have gone out/.test(await card.innerText().catch(() => ''))), 'back on A, the redrawn button says what the wallet answered (it may still have gone out): ' + (await card.locator('.status').innerText().catch(() => 'no status')).slice(0, 70));
+    // A's next unwrap closes on screen the other way (cancelled): nothing of the earlier run's kept words comes back after a change away and back
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; window.__holds = []; });
+    await card.locator('button').click();
+    await soon(async () => (await pg.evaluate(() => window.__holds.length)) === 1);
+    await pg.evaluate(() => window.__holds[0].fail({ code: 4001, message: 'User rejected the request.' }));
+    ok(await soon(async () => /Cancelled in your wallet/.test(await card.innerText().catch(() => ''))) && !/timed out/i.test(await card.innerText()), 'A’s next unwrap, cancelled on screen, says so (and nothing of the run before)');
+    await pg.evaluate((b) => window.__switch(b), B);
+    await soon(async () => /Unwrap 2 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => '')));
+    await pg.evaluate((a) => window.__switch(a), A);
+    await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => '')));
+    await pg.waitForTimeout(700);
+    ok(!/timed out|didn’t confirm|may still have gone out/i.test(await card.innerText()), 'after a change away and back, the earlier run’s kept words are not shown again: ' + (await card.locator('.status').innerText().catch(() => 'no status')).slice(0, 70));
     // One button, two accounts, both with a request open (Move to Arc): the first account's ends first; the second's own answer stays on its button
     for (const [answer, words] of [[{ code: 4001, message: 'User rejected the request.' }, /Cancelled in your wallet/], [{ code: -32603, message: 'Request timed out' }, /didn’t confirm this\. It said: “Request timed out”\. It may still have gone out/]]) {
       await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; window.__holds = []; });
@@ -584,6 +596,54 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       await soon(async () => /Cancelled in your wallet/.test(await moveCard.locator('.status').innerText().catch(() => '')));
     }
     ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => '')) && await card.locator('button').isEnabled()), 'when that request ends, the button is ready again');
+    // a held deposit, checked while the person is off the page: its closing words are kept; after "start over" they are gone for good
+    {
+      const DEP = '0x' + 'c1'.repeat(32);
+      let release; const gate = new Promise((r) => { release = r; });
+      let asked = 0;
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
+      const arcRoute = async (route) => {
+        if (route.request().method() !== 'POST') return route.fulfill({ status: 204, headers: cors });
+        const body = JSON.parse(route.request().postData() || 'null');
+        const one = async (q) => {
+          if (q.method === 'eth_chainId') return { jsonrpc: '2.0', id: q.id, result: '0x13b2' };
+          if (q.method === 'eth_blockNumber') return { jsonrpc: '2.0', id: q.id, result: '0x10' };
+          if (q.method === 'eth_getBalance') return { jsonrpc: '2.0', id: q.id, result: '0x' + (50n * 10n ** 18n).toString(16) };
+          if (q.method === 'eth_getTransactionReceipt') { asked++; await gate; return { jsonrpc: '2.0', id: q.id, result: { transactionHash: q.params[0], transactionIndex: '0x0', blockHash: '0x' + '0b'.repeat(32), blockNumber: '0x5', from: A, to: '0x' + '77'.repeat(20), cumulativeGasUsed: '0x5208', gasUsed: '0x5208', effectiveGasPrice: '0x1', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x1', type: '0x2' } }; }
+          return { jsonrpc: '2.0', id: q.id, result: '0x' };
+        };
+        const out = Array.isArray(body) ? await Promise.all(body.map(one)) : await one(body);
+        return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify(out) });
+      };
+      await pg.route('https://rpc.mainnet.arc.io/**', arcRoute);
+      await pg.evaluate(([a, h]) => sessionStorage.setItem(`minta.held..mainnetto-vyre:${a}`, JSON.stringify({ hash: h, chainId: 5042, looked: false, at: Date.now(), deposit: { account: a, before: '0', amount: (10n ** 30n).toString() } })), [A, DEP]);
+      await pg.goto('about:blank'); await pg.goto(base + '#/wallet');
+      const from = pg.locator('#from-arc');
+      ok(await soon(async () => /Check it/.test(await from.locator('.tx > button').innerText().catch(() => ''))), 'a held deposit: the button is Check it');
+      await from.locator('.tx > button').click();
+      ok(await soon(async () => asked >= 1), 'the check is reading the other chain');
+      await pg.evaluate(() => { location.hash = '#/portfolio'; });
+      await pg.waitForTimeout(500);
+      ok(await pg.locator('#from-arc').count() === 0, 'the person leaves the Wallet page while the check is on its way');
+      release();
+      await pg.waitForTimeout(1500);
+      await pg.evaluate(() => { location.hash = '#/wallet'; });
+      ok(await soon(async () => /confirmed there, but it doesn’t show on VYRE yet/.test(await from.innerText().catch(() => ''))), 'back on the page: the check’s closing words are shown');
+      const so = from.locator('button', { hasText: 'start over' });
+      ok(await so.count() === 1, 'and "start over" is offered');
+      await so.click();
+      await from.locator('input').fill('1');
+      ok(await soon(async () => /Move 1 USDC to VYRE/.test(await from.locator('.tx > button').innerText())) && await from.locator('.status').count() === 0, 'after start over: the button is armed again and no line is shown');
+      await pg.evaluate(() => { location.hash = '#/portfolio'; });
+      await pg.waitForTimeout(500);
+      await pg.evaluate(() => { location.hash = '#/wallet'; });
+      await pg.waitForTimeout(1500);
+      await from.locator('input').fill('1');
+      await pg.waitForTimeout(500);
+      const line = await from.locator('.status').innerText().catch(() => '');
+      ok(/Move 1 USDC to VYRE/.test(await from.locator('.tx > button').innerText()) && !/Check again|doesn’t show on VYRE/.test(await from.innerText()), 'after leaving and coming back, the old line is not beside the armed button' + (line ? ': ' + line.slice(0, 80) : ''));
+      await pg.unroute('https://rpc.mainnet.arc.io/**', arcRoute);
+    }
     // a phone: the unwrap button's words fit, and the page does not scroll sideways
     probe.wrappedOf[A] = 12345678901234567890n; // 12.34567890123456789
     for (const width of [360, 320]) {
@@ -846,6 +906,31 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.evaluate((a) => window.__switch(a), A);
     await pg.waitForTimeout(600);
     ok(await card.count() === 0, 'and back on the first account (which holds none now) the earlier result is not shown again');
+    // closing words kept for a button that was away are shown for five minutes, not on later visits
+    probe.wrappedOf[A] = 10n ** 18n;
+    await pg.goto('about:blank'); await pg.goto(base + `#/manage/${TOKEN}`);
+    await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => '')));
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; window.__holds = []; });
+    await card.locator('button').click();
+    await soon(async () => (await pg.evaluate(() => window.__holds.length)) === 1);
+    await pg.evaluate((b) => window.__switch(b), B);
+    await soon(async () => (await card.count()) === 0);
+    await pg.evaluate(() => window.__holds[0].fail({ code: -32603, message: 'Request timed out' }));
+    await pg.waitForTimeout(600);
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /didn’t confirm this\. It said: “Request timed out”/.test(await card.innerText().catch(() => ''))), 'the kept closing words are shown when the account comes back');
+    await pg.evaluate((b) => window.__switch(b), B);
+    await soon(async () => (await card.count()) === 0);
+    await pg.clock.fastForward(4 * 60_000);
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /didn’t confirm this\. It said: “Request timed out”/.test(await card.innerText().catch(() => ''))), 'four minutes on they are still shown');
+    await pg.evaluate((b) => window.__switch(b), B);
+    await soon(async () => (await card.count()) === 0);
+    await pg.clock.fastForward(70_000);
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'past five minutes the card is back');
+    await pg.waitForTimeout(600);
+    ok(!/didn’t confirm|timed out/i.test(await card.innerText()) && await card.locator('button').isEnabled(), 'and the old line is no longer shown: ' + (await card.locator('.status').innerText().catch(() => 'no status')).slice(0, 60));
     // a request the wallet never answers: back on the account, the button says it is still working; minutes later it adds what to do
     probe.wrappedOf[A] = 10n ** 18n;
     await pg.goto('about:blank'); await pg.goto(base + `#/manage/${TOKEN}`);

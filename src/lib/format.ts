@@ -186,11 +186,11 @@ const unmarked = (s: string) => ends(s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').tri
   .normalize('NFD').replace(/\p{M}/gu, '').trim());
 
 // Taken off both ends, again and again until nothing more comes off: bars and bar-shaped letters; then letters that draw as a bar
-// beside capitals: a lower-case L at the end ("USDCl"), and a capital I (Latin, Greek, Cyrillic, the dotless and the palochka)
-// at either end of a word of capitals ("USDCI", "IUSDC").
+// beside capitals: a lower-case L at the end ("USDCl"), and the letters of other scripts drawn as a capital I (Greek, Cyrillic,
+// the dotless i and the palochka) at either end of a word of capitals. The plain Latin capital I is a real letter and stays ("Mint AI").
 const BAR_ENDS = new RegExp(`^[${BARS}\\p{Lm}]+|[${BARS}\\p{Lm}]+$`, 'gu');
-const I_AT_END = new RegExp(`(?<=[\\p{Lu}${BARS}])[IӏӀΙıІ]+$`, 'u');
-const I_AT_START = new RegExp(`^[IӏӀΙıІ]+(?=[\\p{Lu}${BARS}])`, 'u');
+const I_AT_END = new RegExp(`(?<=[\\p{Lu}${BARS}])[ӏӀΙıІ]+$`, 'u');
+const I_AT_START = new RegExp(`^[ӏӀΙıІ]+(?=[\\p{Lu}${BARS}])`, 'u');
 function ends(s: string): string {
   for (let i = 0; i < 8; i++) {
     const t = s.replace(BAR_ENDS, '').replace(/(?<=[^a-z])l+$/u, '').replace(I_AT_END, '').replace(I_AT_START, '');
