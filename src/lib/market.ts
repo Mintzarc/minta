@@ -5,7 +5,8 @@ import { getAddresses, readLogsSplitting, vyreTokenAbi, type Launch } from '@vyr
 import { getLaunches } from './pad';
 import { VYRE_CHAIN, vyre } from './chain';
 import { API_URL } from './api';
-import { shownPicture } from './picture';
+import { NETWORK } from './network';
+import { outsideFileHost, shownPicture } from './picture';
 
 const poolAbi = parseAbi([
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
@@ -189,6 +190,8 @@ export function readLaunchFile(uri: string, again = false): Promise<Meta | null>
   if (!uri) return Promise.resolve(null);
   const kept = cache.get(uri);
   if (kept && !(kept.failedAt !== undefined && (again || Date.now() - kept.failedAt >= RETRY_FAILED_MS))) return kept.read;
+  // on mainnet only a file the app API keeps is read; one on another site is named by its host (outsideFile) and not fetched
+  if (outsideFile(uri) !== null) return Promise.resolve(null);
   const entry: { read: Promise<Meta | null>; failedAt?: number } = { read: (async () => {
     const url = safeUrl(uri);
     if (!url) return null;
@@ -218,6 +221,9 @@ export function readLaunchFile(uri: string, again = false): Promise<Meta | null>
   cache.set(uri, entry);
   return entry.read;
 }
+
+/** On mainnet, for a launch whose file is on another site (not read here): that site's host ('' when the link names none). null otherwise, and always on the testnet */
+export const outsideFile = (uri: string | undefined | null): string | null => (NETWORK.outsideFiles ? null : outsideFileHost(uri, API_URL));
 
 /** A launch's file to show, or null (none, or it couldn't be read just now) */
 export const metaOf = (uri: string): Promise<Meta | null> => readLaunchFile(uri).catch(() => null);

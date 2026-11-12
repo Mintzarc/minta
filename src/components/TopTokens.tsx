@@ -1,6 +1,7 @@
 // The top of the home page: the four launches with the most USDC in their pools (a market cap alone is a number its creator picked at
 // launch), each with its market cap, 24-hour change and liquidity.
-import { change, tokenText, usd } from '../lib/format';
+import { change, tickerText, usd } from '../lib/format';
+import { NotThat } from './ui';
 import type { Listed } from '../lib/market';
 import { href } from '../lib/router';
 import type { Stats } from '../lib/stats';
@@ -23,7 +24,7 @@ export function TopByLiquidity({ rows, stats, status }: { rows: Listed[]; stats:
             <li key={t.token}>
               <a href={href({ page: 'token', token: t.token })}>
                 <TokenPic uri={t.metadataURI} symbol={t.symbol} token={t.token} size={50} />
-                <span className="grow"><b className="block topcap-sym">$<bdi>{tokenText(t.symbol)}</bdi></b><span className="muted">{t.market ? usd(t.market.marketCap) : '—'}</span></span>
+                <span className="grow"><b className="block topcap-sym">$<bdi>{tickerText(t.symbol, t.token)}</bdi></b> <NotThat l={t} /><span className="muted">{t.market ? usd(t.market.marketCap) : '—'}</span></span>
                 <span className="right">
                   <span className={`block ${ch?.cls ?? ''}`}>{ch ? ch.text : '—'}</span>
                   <span className="muted small">{s ? usd(s.raised) : '—'} liq</span>

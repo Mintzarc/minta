@@ -20,6 +20,24 @@ export function shownPicture(u: unknown, api: string): string | undefined {
   return KEPT.test(u.slice(base.length)) ? u : undefined;
 }
 
+// Which launch files MINTA's pages read by themselves on mainnet: only one the app API keeps (`api`/m/<sha256>.json, a file that
+// service checked when it was saved). A file on any other site is the creator's own: reading it would send every visitor's
+// address and browser to a site its creator picked, so it is named by its host and not fetched.
+const KEPT_FILE = /^\/m\/[0-9a-f]{64}\.json$/;
+
+/** True when `uri` is the exact address of a launch file kept by the app API at `api` */
+export function keptFile(uri: unknown, api: string): boolean {
+  const base = api.replace(/\/+$/, '');
+  return typeof uri === 'string' && !!base && uri.startsWith(`${base}/m/`) && KEPT_FILE.test(uri.slice(base.length));
+}
+
+/** For a launch file that is not kept by the app API: the site it is on ("IPFS" for an ipfs link, '' for a link that names none); null for none or a kept one */
+export function outsideFileHost(uri: unknown, api: string): string | null {
+  if (typeof uri !== 'string' || !uri.trim() || keptFile(uri, api)) return null;
+  if (/^ipfs:/i.test(uri.trim())) return 'IPFS';
+  try { const u = new URL(uri.trim()); return u.protocol === 'https:' || u.protocol === 'http:' ? u.hostname : ''; } catch { return ''; }
+}
+
 export interface Picture {
   blob: Blob;
   /** A data: address showing the result (the page's security policy allows data: images, not blob: ones) */

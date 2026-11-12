@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address } from 'viem';
 import { getLaunchCount } from '../lib/pad';
 import { oneAtATime, vyre } from '../lib/chain';
-import { ago, change, price, searchTerm, tokenText, usd, usdOf } from '../lib/format';
+import { ago, change, price, searchTerm, tickerText, tokenText, usd, usdOf } from '../lib/format';
 import { listLaunches, marketOf, type Listed } from '../lib/market';
 import { NETWORK } from '../lib/network';
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { href } from '../lib/router';
-import { Loading, TokenPic } from '../components/ui';
+import { Loading, NotThat, TokenPic } from '../components/ui';
 import Spark from '../components/Spark';
 import TokenCard from '../components/TokenCard';
 import { TopByLiquidity } from '../components/TopTokens';
@@ -240,7 +240,7 @@ function TokenTable({ rows, stats, holders }: { rows: Listed[]; stats: Map<Addre
                 <td>
                   <a className="tok" href={link}>
                     <TokenPic uri={l.metadataURI} symbol={l.symbol} token={l.token} size={36} />
-                    <span className="tok-name"><b>$<bdi>{tokenText(l.symbol)}</bdi></b><bdi className="muted">{tokenText(l.name)}</bdi></span>
+                    <span className="tok-name"><b>$<bdi>{tickerText(l.symbol, l.token)}</bdi></b><bdi className="muted">{tokenText(l.name)}</bdi><NotThat l={l} /></span>
                   </a>
                 </td>
                 <td className="num">{l.market ? price(l.market.price) : '—'}</td>

@@ -1,7 +1,8 @@
 // A launch as a card: its picture square on top with its 24-hour change (a plain number) and how much USDC has been
 // bought in over it, then its ticker, name and market cap, and its creator and age.
 import { useState } from 'react';
-import { ago, change, tokenText, usd } from '../lib/format';
+import { ago, change, tickerText, tokenText, usd } from '../lib/format';
+import { NotThat } from './ui';
 import type { Listed } from '../lib/market';
 import { href } from '../lib/router';
 import { MILESTONE_TEXT, type Stats } from '../lib/stats';
@@ -27,7 +28,7 @@ export default function TokenCard({ l, s }: { l: Listed; s?: Stats }) {
         {s && <span className="pill pill-bl">{s.graduated ? `At least ${MILESTONE_TEXT} bought in` : `${usd(s.raised)} of ${MILESTONE_TEXT} bought in`}</span>}
       </div>
       <div className="tcard-body">
-        <p className="tcard-sym">$<bdi>{tokenText(l.symbol)}</bdi></p>
+        <p className="tcard-sym">$<bdi>{tickerText(l.symbol, l.token)}</bdi> <NotThat l={l} /></p>
         <p className="tcard-row"><bdi className="muted tcard-name">{tokenText(l.name)}</bdi><b>{l.market ? usd(l.market.marketCap) : '—'}</b></p>
         <p className="tcard-row muted small">
           <span className="tcard-by"><Avatar address={l.creator} size={24} /><span aria-hidden="true">·</span><time className="dotted" dateTime={new Date(l.createdAt * 1000).toISOString()} title={new Date(l.createdAt * 1000).toLocaleString()}>{ago(l.createdAt)}</time></span>

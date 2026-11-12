@@ -17,10 +17,13 @@ import { burnSentError } from '../lib/fromchain';
 import { afterApproval, approvalIsIn } from '../lib/walletError';
 import { arrival, depositArrived, heldDeposit } from '../lib/deposit';
 import { FAUCET_OFFERED, IS_TESTNET, NETWORK, USDC_LABEL } from '../lib/network';
+import { isWcProvider } from '../lib/wc';
+import { WC_CLAIM_HERE, WC_CLAIM_NOTE } from '../lib/wcstate';
 import { addPending, loadPending, removePending, type PendingTransfer } from '../lib/pending';
 import { useWallet } from '../lib/wallet';
 import { HiddenNote } from '../components/Hidden';
-import { AddressLink, ConnectButton, EmailTradeNote, TxButton, txUrl } from '../components/ui';
+import { WrappedUsdc } from '../components/Wrapped';
+import { AddressLink, ConnectButton, EmailTradeNote, ReadAs, TxButton, txUrl } from '../components/ui';
 import { promoterStatus, topupLink } from '../lib/api';
 import { moveToVyre } from '../lib/circle';
 import { cardTopupOffered } from '../lib/features';
@@ -51,16 +54,25 @@ export default function Wallet() {
   const [usdc, setUsdc] = useState<bigint | null>(null);
   const [onArc, setOnArc] = useState<bigint | null>(null);
   const [faucet, setFaucet] = useState<FaucetStatus | null>(null);
+  // bumped on every reload of the balances, so the wrapped USDC card reads again too
+  const [reads, setReads] = useState(0);
   const [amountIn, setAmountIn] = useState('');
 
+  // the account the balances on screen are for: an answer that comes back for another one is dropped
+  const shownFor = useRef<string | null>(null);
   const load = async () => {
     if (FAUCET_OFFERED) getFaucetStatus().then(setFaucet).catch(() => setFaucet(null));
     else setFaucet(null);
+    const who = account ? account.toLowerCase() : null;
+    setReads((n) => n + 1);
+    // another account: the last one's balances go at once, never shown under the new one
+    if (shownFor.current !== who) { shownFor.current = who; setUsdc(null); setOnArc(null); }
     if (!account) return;
-    usdcBalance(account).then(setUsdc).catch(() => {});
+    const mine = <T,>(set: (v: T) => void) => (v: T) => { if (shownFor.current === who) set(v); };
+    usdcBalance(account).then(mine(setUsdc)).catch(() => {});
     // a Face ID wallet's address on Arc isn't a wallet of its own (yet): nothing to show there
     if (faceId) setOnArc(null);
-    else arc.getBalance({ address: account }).then(setOnArc).catch(() => setOnArc(null));
+    else arc.getBalance({ address: account }).then(mine(setOnArc)).catch(() => mine(setOnArc)(null));
   };
   useEffect(() => { load(); }, [account]);
 
@@ -92,6 +104,8 @@ export default function Wallet() {
         </div>
       )}
 
+      {account && <WrappedUsdc account={account} again={reads} onDone={load} />}
+
       {email && account && <EmailWalletCard account={account} emailAddress={email.email} />}
       {faceId && account && <FaceIdWalletCard account={account} />}
 
@@ -118,6 +132,7 @@ export default function Wallet() {
         {account && (
           <>
             <label className="field"><span>Amount (USDC)</span><input ref={fromArcInput} inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="5" aria-invalid={!!amountProblem(amountIn)} /></label>
+            <ReadAs input={amountIn} />
             {amountProblem(amountIn) && <p className="err small" role="alert">{amountProblem(amountIn)}</p>}
             <TxButton label={value ? `Move ${exact(value)} USDC to VYRE` : 'Move to VYRE'} disabled={!value || (onArc !== null && value >= onArc)} onDone={load} keepAs={`to-vyre:${account.toLowerCase()}`}
               arrived={(d) => depositArrived(vyre, d)}
@@ -153,7 +168,7 @@ export default function Wallet() {
       {account && !faceId && <CashOut account={account} provider={provider} isEmail={!!email} onDone={load} />}
       {account && faceId && <MoveOut account={account} held={usdc} onDone={load} />}
 
-      {account && <Promoter account={account} />}
+      {account && NETWORK.promoters && <Promoter account={account} />}
     </section>
   );
 }
@@ -304,6 +319,7 @@ function FromChain({ account, provider, email, onLanded, onMove }: {
           </label>
           <p className="small muted">On {src.name}: {balance !== null ? `${usdc6(balance)} USDC` : balFailed ? `couldn’t be read (${src.name}’s public RPC didn’t answer)` : '…'}</p>
           <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="10" aria-invalid={!!problem} /></label>
+          <ReadAs input={amountIn} />
           {problem && <p className="err small" role="alert">{problem}</p>}
           {!fees && <p className="small muted">{feeErr ? `Couldn’t get Circle’s fees (${feeErr}). Trying again shortly.` : 'Getting Circle’s fees…'}</p>}
           {fees && units !== null && fee !== null && maxFee !== null && (
@@ -444,6 +460,7 @@ function SendBack({ faucet, held, onDone }: { faucet: FaucetStatus; held: bigint
     <div className="sendback">
       <p className="small">Done testing? Send it back: it goes to the next person{faucet.returnCooldownHours ? `, and about ${faucet.drip} or more gets you your next drip after ${faucet.returnCooldownHours} hours` : ''}. <a href="https://vyrechain.com/faucet/#givers-title" target="_blank" rel="noopener noreferrer">Top givers</a>.</p>
       <label className="field"><span>Amount to send back (USDC)</span><input inputMode="decimal" value={shown} onChange={(e) => setAmountIn(e.target.value)} aria-invalid={!!problem} /></label>
+      <ReadAs input={shown} />
       <div className="row">
         <TxButton className="btn btn-line" label={value ? `Send back ${exact(value)} USDC` : 'Send back'} disabled={!value || !!problem || held === null} onDone={onDone} keepAs={`send-back:${account?.toLowerCase() ?? ''}`}
           run={async (say) => {
@@ -564,6 +581,8 @@ type Row = Withdrawal & { state?: 'waiting' | 'ready' | 'claimed' };
 /** Moving USDC back to Arc: start it on VYRE, then claim it on Arc once VYRE's state covering it is confirmed there */
 function CashOut({ account, provider, isEmail, onDone }: { account: Address; provider: EIP1193Provider | null; isEmail: boolean; onDone: () => void }) {
   const { onVyre } = useWallet();
+  // a WalletConnect connection works on VYRE only (lib/wc.ts): the second step, on Arc, can't be asked through it
+  const viaWc = isWcProvider(provider);
   const [amountIn, setAmountIn] = useState('');
   const [rows, setRows] = useState<Row[] | null>(null);
   const value = parse(amountIn);
@@ -595,10 +614,12 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
   return (
     <div className="card">
       <h2 className="h3">Move to Arc</h2>
-      <p className="small">Moves USDC from VYRE back to your address on Arc through VYRE’s own bridge, in two steps: start it here, then claim it on Arc once VYRE’s state covering it is confirmed there (usually under half an hour on the testnet).</p>
+      <p className="small">Moves USDC from VYRE back to your address on Arc through VYRE’s own bridge, in two steps: start it here, then claim it on Arc once VYRE’s state covering it is confirmed there ({NETWORK.withdrawal}).</p>
       {isEmail ? <EmailTradeNote /> : (
         <>
+          {viaWc && <p className="note small wc-claim-note">{WC_CLAIM_NOTE}</p>}
           <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="1" aria-invalid={!!amountProblem(amountIn)} /></label>
+          <ReadAs input={amountIn} />
           {amountProblem(amountIn) && <p className="err small" role="alert">{amountProblem(amountIn)}</p>}
           <TxButton label={value ? `Move ${exact(value)} USDC to Arc` : 'Start the move'} disabled={!value} keepAs={`to-arc:${account.toLowerCase()}`}
             onDone={() => { setAmountIn(''); load(); onDone(); }}
@@ -620,7 +641,8 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
               {w.state === 'claimed' && <span className="muted small">Paid out on Arc</span>}
               {w.state === 'waiting' && <span className="muted small">Waiting to be confirmed on Arc</span>}
               {w.state === undefined && <span className="muted small">Checking…</span>}
-              {w.state === 'ready' && !isEmail && (
+              {w.state === 'ready' && !isEmail && viaWc && <span className="small wc-claim-here">{WC_CLAIM_HERE}</span>}
+              {w.state === 'ready' && !isEmail && !viaWc && (
                 <TxButton className="btn btn-accent btn-sm" label="Claim on Arc" onDone={() => { load(); onDone(); }}
                   run={async (say) => {
                     if (!provider) throw new Error('Connect a wallet first.');
@@ -666,6 +688,7 @@ function SendUsdc({ account, held, faceId, onDone }: { account: Address; held: b
       <p className="small">To another address on VYRE: a friend’s MINTA wallet, say. It arrives in about a second. <b>Only to a VYRE address:</b> exchanges don’t take USDC on VYRE; to take it off VYRE, move it to Arc (below).</p>
       <label className="field"><span>To (a VYRE address)</span><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!addressProblem(to, account)} /></label>
       <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="1" aria-invalid={!!amountProblem(amountIn)} /></label>
+      <ReadAs input={amountIn} />
       {problem && <p className="err small" role="alert">{problem}</p>}
       {ready && <p className="small">Sends {exact(value!)} USDC to <span className="mono break">{getAddress(to.trim())}</span> on VYRE. It can’t be undone.</p>}
       <TxButton label={ready ? `Send ${exact(value!)} USDC` : 'Send'} disabled={!ready} keepAs={`send:${account.toLowerCase()}`}
@@ -736,10 +759,11 @@ function MoveOut({ account, held, onDone }: { account: Address; held: bigint | n
   return (
     <div className="card">
       <h2 className="h3">Move to Arc</h2>
-      <p className="small">Moves USDC from this wallet to your own wallet on Arc (MetaMask, Rabby or any other). It goes through VYRE’s own bridge and can be paid out on Arc once it’s confirmed there (usually under half an hour on the testnet). VYRE pays it out for you, Arc’s gas included, for moves of 1 USDC or more to an ordinary wallet address, up to 3 a day to one address; otherwise, or if it hasn’t arrived within a day, claim it yourself below with that wallet (it needs a little USDC on Arc for gas).</p>
+      <p className="small">Moves USDC from this wallet to your own wallet on Arc (MetaMask, Rabby or any other). It goes through VYRE’s own bridge and can be paid out on Arc once it’s confirmed there ({NETWORK.withdrawal}). VYRE pays it out for you, Arc’s gas included, for moves of 1 USDC or more to an ordinary wallet address, up to 3 a day to one address; otherwise, or if it hasn’t arrived within a day, claim it yourself below with that wallet (it needs a little USDC on Arc for gas).</p>
       <p className="small"><b>Not this wallet’s own address, or another Face ID wallet’s:</b> a Face ID wallet has no key on Arc. Check the address: once started, a move can’t be undone.</p>
       <label className="field"><span>To (an address on Arc)</span><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="0x…" spellCheck={false} autoComplete="off" aria-invalid={!!addressProblem(to, account)} /></label>
       <label className="field"><span>Amount (USDC)</span><input inputMode="decimal" value={amountIn} onChange={(e) => setAmountIn(e.target.value)} placeholder="1" aria-invalid={!!amountProblem(amountIn)} /></label>
+      <ReadAs input={amountIn} />
       {problem && <p className="err small" role="alert">{problem}</p>}
       {ready && <p className="small">Moves {exact(value!)} USDC to <span className="mono break">{getAddress(to.trim())}</span> <b>on Arc</b>.</p>}
       <TxButton label={ready ? `Move ${exact(value!)} USDC to Arc` : 'Start the move'} disabled={!ready}

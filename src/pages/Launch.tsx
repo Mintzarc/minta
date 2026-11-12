@@ -13,7 +13,7 @@ import { href } from '../lib/router';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { addresses } from '../lib/market';
 import { forgetLaunch, kept, mayTakePlace, onLaunchMemory, placeOf, recentLaunch, resolveEarlier, type Place } from '../lib/faceid';
-import { ConnectButton, EmailTradeNote } from '../components/ui';
+import { ConnectButton, EmailTradeNote, ReadAs } from '../components/ui';
 import { useTokenGate } from '../components/Hidden';
 import { MintaMark, VyreGlyph } from '../components/Brand';
 import { LaunchFileFields, emptyLaunchFile, hasPicture, keptPicture, launchFileProblem, type LaunchFileState } from '../components/LaunchFileFields';
@@ -341,6 +341,7 @@ export default function Launch() {
                   <input inputMode="decimal" value={firstBuy} onChange={(e) => setFirstBuy(e.target.value)} placeholder="0" />
                   <small className="muted">Bought in the launch transaction, before anyone else can trade, at your own tax. Leave it at 0 for none.</small>
                 </label>
+                <ReadAs input={firstBuy} />
                 {showProblem(1)}
               </fieldset>
             )}

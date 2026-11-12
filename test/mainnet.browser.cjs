@@ -50,8 +50,12 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     if (init) await ctx.addInitScript(init.script, init.arg);
     await ctx.addInitScript(() => { try { window.localStorage.setItem('minta.splash', String(Date.now())); } catch { /* none */ } });
     const hosts = new Set();
-    const probe = { launchesReads: 0 }; // how many times the page has asked the stand-in whether launches are open
+    // launchesReads: how many times the page has asked the stand-in whether launches are open; wrapped: the wrapped USDC every account
+    // holds; mined: the transaction hashes the stand-in chain has a receipt for
+    const probe = { launchesReads: 0, wrapped: 0n, mined: new Set(), symbol: 'FEE', code: {} }; // symbol: the stand-in token's ticker; code: address (lower case) -> its code
+    const wusdc = viem.parseAbi(['function balanceOf(address) view returns (uint256)', 'function withdraw(uint256 wad)']);
     const answerCall = (to, data) => {
+      if (to.toLowerCase() === multicall && data.startsWith('0x4d2301cc')) return viem.encodeAbiParameters([{ type: 'uint256' }], [init ? 100n * 10n ** 18n : 0n]); // getEthBalance
       if (to.toLowerCase() === multicall) {
         const calls = viem.decodeFunctionData({ abi: m3, data }).args[0];
         const results = calls.map((c) => {
@@ -70,6 +74,12 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         // the page's own simulation of a launch passes (whatever stops it after that is the wallet's doing)
         if (call.functionName === 'createLaunch') return viem.encodeFunctionResult({ abi: v2.padV2Abi, functionName: 'createLaunch', result: [TOKEN, POOL, 0n] });
       }
+      if (to.toLowerCase() === v2.PAD_V2.wusdc.toLowerCase()) {
+        const call = viem.decodeFunctionData({ abi: wusdc, data });
+        if (call.functionName === 'balanceOf') return viem.encodeFunctionResult({ abi: wusdc, functionName: 'balanceOf', result: probe.wrapped });
+        // unwrapping passes only for no more than is held
+        if (call.functionName === 'withdraw') { if (call.args[0] > probe.wrapped) throw new Error('more than held'); return '0x'; }
+      }
       // a launch on the new pad, to show a token page and a Manage page
       const t = TOKEN.toLowerCase();
       if (to.toLowerCase() === pad) {
@@ -81,12 +91,13 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         if (call.functionName === 'pendingCreator') return out(viem.zeroAddress);
         if (call.functionName === 'tokenOfPool') return out(viem.zeroAddress);
         if (call.functionName === 'tokens') return out(TOKEN);
+        if (call.functionName === 'setTaxWallets') return '0x'; // the page's own simulation of saving a split passes
       }
       if (to.toLowerCase() === t) {
         const call = viem.decodeFunctionData({ abi: sdk.vyreTokenAbi, data });
         const out = (result) => viem.encodeFunctionResult({ abi: sdk.vyreTokenAbi, functionName: call.functionName, result });
         if (call.functionName === 'name') return out('Fee Check');
-        if (call.functionName === 'symbol') return out('FEE');
+        if (call.functionName === 'symbol') return out(probe.symbol);
         if (call.functionName === 'totalSupply') return out(1000000n * 10n ** 18n);
         if (call.functionName === 'balanceOf') return out(0n);
       }
@@ -109,7 +120,8 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         if (req.method === 'eth_estimateGas') return { jsonrpc: '2.0', id, result: '0x7a120' };
         if (req.method === 'eth_getTransactionCount') return { jsonrpc: '2.0', id, result: '0x1' };
         if (req.method === 'eth_gasPrice' || req.method === 'eth_maxPriorityFeePerGas') return { jsonrpc: '2.0', id, result: '0x1' };
-        if (req.method === 'eth_getCode') return { jsonrpc: '2.0', id, result: '0x' };
+        if (req.method === 'eth_getCode') return { jsonrpc: '2.0', id, result: probe.code[String(req.params[0]).toLowerCase()] || '0x' };
+        if (req.method === 'eth_getTransactionReceipt') return { jsonrpc: '2.0', id, result: probe.mined.has(req.params[0]) ? { transactionHash: req.params[0], transactionIndex: '0x0', blockHash: '0x' + '0b'.repeat(32), blockNumber: '0x31', from: '0x' + '3c'.repeat(20), to: v2.PAD_V2.wusdc, cumulativeGasUsed: '0x5208', gasUsed: '0x5208', effectiveGasPrice: '0x1', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x1', type: '0x2' } : null };
         if (req.method === 'eth_call') return { jsonrpc: '2.0', id, result: answerCall(req.params[0].to, req.params[0].data || req.params[0].input) };
       } catch { /* falls through to the error */ }
       return { jsonrpc: '2.0', id, error: { code: -32601, message: 'not answered' } };
@@ -135,6 +147,29 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     return { pg, ctx, errs, hosts, probe };
   };
   const body = (pg) => pg.locator('body').innerText();
+  /** A browser wallet for the page (announced the standard way, remembered as the one picked last time): it holds the account `who`,
+   * is on VYRE mainnet, and answers a send with `window.__answer`: an error ({ code, message }) or a transaction hash ({ hash }). Every
+   * transaction it was asked to send is kept in `window.__asked`. */
+  const standInWallet = (who) => {
+    try { localStorage.setItem('vyre.wallet.mainnet', 'rdns:test.wallet'); localStorage.setItem('vyre.wallet:3045', 'rdns:test.wallet'); } catch { /* none */ }
+    window.__sends = 0;
+    window.__asked = [];
+    window.__answer = { code: -32603, message: 'Request timed out' };
+    const provider = {
+      request: async ({ method, params }) => {
+        if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [who];
+        if (method === 'eth_chainId') return '0xbe5';
+        if (method === 'eth_sendTransaction' || method === 'wallet_sendTransaction') {
+          window.__sends++; window.__asked.push(params && params[0]);
+          if (window.__answer.hash) return window.__answer.hash;
+          throw Object.assign(new Error(window.__answer.message), { code: window.__answer.code });
+        }
+        return null;
+      },
+      on() {}, removeListener() {},
+    };
+    window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'w', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test.wallet' }, provider } })));
+  };
 
   // ---- the network, shown plainly, on every page
   {
@@ -165,6 +200,116 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(!BANNED.test(t), 'the Wallet page has no faucet, test USDC, testnet or promoter wording' + (BANNED.test(t) ? ': ' + t.match(BANNED)[0] : ''));
     ok(await pg.locator('text=Get test USDC').count() === 0 && await pg.locator('text=The faucet').count() === 0, 'no Get test USDC button and no faucet card');
     ok(errs.length === 0, 'nothing throws on the Wallet page' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+
+  // ---- the Wallet page with a wallet connected: still no promoter card or wording; wrapped USDC is shown and unwrapped
+  {
+    const A = '0x' + '3c'.repeat(20);
+    const { pg, ctx, errs, probe } = await open('#/wallet', true, { width: 1440, height: 900 }, { arg: A, script: standInWallet });
+    const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 20000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+    ok(await soon(async () => /On VYRE\s*100 USDC/i.test(await body(pg))), 'the stand-in wallet is connected and its balance shown: ' + (await body(pg)).replace(/\s+/g, ' ').slice(0, 300));
+    await pg.waitForTimeout(500);
+    let t = await body(pg);
+    ok(!BANNED.test(t), 'connected: the Wallet page has no faucet, test USDC, testnet or promoter wording' + (BANNED.test(t) ? ': ' + t.match(BANNED)[0] : ''));
+    ok(await pg.locator('text=Your promoter link').count() === 0 && !/30%|platform fee/i.test(t), 'no promoter card, no “30% of the 1% platform fee”');
+    ok(/Move to Arc/.test(t) && /a withdrawal takes about a day/.test(t) && !/half an hour/.test(t), 'moving to Arc says a withdrawal takes about a day');
+    ok(await pg.locator('.wrapped-usdc').count() === 0, 'a wallet with no wrapped USDC is shown no wrapped USDC card');
+    // an amount typed with a comma says how it was read; "0,125" is refused
+    const move = pg.locator('.card', { hasText: 'Move to Arc' });
+    await move.locator('input').fill('1,000.5');
+    ok((await move.locator('.read-as').innerText()).trim() === 'read as 1,000.5', 'an amount typed with a comma says how it was read');
+    await move.locator('input').fill('0,125');
+    ok(await move.locator('.read-as').count() === 0 && /Use a point for decimals, like 0\.125/.test(await move.innerText()) && await move.locator('button', { hasText: /Start the move|Move / }).isDisabled(), '“0,125” is refused, with the point it should be typed with');
+    await move.locator('input').fill('');
+    // the wallet now holds wrapped USDC (as after a tax payout)
+    probe.wrapped = 1234567890000000000n; // 1.23456789
+    await pg.goto('about:blank'); await pg.goto(base + '#/wallet');
+    const card = pg.locator('.wrapped-usdc');
+    ok(await soon(async () => (await card.count()) === 1), 'a wallet holding wrapped USDC is shown it');
+    const words = await card.innerText();
+    ok(/1\.2345 WUSDC/.test(words) && /tax is paid out as wrapped USDC \(WUSDC\)/.test(words) && /one for one/.test(words), `with the amount and what it is (${words.replace(/\s+/g, ' ').slice(0, 140)})`);
+    ok(!BANNED.test(words) && !/earn|profit|reward|income|yield/i.test(words), 'in neutral words');
+    const btn = card.locator('button');
+    ok((await btn.innerText()).trim() === 'Unwrap 1.23456789 WUSDC to USDC', `the button names the exact amount (${await btn.innerText()})`);
+    // the wallet does not confirm: the cautious words, and nothing is claimed
+    await btn.click();
+    ok(await soon(async () => /didn’t confirm this/.test(await card.innerText())), 'a send the wallet does not confirm reads the same as every other send');
+    const first = await pg.evaluate(() => window.__asked[0]);
+    const want = viem.encodeFunctionData({ abi: viem.parseAbi(['function withdraw(uint256 wad)']), functionName: 'withdraw', args: [1234567890000000000n] });
+    ok(first && first.to.toLowerCase() === v2.PAD_V2.wusdc.toLowerCase() && first.data === want && (!first.value || BigInt(first.value) === 0n), 'the wallet was asked for withdraw(exactly the balance) on the wrapped USDC token, with no value');
+    // the balance moves before the next press: nothing is sent, and the button shows the new amount
+    probe.wrapped = 1000000000000000000n;
+    await btn.click();
+    ok(await soon(async () => /changed since this page read it, so nothing was sent/.test(await card.innerText())), 'a balance that moved since it was read stops the send');
+    ok(await pg.evaluate(() => window.__sends) === 1, 'and the wallet was not asked');
+    ok(await soon(async () => (await btn.innerText()).trim() === 'Unwrap 1 WUSDC to USDC'), 'the button shows the new amount');
+    // the wallet sends it and the chain confirms it
+    const HASH = '0x' + 'aa'.repeat(32);
+    await pg.evaluate((h) => { window.__answer = { hash: h }; }, HASH);
+    probe.mined.add(HASH);
+    await btn.click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 2), 'a press asks the wallet');
+    probe.wrapped = 0n;
+    ok(await soon(async () => (await card.count()) === 0), 'once unwrapped, the card is gone (the wallet holds none)');
+    const second = await pg.evaluate(() => window.__asked[1]);
+    ok(second.data === viem.encodeFunctionData({ abi: viem.parseAbi(['function withdraw(uint256 wad)']), functionName: 'withdraw', args: [10n ** 18n] }), 'for exactly the amount on the button');
+    // the Manage page: the collect card says what arrives, and shows the wallet's wrapped USDC too
+    probe.wrapped = 2n * 10n ** 18n;
+    await pg.goto('about:blank'); await pg.goto(base + `#/manage/${TOKEN}`);
+    const collect = pg.locator('.card', { hasText: 'Collect the tax' });
+    ok(await soon(async () => (await collect.count()) === 1), 'the Manage page opens');
+    t = await collect.innerText();
+    ok(/It arrives as wrapped USDC \(WUSDC\)/.test(t) && /unwrap it to USDC here or on the Wallet page/.test(t) && !/so far, in USDC/.test(t), 'the collect card says the tax arrives as wrapped USDC that can be unwrapped');
+    ok(await soon(async () => (await pg.locator('.wrapped-usdc button').count()) === 1) && (await pg.locator('.wrapped-usdc button').innerText()).trim() === 'Unwrap 2 WUSDC to USDC', 'and the wallet’s wrapped USDC is shown there with its button');
+    ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+
+  // ---- a token whose ticker reads as USDC in other letters says so; a tax wallet that is a contract is asked about once more
+  {
+    const { pg, ctx, errs, probe } = await open('#/', true, { width: 1440, height: 900 }, { arg: CREATOR, script: standInWallet });
+    const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 20000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+    probe.symbol = 'ՍЅDС'; // Armenian and Cyrillic letters
+    await pg.goto('about:blank'); await pg.goto(base + `#/token/${TOKEN}`);
+    ok(await soon(async () => (await pg.locator('.token-title .not-that').count()) === 1) && (await pg.locator('.token-title .not-that').innerText()).trim() === 'Not USDC', 'a ticker that reads as USDC in look-alike letters carries “Not USDC” by its name');
+    ok(await soon(async () => (await pg.locator('.trade-card .not-that').count()) === 1) && (await pg.locator('.trade-card .not-that').innerText()).trim() === 'Not USDC', 'and on its trade panel');
+    probe.symbol = '';
+    await pg.goto('about:blank'); await pg.goto(base + `#/token/${TOKEN}`);
+    ok(await soon(async () => /^\$0x1111…1111/.test((await pg.locator('.token-title').innerText().catch(() => '')).trim())), 'a token with an empty ticker is shown by its short address');
+    ok(await pg.locator('.not-that').count() === 0, 'and carries no note');
+    probe.symbol = 'FEE';
+    // the creator splits the tax with a wallet that is a contract
+    const SAFE = '0x' + '5a'.repeat(20);
+    probe.code[SAFE] = '0x6080604052';
+    await pg.goto('about:blank'); await pg.goto(base + `#/manage/${TOKEN}`);
+    const split = pg.locator('.card', { hasText: 'Split the tax' });
+    ok(await soon(async () => (await split.locator('input[aria-label="Wallet 1"]').count()) === 1), 'the creator sees the split editor');
+    await split.locator('input[aria-label="Wallet 1"]').fill(SAFE);
+    const save = split.locator('button', { hasText: /^Save the split/ });
+    await pg.evaluate(() => { window.__answer = { code: 4001, message: 'User rejected the request.' }; });
+    await save.click();
+    ok(await soon(async () => /One of these wallets is a contract\. Nothing was sent/.test(await split.innerText())), 'saving a split with a contract in it stops and says so');
+    ok(await pg.evaluate(() => window.__sends) === 0, 'the wallet was not asked');
+    const tick = split.locator('.code-wallets input[type=checkbox]');
+    ok(await tick.count() === 1 && /0x5a5a…5a5a is a contract, not an ordinary wallet\. A multi-signature wallet such as a Safe is fine/.test(await split.locator('.code-wallets').innerText()), 'a tick box names the wallet and says a Safe is fine');
+    await save.click();
+    await pg.waitForTimeout(800);
+    ok(await pg.evaluate(() => window.__sends) === 0, 'pressing again without the tick sends nothing');
+    await tick.check();
+    await save.click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1), 'with the tick, saving asks the wallet');
+    const asked = await pg.evaluate(() => window.__asked[0]);
+    const call = viem.decodeFunctionData({ abi: v2.padV2Abi, data: asked.data });
+    ok(asked.to.toLowerCase() === pad && call.functionName === 'setTaxWallets' && call.args[1].length === 1 && call.args[1][0].toLowerCase() === SAFE && Number(call.args[2][0]) === 10000, 'for that split');
+    // an ordinary wallet is not asked about
+    await pg.goto('about:blank'); await pg.goto(base + `#/manage/${TOKEN}`);
+    await soon(async () => (await split.locator('input[aria-label="Wallet 1"]').count()) === 1);
+    await split.locator('input[aria-label="Wallet 1"]').fill('0x' + '6b'.repeat(20));
+    await pg.evaluate(() => { window.__sends = 0; });
+    await split.locator('button', { hasText: /^Save the split/ }).click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1) && await split.locator('.code-wallets').count() === 0, 'a split of ordinary wallets is sent without a second question');
+    ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }
 
@@ -240,21 +385,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
   // a separate button says it isn't there; closing and reopening the dialog does not forget it; a double press sends nothing
   {
     const A = '0x' + '3c'.repeat(20);
-    const { pg, ctx, errs } = await open('#/launch', true, { width: 1440, height: 900 }, { arg: A, script: (who) => {
-      try { localStorage.setItem('vyre.wallet.mainnet', 'rdns:test.wallet'); localStorage.setItem('vyre.wallet:3045', 'rdns:test.wallet'); } catch { /* none */ }
-      window.__sends = 0;
-      window.__answer = { code: -32603, message: 'Request timed out' };
-      const provider = {
-        request: async ({ method }) => {
-          if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [who];
-          if (method === 'eth_chainId') return '0xbe5';
-          if (method === 'eth_sendTransaction' || method === 'wallet_sendTransaction') { window.__sends++; throw Object.assign(new Error(window.__answer.message), { code: window.__answer.code }); }
-          return null;
-        },
-        on() {}, removeListener() {},
-      };
-      window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'w', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22/>', rdns: 'test.wallet' }, provider } })));
-    } });
+    const { pg, ctx, errs } = await open('#/launch', true, { width: 1440, height: 900 }, { arg: A, script: standInWallet });
     await pg.waitForSelector('.wz', { timeout: 30000 });
     const toReview = async () => {
       await pg.click('.wz-step button[type=submit]:has-text("Review")', { timeout: 5000 });

@@ -6,8 +6,8 @@ import type { Address } from 'viem';
 import { getPromoter, setPromoter, vyreTokenAbi, type Launch, type TaxWallets } from '@vyrechain/sdk';
 import { buy, getLaunch, getTaxWallets, quoteBuy, quoteSell, sell, tradeRouter } from '../lib/pad';
 import { EXPLORER, oneAtATime, vyre } from '../lib/chain';
-import { ago, amount, amountProblem, change, exact, iso, parse, pct, plainText, price, short, shortAmount, tokenText, tradeLabel, usd, usdOf } from '../lib/format';
-import { marketOf, recentTrades, tokenBalance, usdcBalance, type Market, type Trade } from '../lib/market';
+import { ago, amount, amountProblem, change, exact, iso, parse, pct, plainText, price, short, shortAmount, tickerText, tokenText, tradeLabel, usd, usdOf } from '../lib/format';
+import { marketOf, outsideFile, recentTrades, tokenBalance, usdcBalance, type Market, type Trade } from '../lib/market';
 import { loadHolders, loadStats, MILESTONE_TEXT, type Stats } from '../lib/stats';
 import { clearRef, href, storedRef, storedRefCode } from '../lib/router';
 import { promoterWallet } from '../lib/api';
@@ -15,7 +15,7 @@ import { NETWORK } from '../lib/network';
 import { PAD_V2 } from '../lib/padv2';
 import { useEmailCantTrade, useWallet } from '../lib/wallet';
 import { sendVyreTx, type EmailSession } from '../lib/circle';
-import { AddressLink, ConnectButton, EmailTradeNote, Loading, TokenPic, TxButton, useMeta } from '../components/ui';
+import { AddressLink, ConnectButton, EmailTradeNote, Loading, NotThat, ReadAs, TokenPic, TxButton, useMeta } from '../components/ui';
 import PriceChart from '../components/PriceChart';
 import { BlockedToken, HideToken, useBlocklistState } from '../components/Hidden';
 import { isHidden } from '../lib/hidden';
@@ -111,10 +111,15 @@ export default function Token({ token }: { token: Address }) {
   }), [token, slow]);
   const refresh = useCallback((queue = false) => { if (queue) soon.current = true; main(queue); }, [main]);
 
+  // the account (and token) the balances on screen are for: an answer that comes back for another one is dropped
+  const balFor = useRef('');
   const refreshBalances = useCallback(async () => {
-    if (!account) { setBal(null); return; }
+    const who = account ? `${account.toLowerCase()}:${token.toLowerCase()}` : '';
+    if (!account) { balFor.current = who; setBal(null); return; }
+    // another account or token: the old balances go at once, never shown under the new one
+    if (balFor.current !== who) { balFor.current = who; setBal(null); }
     const [usdc, tokens] = await Promise.all([usdcBalance(account), tokenBalance(token, account)]);
-    setBal({ usdc, tokens });
+    if (balFor.current === who) setBal({ usdc, tokens });
   }, [account, token]);
 
   useEffect(() => {
@@ -138,13 +143,13 @@ export default function Token({ token }: { token: Address }) {
   // a token MINTA's team hides (public/blocklist.json): the page says so instead of showing it
   if (isHidden(launch, [], [], block)) return <BlockedToken />;
   const after = () => { refresh(true); refreshBalances().catch(() => {}); };
-  const sym = tokenText(launch.symbol);
+  const sym = tickerText(launch.symbol, launch.token);
   return (
     <section className="token-page">
       <div className="token-head">
         <TokenPic uri={launch.metadataURI} symbol={launch.symbol} token={launch.token} size={64} />
         <div>
-          <h1 className="token-title">$<bdi>{sym}</bdi> <bdi className="muted">{tokenText(launch.name)}</bdi></h1>
+          <h1 className="token-title">$<bdi>{sym}</bdi> <bdi className="muted">{tokenText(launch.name)}</bdi> <NotThat l={launch} /></h1>
           <p className="muted small id-line"><CopyAddress address={launch.token} /> · created {ago(launch.createdAt)} by <AddressLink address={launch.creator} /></p>
           {meta?.links?.length ? (
             <p className="links">{meta.links.map((l) => (
@@ -156,6 +161,7 @@ export default function Token({ token }: { token: Address }) {
           <a className="btn btn-line btn-sm" href={href({ page: 'manage', token })}>Manage</a>
         )}
       </div>
+      {outsideFile(launch.metadataURI) !== null && <p className="muted small outside-file">This token’s picture, description and links are kept on another site{outsideFile(launch.metadataURI) ? <> (<bdi>{outsideFile(launch.metadataURI)}</bdi>)</> : ''}, so they aren’t loaded here.</p>}
       {meta?.description && plainText(meta.description) && <p className="description" dir="auto">{plainText(meta.description)}</p>}
       <ReportToken token={launch.token} sym={sym} />
       <HideToken token={launch.token} creator={launch.creator} />
@@ -196,7 +202,7 @@ export default function Token({ token }: { token: Address }) {
           </div>
           {NETWORK.testnet
             ? <p className="muted small">The tax is paid in USDC. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>
-            : <p className="muted small">The creator’s tax is the only fee a trade pays, in USDC: {pct(launch.buyTaxBps)} on buys and {pct(launch.sellTaxBps)} on sells, between 1% and 10% a side. When the tax is paid out, one tenth of it goes to the platform wallet (<AddressLink address={PAD_V2.platformWallet} />) and the rest to the creator’s tax wallets above. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>}
+            : <p className="muted small">The creator’s tax is the only fee a trade pays, in USDC: {pct(launch.buyTaxBps)} on buys and {pct(launch.sellTaxBps)} on sells, between 1% and 10% a side. When the tax is paid out, one tenth of it goes to the platform wallet (<AddressLink address={PAD_V2.platformWallet} />) and the rest to the creator’s tax wallets above, as wrapped USDC (WUSDC), which unwraps to USDC one for one. The creator can lower the tax, never raise it. The price shown is the pool’s, before tax.</p>}
         </div>
         </div>
         <TradePanel launch={launch} bal={bal} onVyre={onVyre} account={account} onDone={after} />
@@ -279,6 +285,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
 
   return (
     <div className="trade-card">
+      <NotThat l={launch} className="block" />
       <div className="seg" role="tablist" aria-label="Buy or sell">
         {(['buy', 'sell'] as const).map((s) => (
           <button key={s} type="button" role="tab" aria-selected={side === s} className={`${s} ${side === s ? 'on' : ''}`} onClick={() => { setSide(s); setInput(''); }}>{s === 'buy' ? 'Buy' : 'Sell'}</button>
@@ -293,6 +300,7 @@ function TradePanel({ launch, bal, account, onVyre, onDone }: {
         {bal && <span className="muted small">Balance: {side === 'buy' ? `${amount(bal.usdc)} USDC` : `${amount(bal.tokens, 2)} ${sym}`}</span>}
         {cut && <span className="muted small break exact-amount">Exactly {exact(value!)} {unit}</span>}
       </label>
+      <ReadAs input={input} />
       <div className="quote">
         {typo && <p className="err small" role="alert">{typo}</p>}
         {!value && !typo && <p className="muted small">Enter an amount to see what you’d get.</p>}

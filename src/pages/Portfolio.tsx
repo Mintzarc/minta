@@ -29,11 +29,14 @@ export default function Portfolio() {
   const { block, ready } = useBlocklistState();
 
   useEffect(() => {
+    // another account: the last one's balances go at once, and its late answers are dropped
+    setUsdc(null); setRaw(null); setFailed('');
     if (!account || !ready) return;
     let live = true;
     (async () => {
-      setFailed('');
-      setUsdc(await usdcBalance(account));
+      const held = await usdcBalance(account);
+      if (!live) return;
+      setUsdc(held);
       const [total, list] = await Promise.all([getLaunchCount(vyre), listLaunches(SCAN)]);
       // a balance that couldn't be read is said so, not counted as none
       const balances = await Promise.all(list.map((l) => tokenBalance(l.token, account as Address).catch(() => null)));

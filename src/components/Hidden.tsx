@@ -3,7 +3,8 @@
 // token's page shows.
 import { useEffect, useState } from 'react';
 import { VYRE_CHAIN } from '../lib/chain';
-import { BLOCKLIST_WAIT_MS, MAX_HIDDEN, NO_BLOCKS, hideToken, isHidden, loadHidden, parseBlocklist, showAllTokens, showToken, type Blocklist } from '../lib/hidden';
+import { BLOCKLIST_WAIT_MS, MAX_HIDDEN, NO_BLOCKS, hideToken, isHidden, loadHidden, parseBlocklist, setFirstCreators, showAllTokens, showToken, type Blocklist } from '../lib/hidden';
+import { firstCreators } from '../lib/firstCreator';
 import { href } from '../lib/router';
 import { storeKey } from '../lib/storeKey';
 
@@ -29,7 +30,7 @@ export const useHidden = () => useList(KEY);
 export const useHiddenCreators = () => useList(KEY_CREATORS);
 
 export const hide = (token: string) => { hideToken(store(), KEY, token); announce(); };
-export const hideCreator = (creator: string) => { hideToken(store(), KEY_CREATORS, creator); announce(); };
+export const hideCreator = (creator: string) => { hideToken(store(), KEY_CREATORS, creator); announce(); void readFirstCreators(); };
 export const show = (token: string) => { showToken(store(), KEY, token); announce(); };
 export const showCreator = (creator: string) => { showToken(store(), KEY_CREATORS, creator); announce(); };
 export const showAll = () => { showAllTokens(store(), KEY); showAllTokens(store(), KEY_CREATORS); announce(); };
@@ -54,8 +55,28 @@ async function readBlocklist(): Promise<Blocklist | null> {
     return v && typeof v === 'object' && (v as { version?: unknown }).version === 1 ? parseBlocklist(v) : null;
   } catch { return null; }
 }
+/**
+ * While any creator is hidden (on this device) or blocked (the team's list): who launched each token, so a token its creator handed
+ * to another wallet stays hidden (lib/hidden.ts matches both). The pages that wait for the list wait for this too, up to
+ * FIRST_CREATORS_WAIT_MS; if it can't be read, tokens are matched on their current creator until it can.
+ */
+const FIRST_CREATORS_WAIT_MS = 6000;
+let firstKnown = 0;
+async function readFirstCreators(block: Blocklist | null = loaded): Promise<void> {
+  if (!(block?.creators.length || loadHidden(store(), KEY_CREATORS).length)) return;
+  try {
+    const m = await firstCreators();
+    if (m.size === firstKnown) return;
+    firstKnown = m.size;
+    setFirstCreators(m);
+    // the lists are drawn again with it (the same events the lists already listen to)
+    if (loaded) window.dispatchEvent(new Event(BLOCKLIST_EVENT));
+    announce();
+  } catch { /* the chain couldn't be read just now: tried again at the next refresh */ }
+}
 function loadBlocklist(): Promise<Blocklist> {
-  blocklist ??= readBlocklist().then((b) => {
+  blocklist ??= readBlocklist().then(async (b) => {
+    await Promise.race([readFirstCreators(b ?? NO_BLOCKS), new Promise((r) => setTimeout(r, FIRST_CREATORS_WAIT_MS))]);
     lastRead = Date.now();
     loaded = b ?? NO_BLOCKS;
     startRefresh();
@@ -70,6 +91,7 @@ async function refreshBlocklist(force = false) {
     const b = await readBlocklist();
     lastRead = Date.now();
     if (b && JSON.stringify(b) !== JSON.stringify(loaded)) { loaded = b; window.dispatchEvent(new Event(BLOCKLIST_EVENT)); }
+    await readFirstCreators();
   } finally { refreshing = false; }
 }
 let started = false;
@@ -92,7 +114,8 @@ export function useBlocklistState(strict = false): { block: Blocklist; ready: bo
     // file has loaded or failed (a reading is given up after 10 s), so a slow file never lets a blocked token's page flash up
     const t = strict ? undefined : setTimeout(() => { if (live) setS((p) => (p.ready ? p : { ...p, ready: true })); }, BLOCKLIST_WAIT_MS);
     loadBlocklist().then((b) => { if (live) setS({ block: b, ready: true }); });
-    const changed = () => { if (live && loaded) setS({ block: loaded, ready: true }); };
+    // (a copy, so what is worked out from the list is worked out again: who launched each token may have just been read)
+    const changed = () => { if (live && loaded) setS({ block: { ...loaded }, ready: true }); };
     window.addEventListener(BLOCKLIST_EVENT, changed);
     return () => { live = false; if (t) clearTimeout(t); window.removeEventListener(BLOCKLIST_EVENT, changed); };
   }, []);

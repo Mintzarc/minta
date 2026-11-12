@@ -38,6 +38,10 @@ interface NetworkSettings {
   withdrawal: string;
   /** Whether email sign-in (Circle) is offered here. Where it is not, the app never asks the sign-in service about it */
   emailSignIn: boolean;
+  /** MINTA's own token here, or null where there is none: the one token that may carry the name without a "Not MINTA's token" note */
+  mintaToken: `0x${string}` | null;
+  /** Whether a launch's file on another site is read by the pages (false: only a file the app API keeps is read; another is named by its host) */
+  outsideFiles: boolean;
 }
 
 const SETTINGS: Record<NetworkName, NetworkSettings> = {
@@ -49,6 +53,8 @@ const SETTINGS: Record<NetworkName, NetworkSettings> = {
     label: 'VYRE Testnet',
     withdrawal: 'usually under half an hour on the testnet',
     emailSignIn: true,
+    mintaToken: null,
+    outsideFiles: true,
   },
   mainnet: {
     name: 'mainnet', testnet: false, vyre: vyreMainnet, arc: arcMainnet,
@@ -58,6 +64,8 @@ const SETTINGS: Record<NetworkName, NetworkSettings> = {
     label: 'VYRE Mainnet',
     withdrawal: 'a withdrawal takes about a day',
     emailSignIn: false,
+    mintaToken: '0x59F54CEd2A5C2Ee4DF39E0e1A1A49BA46858335a',
+    outsideFiles: false,
   },
 };
 
