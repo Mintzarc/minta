@@ -112,3 +112,17 @@ export function carryStates<T extends { state?: string }>(fresh: readonly T[], b
   const known = new Map((before ?? []).map((r) => [keyOf(r), r.state]));
   return fresh.map((r) => (r.state === undefined && known.get(keyOf(r)) !== undefined ? { ...r, state: known.get(keyOf(r)) } : r));
 }
+
+/** How many "was it paid out" reads of Arc go in one call (through Arc's Multicall3), one call after another */
+export const SPENT_READS_PER_CALL = 25;
+
+/**
+ * Each withdrawal with its state from what was read: paid out, ready to claim (its position is confirmed on Arc) or waiting. A
+ * row whose own read failed (`null`) keeps the state it had before, if any: one failed read never blanks the rest of the list.
+ */
+export function settleWithdrawals<T extends { position: bigint; state?: string }>(
+  list: readonly T[], spent: readonly (boolean | null)[], confirmed: bigint, before: readonly T[] | null, keyOf: (r: T) => string,
+): T[] {
+  const carried = carryStates(list.map((r) => ({ ...r, state: undefined })), before, keyOf);
+  return list.map((w, i) => (spent[i] === null || spent[i] === undefined ? carried[i] : { ...w, state: spent[i] ? 'claimed' : w.position < confirmed ? 'ready' : 'waiting' }));
+}

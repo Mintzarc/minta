@@ -177,6 +177,9 @@ export function plainLook(s: string): string {
   return Array.from(base).map((c) => LOOKS_LIKE[c] ?? c).join('').toUpperCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
+/** A name or ticker without the marks that can be hung on a word: trade-mark and other symbols, superscripts and the like, and upright bars at either end */
+const unmarked = (s: string) => s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').replace(HIDDEN, '').trim().replace(/^[|ǀ∣¦]+|[|ǀ∣¦]+$/gu, '');
+
 /** The words of a name or ticker (split at anything that is not a letter, digit or accent), each reduced as plainLook reduces it */
 export function plainWords(s: string): string[] {
   return s.normalize('NFKC').replace(HIDDEN, '').split(/[^\p{L}\p{N}\p{M}$|§€¥@]+/u).map(plainLook).filter(Boolean);
@@ -188,7 +191,8 @@ export function plainWords(s: string): string[] {
  */
 export function lookalikeNote(l: { symbol: string; name: string; token?: string | null }, realMinta?: string | null, realVyre?: string | null): string {
   // the whole ticker or name ("U S D C"), and each word of it ("USDC Token", "Real USDC", "USDC.e"); not a longer word ("USDCAT")
-  const looks = new Set([l.symbol, l.name].flatMap((s) => [plainLook(s), ...plainWords(s)]));
+  // (each also without marks hung on it: "USDC™", "USDC²", and bars at either end, "USDC|", which would otherwise read as one more letter)
+  const looks = new Set([l.symbol, l.name].flatMap((s) => [s, unmarked(s)]).flatMap((s) => [plainLook(s), ...plainWords(s)]));
   const is = (real?: string | null) => !!real && !!l.token && l.token.toLowerCase() === real.toLowerCase();
   if (['USDC', 'WUSDC', 'USDCOIN', 'WRAPPEDUSDC'].some((x) => looks.has(x))) return 'Not USDC';
   if (looks.has('MINTA')) return is(realMinta) ? '' : 'Not MINTA’s token';

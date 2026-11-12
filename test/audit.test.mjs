@@ -8,7 +8,7 @@ import { amountProblem, exact, lookalikeNote, parse, plainLook, readAs, tickerTe
 import { START_OVER_AFTER_MS, mayStartOver, receiptNotFound } from '../src/lib/held.ts';
 import { codeKey, taxWalletsWithCode } from '../src/lib/taxsplit.ts';
 import { usd } from '../src/lib/format.ts';
-import { carryStates, listWithdrawals, WITHDRAWALS_SHOWN } from '../src/lib/moves.ts';
+import { carryStates, listWithdrawals, settleWithdrawals, SPENT_READS_PER_CALL, WITHDRAWALS_SHOWN } from '../src/lib/moves.ts';
 import { parseUnsure, unsureStore } from '../src/lib/unsure.ts';
 import { PLATFORM_WALLET_UNREAD, platformWalletShown } from '../src/lib/platformShown.ts';
 import { SOURCE_ON_EXPLORER, sourceSentence, unpublished } from '../src/lib/verified.ts';
@@ -223,7 +223,7 @@ test('who launched each token is read from the launch events when any creator is
 // ---- the page's headers ----
 test('every page is served with Cross-Origin-Opener-Policy: same-origin, and nothing in the app needs a window that opened it or that it opened', () => {
   const v = JSON.parse(read('vercel.json'));
-  const all = v.headers.find((h) => h.source === '/(.*)').headers;
+  const all = v.headers.filter((h) => h.source === '/(.*)' && !h.has && !h.missing).flatMap((h) => h.headers); // (the rule with no condition: every host)
   assert.deepEqual(all.filter((h) => h.key === 'Cross-Origin-Opener-Policy').map((h) => h.value), ['same-origin']);
   // the one window the app opens (the card checkout) is cut loose before it is pointed anywhere, and never read afterwards
   const wallet = read('src/pages/Wallet.tsx');
@@ -280,7 +280,7 @@ test('balances are cleared when the account changes and an answer for the last a
   assert.match(wallet, /arc\.getBalance\(\{ address: now \}\)\.then\(mine\(setOnArc\)\)/);
   assert.match(wallet, /if \(accountNow\.current !== account\) return;\n\s*if \(onArcNow !== null\) setOnArc\(onArcNow\);/, 'a transfer that lands after the account changed fills nothing in');
   // the withdrawals card and the promoter card drop a late answer too
-  assert.match(wallet, /const live = \(\) => cardFor\.current === mine;/);
+  assert.match(wallet, /const live = \(\) => cardFor\.current === mine && loadNo\.current === no;/);
   assert.equal((wallet.slice(wallet.indexOf('function CashOut'), wallet.indexOf('function addressProblem')).match(/if \(!live\(\)\) return;/g) || []).length, 2);
   assert.match(wallet, /getPromoter\(vyre, account\)\.then\(\(v\) => \{ if \(live\) setMine\(v\); \}\)/);
   assert.match(read('src/components/Wrapped.tsx'), /if \(shownFor\.current === who && v !== null\) setHeld\(v\);/);
@@ -301,7 +301,8 @@ test('the pages say the tax is paid out as wrapped USDC, show the wallet’s wra
   assert.match(lib, /return sendCall\(wallet, client, \{ address: wrappedAddress\(\), abi: wusdcAbi, functionName: 'withdraw', args: \[amount\] \}\);/);
   assert.match(lib, /wrappedAddress = \(\): Address => getAddresses\(NETWORK\.vyre\.id\)\.wusdc;/);
   const card = read('src/components/Wrapped.tsx');
-  assert.match(card, /if \(!held\) return null;/, 'nothing is drawn for a wallet with none');
+  assert.match(card, /if \(!held\) \{\n\s*return last \? \(/, 'for a wallet with none: nothing, or the result of the unwrap just made from here');
+  assert.match(card, /<p className="status ok" role="status">\{last\.text\} This wallet holds no wrapped USDC now\. <a href=\{txUrl\(last\.hash\)\}/);
   assert.match(card, /label=\{`Unwrap \$\{exact\(held\)\} WUSDC to USDC`\}/);
   assert.match(card, /const now = await wrappedBalance\(account\);\n\s*if \(now !== held\) \{ setHeld\(now\); throw new Error\(/, 'a balance that moved since it was read stops the send');
   assert.match(card, /const r = await unwrap\(w, vyre, held\);/);
@@ -530,7 +531,7 @@ test('the wrapped USDC card never says "0 WUSDC" for dust, says an email wallet 
 test('the privacy pages say what each network’s pages do: mainnet reaches only verify.walletconnect.org and loads no file from another site', () => {
   const main = read('public/privacy/index.html');
   assert.doesNotMatch(main, /which that policy does not block/);
-  assert.match(main, /this page’s own security policy lets it reach only verify\.walletconnect\.org/);
+  assert.match(main, /the app’s security policy lets the page load that frame from, and send requests to, verify\.walletconnect\.org only/);
   assert.match(main, /<b>A token whose details are kept on another site<\/b>/);
   assert.match(read('public/privacy-testnet/index.html'), /which that policy does not block/, 'the test network’s page keeps its own sentence');
   assert.match(read('scripts/csp.mjs'), /it does not close every way out/);
@@ -543,4 +544,39 @@ test('small things: the hand-off note names the SDK, a long host wraps, the open
   assert.match(read('src/pages/Token.tsx'), /\(<bdi className="break">\{outsideFile\(launch\.metadataURI\)\}<\/bdi>\)/);
   assert.match(read('public/llms-full.txt'), /the pool opens within about 1% of that market cap/);
   assert.match(read('public/terms-testnet/index.html'), /The terms for MINTA on VYRE Mainnet \(minta\.vyrechain\.com\) are at/);
+});
+
+// ---- a fourth review ----
+test('each withdrawal is settled from its own read: a read that failed leaves that row as it was and blanks no other', () => {
+  const row = (n, state) => ({ hash: `0x${n}`, position: BigInt(n), state });
+  const key = (r) => `${r.hash}-${r.position}`;
+  const list = [row(9), row(8), row(7), row(6)];
+  const before = [row(9, 'waiting'), row(8, 'ready'), row(7, 'claimed')];
+  // confirmed up to position 8 (so 7 and 6 are confirmed, 8 and 9 are not)
+  const out = settleWithdrawals(list, [false, null, true, false], 8n, before, key);
+  assert.deepEqual(out.map((r) => r.state), ['waiting', 'ready', 'claimed', 'ready'], 'read: waiting; failed: kept as it was; read: claimed; read and confirmed: ready');
+  assert.deepEqual(settleWithdrawals(list, [null, null, null, null], 8n, null, key).map((r) => r.state), [undefined, undefined, undefined, undefined], 'nothing known, nothing claimed');
+  assert.deepEqual(settleWithdrawals([row(5)], [false], 5n, null, key).map((r) => r.state), ['waiting'], 'a position not below the confirmed count is still waiting');
+  assert.ok(SPENT_READS_PER_CALL >= 5 && SPENT_READS_PER_CALL <= 50);
+  const wallet = read('src/pages/Wallet.tsx');
+  const card = wallet.slice(wallet.indexOf('function CashOut'), wallet.indexOf('function addressProblem'));
+  assert.doesNotMatch(card, /list\.map\(\(w\) => arc\.readContract/, 'never one request per withdrawal, all at once');
+  assert.match(card, /inPieces\(list, SPENT_READS_PER_CALL, \(piece\) => arc\.multicall\(\{\n\s*allowFailure: true,/);
+  assert.match(card, /const live = \(\) => cardFor\.current === mine && loadNo\.current === no;/, 'only the newest load’s answers are used');
+});
+
+test('look-alikes with a mark hung on the end, or a bar at either end, are caught', () => {
+  const note = (symbol, name = 'x') => lookalikeNote({ symbol, name, token: OTHER }, REAL, null);
+  for (const s of ['USDC|', '|USDC', '|USDC|', 'USDC™', 'USDC®', 'USDC©', 'USDC²', 'USDC℠', 'ՍSDC™']) assert.equal(note(s), 'Not USDC', s);
+  for (const s of ['MINTA™', 'MINTA|', '|MINTA', 'MINTA®']) { assert.equal(note(s), 'Not MINTA’s token', s); assert.equal(note('X', s), 'Not MINTA’s token', `as a name: ${s}`); }
+  for (const s of ['VYRE™', 'VYRE|', 'VYRE®']) assert.equal(note(s), 'Not VYRE’s token', s);
+  for (const s of ['USDCAT', 'MINT', 'VYRE2', 'MINTA2', 'xUSDC', 'TM', '|', '™']) assert.equal(note(s), '', s);
+  assert.equal(lookalikeNote({ symbol: 'MINTA', name: 'MINTA', token: REAL }, REAL, null), '', 'the real one still carries none');
+});
+
+test('the holders figure leaves out the first deployment’s contracts too; the privacy sentence about the verification frame is one sentence', () => {
+  assert.match(read('src/lib/stats.ts'), /\.\.\.Object\.values\(\(a as \{ legacy\?: Record<string, unknown> \}\)\.legacy \?\? \{\}\)\]\.filter\(/);
+  const privacy = read('public/privacy/index.html');
+  assert.match(privacy, /MINTA does not choose it, and the app’s security policy lets the page load that frame from, and send requests to, verify\.walletconnect\.org only\./);
+  assert.doesNotMatch(privacy, /lets the frame load only from verify\.walletconnect\.org \(this page/);
 });

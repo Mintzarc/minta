@@ -2,9 +2,9 @@
 // launchpad and its app router). On mainnet they are lib/padv2.ts's: the new pad, whose creator tax is the only fee a trade pays,
 // and Uniswap's SwapRouter. Both sets have the same names and shapes, so a page imports from here and never names a network.
 //
-// On mainnet this also tells the SDK where the new deployment is (`registerDeployment`), so everything else that asks the SDK for
-// the pad's, the factory's or the router's address (`getAddresses`) gets the new contracts. The old launchpad, fee splitter, app
-// router and referrals contracts stay in the record only because the SDK wants a complete record; nothing here calls them.
+// The vendored SDK's own mainnet record already names the new deployment (and keeps the first launchpad, its fee splitter, app
+// router and referrals contracts under `legacy`; nothing here calls them). The `registerDeployment` call below writes the app's
+// own constants over that record, address for address the same, and pins the block the app starts reading from (`startBlock`).
 import * as sdk from '@vyrechain/sdk';
 import type { Address } from 'viem';
 import { NETWORK } from './network';

@@ -12,12 +12,15 @@ const WEB = path.join(__dirname, '..');
 const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'minta-'));
 execFileSync('npx', ['vite', 'build', '--outDir', OUT, '--emptyOutDir'], { cwd: WEB, stdio: 'ignore', env: { ...process.env, VITE_NETWORK: 'testnet' } });
 const types = { js: 'text/javascript', css: 'text/css', html: 'text/html', svg: 'image/svg+xml', png: 'image/png', json: 'application/json', webmanifest: 'application/json', mp4: 'video/mp4', webp: 'image/webp' };
-const serveDir = (dir) => http.createServer((q, r) => {
+// (`headers`: sent with every answer; the app itself is served with the ones vercel.json sends on every host but the mainnet site's: the wide content policy)
+const serveDir = (dir, headers = {}) => http.createServer((q, r) => {
   let f = path.join(dir, q.url.split('?')[0]);
   if (f.endsWith('/')) f += 'index.html';
-  fs.readFile(f, (e, d) => { if (e) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': types[f.split('.').pop()] || 'text/plain' }); r.end(d); });
+  fs.readFile(f, (e, d) => { if (e) { r.writeHead(404, headers); return r.end(); } r.writeHead(200, { ...headers, 'content-type': types[f.split('.').pop()] || 'text/plain' }); r.end(d); });
 });
-const srv = serveDir(OUT);
+const SITE_HEADERS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(WEB, 'vercel.json'), 'utf8')).headers
+  .filter((h) => h.source === '/(.*)' && !h.has).flatMap((h) => h.headers).map((h) => [h.key, h.value]));
+const srv = serveDir(OUT, SITE_HEADERS);
 
 let failed = 0;
 const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what); } else console.log('ok  ', what); };
@@ -884,12 +887,35 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await btn.click();
       await settle(/isn’t confirmed yet/);
       ok(await pg.locator('#unread button:has-text("start over")').count() === 1, 'minutes later, when the chain answers that it has no such transaction: start over is offered');
+      // pressing start over when the chain can't be read: nothing is started over, the transaction stays held
+      answer = 'busy';
+      await pg.locator('#unread button:has-text("start over")').click();
+      await pg.waitForFunction(() => /nothing was started over/.test(document.querySelector('#unread .status')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+      ok(/nothing is known yet and nothing was started over/.test(await status()) && /Check it/.test(await btn.innerText()) && await runs() === 3 && await pg.locator('#unread button:has-text("start over")').count() === 0,
+        'start over while the chain can’t be read: it says so, the button stays Check it, and start over is not offered on that');
+      answer = null;
+      await btn.click();
+      await settle(/isn’t confirmed yet/);
+      ok(await pg.locator('#unread button:has-text("start over")').count() === 1, 'a later check that finds nothing offers it again');
       // (start over reads the chain once more first; with the chain still answering "no such transaction" the button is armed again)
       const readsBefore = asks.filter((m) => m === 'eth_getTransactionReceipt').length;
       await pg.locator('#unread button:has-text("start over")').click().catch(() => {});
       await pg.waitForFunction(() => /Buy with 50 USDC/.test(document.querySelector('#unread .tx > button')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
       ok(asks.filter((m) => m === 'eth_getTransactionReceipt').length > readsBefore, 'start over reads the chain once more before arming the button');
       ok(await runs() === 3 && /Buy with 50 USDC/.test(await btn.innerText()), 'after a check found nothing, “start over” only re-arms the button (it sends nothing by itself)');
+      // pressing start over when the transaction is on the chain after all: it is read as gone through, never sent again
+      await btn.click();
+      await settle(/couldn’t be read/);
+      await pg.evaluate(() => { const now = Date.now.bind(Date); Date.now = () => now() + 6 * 60_000; }); // minutes after this send too
+      await btn.click();
+      await settle(/isn’t confirmed yet/);
+      ok(await runs() === 4 && await pg.locator('#unread button:has-text("start over")').count() === 1, 'another send held, and start over offered');
+      const doneBefore = await done();
+      answer = receipt('0x1');
+      await pg.locator('#unread button:has-text("start over")').click();
+      await settle(/went through/);
+      ok(/It went through/.test(await status()) && await runs() === 4 && await done() === doneBefore + 1, 'start over when the transaction turns out to be on the chain: “It went through”, the form is cleared as after any send, and nothing is sent again');
+      answer = null;
       ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
       await ctx.close();
     }
@@ -957,6 +983,25 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         }
         return false;
       }, [H3, ms]);
+      // a record whose send time can't be read (none, or one in the future) counts from now: never as "sent long ago"
+      const setAt = (value) => pg.evaluate(([hash, v]) => {
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i); const raw = sessionStorage.getItem(k);
+          if (!k.startsWith('minta.held.') || !raw.includes(hash)) continue;
+          const h = JSON.parse(raw); if (v === null) delete h.at; else h.at = v === 'future' ? Date.now() + 1e9 : v; h.notFound = true; h.notFoundAt = Date.now() - 1000; h.looked = true;
+          sessionStorage.setItem(k, JSON.stringify(h));
+        }
+      }, [H3, value]);
+      for (const [value, what] of [[null, 'no send time'], ['future', 'a send time in the future'], ['abc', 'a send time that is not a number']]) {
+        await setAt(value);
+        await pg.reload();
+        await pg.waitForSelector('#kept .tx > button');
+        const offeredAtOnce = await pg.locator('#kept button:has-text("start over")').count();
+        await btnOf('kept').click();
+        await settleIn('kept', /isn’t confirmed yet/);
+        const ok0 = offeredAtOnce === 0 && await pg.locator('#kept button:has-text("start over")').count() === 0 && /Keep checking/.test(await pg.locator('#kept').innerText());
+        ok(ok0, `a kept record with ${what}: start over is not offered (the send counts from now)`);
+      }
       ok(await sentAgo(4 * 60_000), 'the held record is kept for the tab with its send time');
       await pg.reload();
       await pg.waitForSelector('#kept .tx > button');
