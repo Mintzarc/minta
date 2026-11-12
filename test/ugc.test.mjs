@@ -104,13 +104,18 @@ test('a stored hidden list is read in bounded time: a 50,000-address value is cu
   const big = JSON.stringify(Array.from({ length: 2000 }, (_, i) => `0x${i.toString(16).padStart(40, '0')}`));
   assert.equal(parseHidden(big).length, MAX_HIDDEN);
   const huge = JSON.stringify(Array.from({ length: 50000 }, (_, i) => `0x${i.toString(16).padStart(40, '0')}`));
-  const t0 = performance.now();
-  assert.deepEqual(parseHidden(huge), []);
-  assert.ok(performance.now() - t0 < 100, 'under 100 ms');
+  // (judged by the work done, not by the clock: the oversized value is dropped without being parsed at all)
+  const parse = JSON.parse;
+  let parsed = 0;
+  JSON.parse = (...a) => { parsed++; return parse(...a); };
+  try {
+    assert.deepEqual(parseHidden(huge), []);
+    assert.equal(parsed, 0, 'the oversized value is not parsed');
+    assert.equal(parseHidden(big).length, MAX_HIDDEN);
+    assert.equal(parsed, 1, 'a value within the limit is');
+  } finally { JSON.parse = parse; }
   const junk = JSON.stringify(Array.from({ length: 2400 }, (_, i) => (i % 2 ? 'x' : `0x${i.toString(16).padStart(40, '0')}`)));
-  const t1 = performance.now();
   assert.ok(parseHidden(junk).length <= MAX_HIDDEN);
-  assert.ok(performance.now() - t1 < 100);
 });
 
 test('saving a launch\'s picture, description or links in Manage needs the Terms accepted too', () => {

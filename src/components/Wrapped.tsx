@@ -43,6 +43,8 @@ export function WrappedUsdc({ account, again = 0, onDone }: { account: Address; 
           // (a result confirmed later, by "Check it", has no words of its own kept yet: a plain line is kept for it)
           onDone={() => { setLast((l) => l ?? { text: 'Your unwrap went through.', hash: '' }); read(); onDone?.(); }}
           run={async (say) => {
+            // (a new unwrap: the line kept for an earlier one goes, so what is kept from here on is this one's own)
+            setLast(null);
             const w = await onVyre();
             // the amount on the button is the amount sent: if the balance has moved since it was read, nothing is sent
             const now = await wrappedBalance(account);

@@ -315,7 +315,8 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     keptAs.current = keepAs;
     const h = readHeld(keepAs);
     keepHeld(h);
-    putSt(stillHeld(h));
+    // (back on an action whose run is still open in the wallet, after a change away and back: it says so, and does not look ready)
+    putSt(running.current.has(keepAs ?? '') ? { kind: 'busy', text: 'Still waiting for your wallet…' } : stillHeld(h));
   }, [keepAs]);
   // one run at a time, even if a second click lands before the button shows it's busy
   // (per action: another account's run, still open in the wallet, does not make this account's press do nothing)

@@ -199,6 +199,12 @@ test('a mainnet build configured with its own app API names that API’s origin 
   csp.checkHeaderNames('https://api.vyrechain.com', vercel);
   csp.checkHeaderNames('https://api.vyrechain.com', 'not json at all'); // (the default needs no look at the file)
   assert.throws(() => csp.checkHeaderNames('https://mine.example.com', vercel), /does not name it/);
+  // the origin must be one of the policy's own tokens, whole: a prefix of a named one is not named
+  for (const near of ['https://api.vyrechain.co', 'https://api.vyrechain.com.example', 'https://pi.vyrechain.com', 'https://api.vyrechain.com:8443']) assert.throws(() => csp.checkHeaderNames(near, vercel), /does not name it/, near);
+  // and the rule read is the one for the mainnet site's host, not any rule with a host condition
+  const elsewhere = JSON.parse(vercel);
+  elsewhere.headers.unshift({ source: '/(.*)', has: [{ type: 'host', value: { eq: 'other.example' } }], headers: [{ key: 'Content-Security-Policy', value: "connect-src https://mine.example.com; img-src https://mine.example.com" }] });
+  assert.throws(() => csp.checkHeaderNames('https://mine.example.com', JSON.stringify(elsewhere)), /does not name it/);
   assert.throws(() => csp.checkHeaderNames('https://mine.example.com', '{'), /could not be read/);
   const named = JSON.parse(vercel);
   const rule = named.headers.find((h) => h.has).headers[0];

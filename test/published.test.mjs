@@ -5,7 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { checkPublished, docsSdkFile } from '../scripts/check-published.mjs';
+import { checkPublished, checkSiteHeader, docsSdkFile } from '../scripts/check-published.mjs';
+import { mainnetHeader } from '../scripts/csp.mjs';
 
 const root = new URL('../', import.meta.url);
 const read = (p) => fs.readFileSync(new URL(p, root));
@@ -44,4 +45,27 @@ test('an install line that names a file not vendored here holds a publish too, w
 test('the check is a script of its own, named in the handover notes’ publishing steps', () => {
   assert.equal(JSON.parse(read('package.json')).scripts['check:published'], 'node scripts/check-published.mjs');
   assert.match(read('docs/HANDOFF.md').toString(), /npm run check:published/);
+});
+
+// After a deploy: the mainnet site's own host must really send the narrow policy (the rule by host in vercel.json). Before the rule
+// is live the host still sends the wide one: that is said as "not live yet", never passed as checked.
+test('the header check tells the narrow policy from the wide one still being sent, from no policy at all, and from a host that can’t be read', async () => {
+  const asked = [];
+  const answer = (status, csp) => async (url) => { asked.push(String(url)); return new Response('x', { status, headers: csp === undefined ? {} : { 'content-security-policy': csp } }); };
+  const wide = JSON.parse(read('vercel.json').toString()).headers.find((h) => h.missing).headers[0].value;
+  assert.deepEqual(await checkSiteHeader({ fetch: answer(200, mainnetHeader()) }), { state: 'narrow' });
+  assert.equal(asked[0], 'https://minta.vyrechain.com/terms/', 'a page with no policy of its own, on the mainnet host');
+  const notLive = await checkSiteHeader({ fetch: answer(200, wide) });
+  assert.equal(notLive.state, 'not-live');
+  assert.match(notLive.message, /still sends the wide content policy.*not live there yet/);
+  for (const csp of [undefined, '', "default-src 'self'", `${mainnetHeader()}; img-src https:`, mainnetHeader().replace('https://api.vyrechain.com', 'https:')]) {
+    const r = await checkSiteHeader({ fetch: answer(200, csp) });
+    assert.equal(r.state, 'wrong', String(csp).slice(0, 40));
+  }
+  assert.match((await checkSiteHeader({ fetch: answer(200, undefined) })).message, /sends no Content-Security-Policy header at all/);
+  assert.equal((await checkSiteHeader({ fetch: answer(503, mainnetHeader()) })).state, 'unread');
+  assert.equal((await checkSiteHeader({ fetch: async () => { throw new TypeError('fetch failed'); } })).state, 'unread');
+  // the command: narrow passes; "not live" is a loud note, and a failure with --live; wrong always fails
+  const script = read('scripts/check-published.mjs').toString();
+  assert.match(script, /else if \(site\.state === 'wrong' \|\| live\) problems\.push\(site\.message\);\n\s*else console\.warn\(`NOT CHECKED AS LIVE: \$\{site\.message\}`\);/);
 });

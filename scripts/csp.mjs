@@ -38,7 +38,7 @@ export function checkHeaderNames(api, vercelJsonText) {
   if (api === DEFAULT_API) return;
   let rules;
   try { rules = JSON.parse(vercelJsonText).headers ?? []; } catch { throw new Error('vercel.json could not be read to check the mainnet host’s content policy against VITE_API_URL'); }
-  const header = rules.filter((r) => Array.isArray(r.has) && r.has.some((c) => c.type === 'host')).flatMap((r) => r.headers ?? []).find((h) => h.key === 'Content-Security-Policy')?.value ?? '';
+  const header = rules.filter((r) => Array.isArray(r.has) && r.has.some((c) => c.type === 'host' && (c.value === MAINNET_HOST || c.value?.eq === MAINNET_HOST))).flatMap((r) => r.headers ?? []).find((h) => h.key === 'Content-Security-Policy')?.value ?? '';
   const names = (directive) => (header.split(';').map((x) => x.trim()).find((x) => x.startsWith(`${directive} `)) ?? '').split(/\s+/).includes(api);
   if (!names('connect-src') || !names('img-src')) {
     throw new Error(`VITE_API_URL is ${api}, but the content policy vercel.json sends on ${MAINNET_HOST} does not name it (connect-src and img-src): a build served there would be cut off from its own API. Add it to that rule in vercel.json, or leave VITE_API_URL unset.`);

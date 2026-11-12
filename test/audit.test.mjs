@@ -569,7 +569,10 @@ test('each withdrawal is settled from its own read: a read that failed leaves th
 
 test('look-alikes with a mark hung on the end, or a bar at either end, are caught', () => {
   const note = (symbol, name = 'x') => lookalikeNote({ symbol, name, token: OTHER }, REAL, null);
-  for (const s of ['USDC|', '|USDC', '|USDC|', 'USDC™', 'USDC®', 'USDC©', 'USDC²', 'USDC℠', 'ՍSDC™', 'USDC｜', 'ＵＳＤＣ｜', '｜USDC', 'USDCʰ']) assert.equal(note(s), 'Not USDC', s);
+  for (const s of ['USDC|', '|USDC', '|USDC|', 'USDC™', 'USDC®', 'USDC©', 'USDC²', 'USDC℠', 'ՍSDC™', 'USDC｜', 'ＵＳＤＣ｜', '｜USDC', 'USDCʰ', 'USDC|\u0336', 'USDCǁ', 'USDCǃ', '|\u0338USDC']) assert.equal(note(s), 'Not USDC', s);
+  // a bar hung on one word of a longer name
+  for (const s of ['USDC| Token', 'Real USDC| Token', '|USDC| Coin', 'The USDC™ Token', 'Real |USDC']) { assert.equal(note('X', s), 'Not USDC', `as a name: ${s}`); assert.equal(note(s), 'Not USDC', s); }
+  for (const s of ['MINTA| Official', 'Official |MINTA|']) assert.equal(note('X', s), 'Not MINTA’s token', s);
   for (const s of ['MINTA™', 'MINTA|', '|MINTA', 'MINTA®']) { assert.equal(note(s), 'Not MINTA’s token', s); assert.equal(note('X', s), 'Not MINTA’s token', `as a name: ${s}`); }
   for (const s of ['VYRE™', 'VYRE|', 'VYRE®']) assert.equal(note(s), 'Not VYRE’s token', s);
   for (const s of ['USDCAT', 'MINT', 'VYRE2', 'MINTA2', 'xUSDC', 'TM', '|', '™']) assert.equal(note(s), '', s);

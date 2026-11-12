@@ -841,8 +841,14 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
         const body = JSON.parse(route.request().postData() || 'null');
         const one = (q) => { asks.push(q.method); return q.method === 'eth_getTransactionReceipt' && answer === 'busy' ? { jsonrpc: '2.0', id: q.id, error: { code: -32000, message: 'server busy' } } : { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? answer : null }; };
-        await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
+        // (answer 'hold': the receipt read waits until the test lets it go, then answers "no such transaction")
+        if (answer === 'hold' && JSON.stringify(body).includes('eth_getTransactionReceipt')) await new Promise((r) => { letGo = r; });
+        const now = answer === 'hold' ? null : answer;
+        const one2 = (q) => (answer === 'hold' ? { jsonrpc: '2.0', id: q.id, result: (asks.push(q.method), null) } : one(q));
+        void now;
+        await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one2) : one2(body)) }).catch(() => {});
       });
+      let letGo = null;
       const btn = pg.locator('#unread .tx > button');
       const status = () => pg.locator('#unread .status').innerText().catch(() => '');
       const runs = () => pg.evaluate(() => window.__runs || 0);
@@ -899,9 +905,16 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       ok(await pg.locator('#unread button:has-text("start over")').count() === 1, 'a later check that finds nothing offers it again');
       // (start over reads the chain once more first; with the chain still answering "no such transaction" the button is armed again)
       const readsBefore = asks.filter((m) => m === 'eth_getTransactionReceipt').length;
+      // while that read is on its way (held here), the button says it is checking and can't be pressed
+      answer = 'hold';
       await pg.locator('#unread button:has-text("start over")').click().catch(() => {});
+      await pg.waitForFunction(() => /Checking…/.test(document.querySelector('#unread .status')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+      ok(/Checking…/.test(await status()) && /Working…/.test(await btn.innerText()) && await btn.isDisabled() && await pg.locator('#unread button:has-text("start over")').count() === 0, 'start over shows that it is checking while the chain is being read, and nothing can be pressed meanwhile');
+      for (let i = 0; i < 50 && !letGo; i++) await new Promise((r) => setTimeout(r, 100));
+      letGo?.(); letGo = null;
       await pg.waitForFunction(() => /Buy with 50 USDC/.test(document.querySelector('#unread .tx > button')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
       ok(asks.filter((m) => m === 'eth_getTransactionReceipt').length > readsBefore, 'start over reads the chain once more before arming the button');
+      answer = null;
       ok(await runs() === 3 && /Buy with 50 USDC/.test(await btn.innerText()), 'after a check found nothing, “start over” only re-arms the button (it sends nothing by itself)');
       // pressing start over when the transaction is on the chain after all: it is read as gone through, never sent again
       await btn.click();

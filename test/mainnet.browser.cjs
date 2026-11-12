@@ -57,7 +57,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     const hosts = new Set();
     // launchesReads: how many times the page has asked the stand-in whether launches are open; wrapped: the wrapped USDC every account
     // holds; mined: the transaction hashes the stand-in chain has a receipt for
-    const probe = { launchesReads: 0, wrapped: 0n, wrappedOf: {}, mined: new Set(), symbol: 'FEE', code: {}, balances: {}, held: new Set(), waiting: [], launchCount: 0n, launchLogs: [], head: '0x31', heldWrapped: new Set(), waitingWrapped: [], failWithdrawals: false, poolOf: {}, codeFails: false, tokenBalances: {}, arc: null, withdrawLogs: [] }; // poolOf: pool (lower case) -> its launch token; tokenBalances: account -> launch tokens held // balances / wrappedOf: per account (lower case); held: accounts whose balance answer waits in `waiting`; launchLogs: what eth_getLogs answers for the pad // symbol: the stand-in token's ticker; code: address (lower case) -> its code
+    const probe = { launchesReads: 0, wrapped: 0n, wrappedOf: {}, mined: new Set(), symbol: 'FEE', code: {}, balances: {}, held: new Set(), waiting: [], launchCount: 0n, launchLogs: [], head: '0x31', heldWrapped: new Set(), waitingWrapped: [], failWithdrawals: false, poolOf: {}, codeFails: false, tokenBalances: {}, arc: null, withdrawLogs: [], onWithdrawRead: null, receiptLogs: {} }; // poolOf: pool (lower case) -> its launch token; tokenBalances: account -> launch tokens held // balances / wrappedOf: per account (lower case); held: accounts whose balance answer waits in `waiting`; launchLogs: what eth_getLogs answers for the pad // symbol: the stand-in token's ticker; code: address (lower case) -> its code
     const wusdc = viem.parseAbi(['function balanceOf(address) view returns (uint256)', 'function withdraw(uint256 wad)']);
     const answerCall = (to, data) => {
       if (to.toLowerCase() === multicall && data.startsWith('0x4d2301cc')) { // getEthBalance(address)
@@ -111,7 +111,8 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         if (call.functionName === 'pendingCreator') return out(viem.zeroAddress);
         if (call.functionName === 'tokenOfPool') return out(probe.poolOf[String(call.args[0]).toLowerCase()] ?? viem.zeroAddress);
         if (call.functionName === 'tokens') return out(TOKEN);
-        if (call.functionName === 'setTaxWallets') return '0x'; // the page's own simulation of saving a split passes
+        if (call.functionName === 'setTaxWallets') return '0x';
+        if (call.functionName === 'collectCreatorFees') return out(0n); // the page's own simulation of a collect passes // the page's own simulation of saving a split passes
       }
       if (to.toLowerCase() === t) {
         const call = viem.decodeFunctionData({ abi: sdk.vyreTokenAbi, data });
@@ -136,7 +137,13 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         if (req.method === 'eth_blockNumber') return { jsonrpc: '2.0', id, result: probe.head };
         // (the chain's withdrawal contract's events: the Wallet page's list of withdrawals; the test can make that read fail)
         if (req.method === 'eth_getLogs' && probe.failWithdrawals && /^0x0{38}64$/.test(String(req.params[0].address || '').toLowerCase())) return { jsonrpc: '2.0', id, error: { code: -32000, message: 'server busy' } };
-        if (req.method === 'eth_getLogs' && /^0x0{38}64$/.test(String(req.params[0].address || '').toLowerCase())) return { jsonrpc: '2.0', id, result: probe.withdrawLogs };
+        if (req.method === 'eth_getLogs' && /^0x0{38}64$/.test(String(req.params[0].address || '').toLowerCase())) {
+          // the withdrawals in the range asked for; `probe.onWithdrawRead` sees each read (and may hold its answer back with a promise)
+          const from = BigInt(req.params[0].fromBlock ?? 0), to = req.params[0].toBlock && /^0x/.test(req.params[0].toBlock) ? BigInt(req.params[0].toBlock) : BigInt(probe.head);
+          const result = probe.withdrawLogs.filter((l) => BigInt(l.blockNumber) >= from && BigInt(l.blockNumber) <= to);
+          const wait = probe.onWithdrawRead ? probe.onWithdrawRead({ from, to }) : null;
+          return typeof wait?.then === 'function' ? wait.then(() => ({ jsonrpc: '2.0', id, result })) : { jsonrpc: '2.0', id, result };
+        }
         if (req.method === 'eth_getLogs') return { jsonrpc: '2.0', id, result: String(req.params[0].address || '').toLowerCase() === pad ? probe.launchLogs : [] };
         if (req.method === 'eth_getBlockByNumber') return { jsonrpc: '2.0', id, result: { number: '0x31', hash: '0x' + '0b'.repeat(32), timestamp: '0x6000', transactions: [], gasLimit: '0x1c9c380', baseFeePerGas: '0x1' } };
         if (req.method === 'eth_getBalance') return { jsonrpc: '2.0', id, result: init ? '0x56bc75e2d63100000' : '0x0' };
@@ -146,7 +153,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         if (req.method === 'eth_getCode' && probe.codeFails) return { jsonrpc: '2.0', id, error: { code: -32000, message: 'server busy' } };
         if (req.method === 'eth_getCode') return { jsonrpc: '2.0', id, result: probe.code[String(req.params[0]).toLowerCase()] || '0x' };
         if (req.method === 'eth_getTransactionReceipt' && probe.mined.has(req.params[0]) && probe.whenMined) { probe.whenMined(); probe.whenMined = null; } // (what the transaction did, done by the time its receipt is read)
-        if (req.method === 'eth_getTransactionReceipt') return { jsonrpc: '2.0', id, result: probe.mined.has(req.params[0]) ? { transactionHash: req.params[0], transactionIndex: '0x0', blockHash: '0x' + '0b'.repeat(32), blockNumber: '0x31', from: '0x' + '3c'.repeat(20), to: v2.PAD_V2.wusdc, cumulativeGasUsed: '0x5208', gasUsed: '0x5208', effectiveGasPrice: '0x1', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x1', type: '0x2' } : null };
+        if (req.method === 'eth_getTransactionReceipt') return { jsonrpc: '2.0', id, result: probe.mined.has(req.params[0]) ? { transactionHash: req.params[0], transactionIndex: '0x0', blockHash: '0x' + '0b'.repeat(32), blockNumber: '0x31', from: '0x' + '3c'.repeat(20), to: v2.PAD_V2.wusdc, cumulativeGasUsed: '0x5208', gasUsed: '0x5208', effectiveGasPrice: '0x1', contractAddress: null, logs: probe.receiptLogs[req.params[0]] ?? [], logsBloom: '0x' + '00'.repeat(256), status: '0x1', type: '0x2' } : null };
         if (req.method === 'eth_call') { const result = answerCall(req.params[0].to, req.params[0].data || req.params[0].input); return typeof result?.then === 'function' ? result.then((v) => ({ jsonrpc: '2.0', id, result: v })) : { jsonrpc: '2.0', id, result }; }
       } catch { /* falls through to the error */ }
       return { jsonrpc: '2.0', id, error: { code: -32601, message: 'not answered' } };
@@ -518,12 +525,18 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await moveCard.locator('.tx > button').click();
     ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 2), 'B’s press asks the wallet, although A’s request is still open there');
     ok(await soon(async () => /Cancelled in your wallet/.test(await moveCard.locator('.status').innerText().catch(() => ''))), 'and B’s own answer is shown under B');
+    // back to A while A's request is still open in the wallet: A's button says so (it does not look ready, when a press would do nothing)
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /Working…/.test(await moveCard.locator('.tx > button').innerText())) && await moveCard.locator('.tx > button').isDisabled() && /Still waiting for your wallet/.test(await moveCard.locator('.status').innerText().catch(() => '')),
+      'back on A with A’s request still open: the button is busy and says it is still waiting for the wallet (' + (await moveCard.locator('.status').innerText().catch(() => 'no status')).slice(0, 60) + ')');
+    await pg.evaluate((b) => window.__switch(b), B);
+    ok(await soon(async () => /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText())), 'and B’s button is B’s own again');
     const HASH2 = '0x' + 'cc'.repeat(32);
     probe.mined.add(HASH2);
     await pg.evaluate(([release, h]) => release(h), [releaseA, HASH2]);
     await pg.waitForTimeout(2500);
     const underB = await moveCard.locator('.status').innerText().catch(() => 'no status');
-    ok(/Cancelled in your wallet/.test(underB) && !/withdrawal|Started|went through|couldn’t be read/i.test(underB) && /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText()), 'A’s result (whatever it was) is not shown under B: ' + underB.slice(0, 120));
+    ok(!/withdrawal|Started|went through|couldn’t be read|Still waiting/i.test(underB) && /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText()), 'A’s result (whatever it was) is not shown under B: ' + underB.slice(0, 120));
     await pg.evaluate((a) => window.__switch(a), A);
     await soon(async () => /Unwrap/.test(await card.locator('button').innerText().catch(() => '')));
     // a phone: the unwrap button's words fit, and the page does not scroll sideways
@@ -659,6 +672,112 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     spent['5'] = 'fail'; spent['6'] = true;
     await pg.clock.fastForward(61_000);
     ok(await soon(async () => /Paid out on Arc/.test(await rowOf(3).innerText())) && /Paid out on Arc/.test(await rowOf(2).innerText()), 'a row whose read fails later keeps the state it had (paid out), and the other settles');
+    // ---- a long chain: the list looks back about ten days of blocks, and "Look further back" widens it
+    probe.onWithdrawRead = null;
+    probe.head = '0x400000'; // past the look-back (3,500,000 blocks): the two withdrawals above, at block 0x20, are out of the first look
+    const recent = withdrawal(7, 4); recent.blockNumber = '0x3fff00';
+    probe.withdrawLogs = [recent, withdrawal(5, 2), withdrawal(6, 3)];
+    spent['5'] = false; spent['6'] = false; spent['7'] = false;
+    await pg.goto('about:blank'); await pg.goto(base + '#/wallet');
+    const rows = () => moveCard.locator('.withdrawals li').count();
+    ok(await soon(async () => (await rows()) === 1) && /4 USDC/.test(await moveCard.locator('.withdrawals li').innerText()), 'on a long chain the first look lists the recent withdrawal only');
+    const older = moveCard.locator('.withdrawals-older button');
+    ok(await soon(async () => (await older.count()) === 1), 'and offers to look further back');
+    // A read of the list that takes longer than the minute between two ticks of its timer (several pages of blocks, each slow but
+    // answered): the second tick starts no second read while the first is on its way.
+    {
+      const pages = []; const held = [];
+      probe.onWithdrawRead = ({ from, to }) => { pages.push({ from, to }); return new Promise((r) => held.push(r)); };
+      const firstPages = () => pages.filter((r) => r.to === BigInt(probe.head)).length;
+      await pg.clock.fastForward(61_000); // the first tick: a read starts
+      ok(await soon(async () => held.length === 1) && firstPages() === 1, 'the minute’s read of the list starts (its first page is slow)');
+      let passed = 0, crossed = false;
+      for (let i = 0; i < 12; i++) {
+        await pg.clock.fastForward(9_500); passed += 9_500; // under the request's own time limit, every page
+        await pg.waitForTimeout(250);
+        if (passed > 60_500 && held.length > 0 && !crossed) { crossed = true; ok(firstPages() === 1, `the next tick came while that read was still on its way: no second read was started (${firstPages()} started, ${pages.length} pages read so far)`); }
+        const go = held.shift(); if (!go) break; go();
+        await soon(async () => held.length > 0 || pages.length >= 8).catch(() => {});
+        await pg.waitForTimeout(150);
+      }
+      ok(crossed, `the read did last past the next tick (${passed / 1000} s, ${pages.length} pages)`);
+      for (const go of held.splice(0)) go();
+      probe.onWithdrawRead = null;
+      await pg.waitForTimeout(800);
+      ok(await rows() === 1, 'and the list is as it was');
+    }
+    // a "Move to Arc" pressed now stays open in the wallet (its page-side reload belongs to this draw of the page, with the short look-back)
+    await moveCard.locator('input').fill('1');
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; });
+    await moveCard.locator('.tx > button').click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1), 'a move to Arc is open in the wallet');
+    // a slow read for the short look-back is on its way (the minute's timer) when the person looks further back
+    const reads = []; const slow = [];
+    let holdShort = true;
+    probe.onWithdrawRead = ({ from, to }) => { reads.push({ from, to }); return holdShort && from > 0n && to === BigInt(probe.head) ? new Promise((r) => slow.push(r)) : null; };
+    await pg.clock.fastForward(61_000);
+    ok(await soon(async () => slow.length === 1), 'a read for the short look-back is on its way (held)');
+    holdShort = false;
+    await older.click();
+    ok(await soon(async () => (await rows()) === 3), 'looking further back lists all three');
+    for (const go of slow.splice(0)) go();
+    await pg.waitForTimeout(1200);
+    ok(await rows() === 3, 'the slower, older read for the short look-back does not replace the wider list when it answers');
+    // the move confirms now: its reload (called from the earlier draw of the page) still looks as far back as the list shows
+    const MOVE = '0x' + 'e7'.repeat(32);
+    const moved = withdrawal(8, 1); moved.blockNumber = '0x3fffff'; moved.transactionHash = MOVE;
+    probe.receiptLogs[MOVE] = [moved];
+    probe.withdrawLogs = [moved, recent, withdrawal(5, 2), withdrawal(6, 3)];
+    probe.mined.add(MOVE);
+    reads.length = 0;
+    await pg.evaluate((h) => window.__release(h), MOVE);
+    ok(await soon(async () => (await rows()) === 4), `after the move confirms the list has it and still the older ones (${await rows()} rows; ` + (await moveCard.locator('.status').innerText().catch(() => 'no status')).slice(0, 80) + ')');
+    await pg.waitForTimeout(800);
+    ok(await rows() === 4 && reads.length > 0 && reads.some((r) => r.from === 0n), 'the reload after it read from the first block again, not from the short look-back');
+    ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
+    await ctx.close();
+  }
+
+  // ---- two unwraps in one visit: the second, confirmed later by "Check it", never shows the first one's amount and link; another account sees no card
+  {
+    const A = '0x' + '3c'.repeat(20), B = '0x' + '4d'.repeat(20);
+    const { pg, ctx, errs, probe } = await open('#/docs', true, { width: 1440, height: 900 }, { arg: A, script: standInWallet });
+    const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 25000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+    probe.wrappedOf[A] = 10n ** 18n; probe.wrappedOf[B] = 0n;
+    await pg.clock.install();
+    await pg.goto('about:blank'); await pg.goto(base + `#/manage/${TOKEN}`);
+    const card = pg.locator('.wrapped-usdc');
+    ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'on the Manage page: 1 WUSDC to unwrap');
+    const FIRST = '0x' + 'f1'.repeat(32);
+    await pg.evaluate((h) => { window.__answer = { hash: h }; }, FIRST);
+    probe.mined.add(FIRST); probe.whenMined = () => { probe.wrappedOf[A] = 0n; };
+    await card.locator('button').click();
+    ok(await soon(async () => /Unwrapped 1 WUSDC to USDC\./.test(await card.innerText().catch(() => '')) && (await card.locator(`a[href$="/tx/${FIRST}"]`).count()) === 1), 'the first unwrap goes through: its line and link are kept');
+    // more wrapped USDC arrives (a collect), and is unwrapped: this time the result can't be read at first
+    probe.wrappedOf[A] = 5n * 10n ** 18n;
+    const COLLECT = '0x' + 'f2'.repeat(32);
+    await pg.evaluate((h) => { window.__answer = { hash: h }; }, COLLECT);
+    probe.mined.add(COLLECT);
+    await pg.locator('.card', { hasText: 'Collect the tax' }).locator('.tx > button').click();
+    ok(await soon(async () => /Unwrap 5 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'after a collect the card is back with 5 WUSDC');
+    const SECOND = '0x' + 'f3'.repeat(32);
+    await pg.evaluate((h) => { window.__answer = { hash: h }; window.__sends = 0; }, SECOND);
+    await card.locator('button').click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1), 'the second unwrap is sent');
+    // (its receipt does not come: the page waits a minute for it, then holds it as sent and unread)
+    for (let i = 0; i < 8 && !/Check it/.test(await card.locator('button').innerText().catch(() => '')); i++) { await pg.clock.fastForward(15_000); await pg.waitForTimeout(400); }
+    ok(await soon(async () => /Check it/.test(await card.locator('button').innerText().catch(() => ''))), 'its result could not be read: the button is Check it');
+    probe.mined.add(SECOND); probe.whenMined = () => { probe.wrappedOf[A] = 0n; };
+    await card.locator('button').click();
+    ok(await soon(async () => (await card.locator('button').count()) === 0 && /Your unwrap went through\./.test(await card.innerText().catch(() => ''))), 'Check it finds it gone through: the card says so');
+    const after = await card.innerText().catch(() => '');
+    ok(!/Unwrapped 1 WUSDC/.test(after) && await card.locator(`a[href$="/tx/${FIRST}"]`).count() === 0, `and shows nothing of the first unwrap: not its amount, not its link (${after.replace(/\s+/g, ' ').slice(0, 110)})`);
+    // another account that holds none sees no card (and nothing of this one's result)
+    await pg.evaluate((b) => window.__switch(b), B);
+    ok(await soon(async () => (await card.count()) === 0), 'another account, holding no wrapped USDC, sees no card');
+    await pg.evaluate((a) => window.__switch(a), A);
+    await pg.waitForTimeout(600);
+    ok(await card.count() === 0, 'and back on the first account (which holds none now) the earlier result is not shown again');
     ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }
@@ -853,7 +972,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     }
     // a very long dev-buy amount at 320 px: every button stays inside the review box and its words inside it
     await pg.reload();
-    await fill('1234567.123456789012345678');
+    await fill('123456789.123456789012345678');
     await pg.setViewportSize({ width: 320, height: 740 });
     await pg.waitForTimeout(200);
     const long = await pg.evaluate(() => {
@@ -866,7 +985,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       }
       return { out, label: document.querySelector('[role=dialog] .create-launch').textContent, sideways: document.documentElement.scrollWidth - window.innerWidth };
     });
-    ok(/1,234,567\.123456789012345678 USDC dev buy/.test(long.label) && long.out.length === 0 && long.sideways <= 1, `at 320 px with an 18-decimal dev buy the buttons stay inside the review box (${long.label})` + (long.out.length ? ': ' + long.out.join(' | ') : ''));
+    ok(/123,456,789\.123456789012345678 USDC dev buy/.test(long.label) && long.out.length === 0 && long.sideways <= 1, `at 320 px with an 18-decimal dev buy the buttons stay inside the review box (${long.label})` + (long.out.length ? ': ' + long.out.join(' | ') : ''));
     await dlg.locator('button:has-text("Back to details")').click();
     await pg.setViewportSize({ width: 1440, height: 900 });
     await pg.reload();
