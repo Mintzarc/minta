@@ -302,7 +302,8 @@ test('the pages say the tax is paid out as wrapped USDC, show the wallet’s wra
   assert.match(lib, /wrappedAddress = \(\): Address => getAddresses\(NETWORK\.vyre\.id\)\.wusdc;/);
   const card = read('src/components/Wrapped.tsx');
   assert.match(card, /if \(!held\) \{\n\s*return last \? \(/, 'for a wallet with none: nothing, or the result of the unwrap just made from here');
-  assert.match(card, /<p className="status ok" role="status">\{last\.text\} This wallet holds no wrapped USDC now\. <a href=\{txUrl\(last\.hash\)\}/);
+  assert.match(card, /<p className="status ok" role="status">\{last\.text\} This wallet holds no wrapped USDC now\.\{last\.hash && <> <a href=\{txUrl\(last\.hash\)\}/);
+  assert.match(card, /onDone=\{\(\) => \{ setLast\(\(l\) => l \?\? \{ text: 'Your unwrap went through\.', hash: '' \}\); read\(\); onDone\?\.\(\); \}\}/, 'a result confirmed later by Check it keeps a line too');
   assert.match(card, /label=\{`Unwrap \$\{exact\(held\)\} WUSDC to USDC`\}/);
   assert.match(card, /const now = await wrappedBalance\(account\);\n\s*if \(now !== held\) \{ setHeld\(now\); throw new Error\(/, 'a balance that moved since it was read stops the send');
   assert.match(card, /const r = await unwrap\(w, vyre, held\);/);
@@ -517,7 +518,8 @@ test('where the pages load no file from another site, "Your own file" is not off
 
 test('the withdrawals card: the timer reads as far back as the list shows, and a claimed row is marked at once', () => {
   const wallet = read('src/pages/Wallet.tsx');
-  assert.match(wallet, /const t = setInterval\(load, 60_000\); return \(\) => clearInterval\(t\); \}, \[waiting, account, back\]\);/);
+  assert.match(wallet, /const t = setInterval\(\(\) => \{ if \(loading\.current === 0\) load\(\); \}, 60_000\); return \(\) => clearInterval\(t\); \}, \[waiting, account, back\]\);/, 'no new load from the timer while one is on its way');
+  assert.match(wallet, /const no = \+\+loadNo\.current;\n\s*const back = backNow\.current;/, 'a load looks as far back as the list does now, whichever render it was called from');
   assert.match(wallet, /onDone=\{\(\) => \{ setRows\(\(rs\) => rs && rs\.map\(\(r\) => \(keyOf\(r\) === keyOf\(w\) \? \{ \.\.\.r, state: 'claimed' as const \} : r\)\)\); load\(\); onDone\(\); \}\}/);
 });
 
@@ -567,7 +569,7 @@ test('each withdrawal is settled from its own read: a read that failed leaves th
 
 test('look-alikes with a mark hung on the end, or a bar at either end, are caught', () => {
   const note = (symbol, name = 'x') => lookalikeNote({ symbol, name, token: OTHER }, REAL, null);
-  for (const s of ['USDC|', '|USDC', '|USDC|', 'USDC™', 'USDC®', 'USDC©', 'USDC²', 'USDC℠', 'ՍSDC™']) assert.equal(note(s), 'Not USDC', s);
+  for (const s of ['USDC|', '|USDC', '|USDC|', 'USDC™', 'USDC®', 'USDC©', 'USDC²', 'USDC℠', 'ՍSDC™', 'USDC｜', 'ＵＳＤＣ｜', '｜USDC', 'USDCʰ']) assert.equal(note(s), 'Not USDC', s);
   for (const s of ['MINTA™', 'MINTA|', '|MINTA', 'MINTA®']) { assert.equal(note(s), 'Not MINTA’s token', s); assert.equal(note('X', s), 'Not MINTA’s token', `as a name: ${s}`); }
   for (const s of ['VYRE™', 'VYRE|', 'VYRE®']) assert.equal(note(s), 'Not VYRE’s token', s);
   for (const s of ['USDCAT', 'MINT', 'VYRE2', 'MINTA2', 'xUSDC', 'TM', '|', '™']) assert.equal(note(s), '', s);

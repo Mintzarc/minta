@@ -178,7 +178,8 @@ export function plainLook(s: string): string {
 }
 
 /** A name or ticker without the marks that can be hung on a word: trade-mark and other symbols, superscripts and the like, and upright bars at either end */
-const unmarked = (s: string) => s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').replace(HIDDEN, '').trim().replace(/^[|ǀ∣¦]+|[|ǀ∣¦]+$/gu, '');
+// (the marks go first, or NFKC would spell them out, "™" as "TM"; then NFKC, so a full-width bar is a bar by the time bars are taken off)
+const unmarked = (s: string) => s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').trim().replace(/^\p{Lm}+|\p{Lm}+$/gu, '').normalize('NFKC').replace(HIDDEN, '').trim().replace(/^[|ǀ∣¦\p{Lm}]+|[|ǀ∣¦\p{Lm}]+$/gu, '');
 
 /** The words of a name or ticker (split at anything that is not a letter, digit or accent), each reduced as plainLook reduces it */
 export function plainWords(s: string): string[] {

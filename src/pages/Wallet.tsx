@@ -611,10 +611,17 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
   const keyOf = (w: Row) => `${w.hash}-${w.position}`;
   // every load has a number: only the newest one's answers are used (a slower, older one, for a shorter look back, never replaces them)
   const loadNo = useRef(0);
+  // how far back the list looks NOW, whichever render's load is running (a button's onDone calls the load of the render it was pressed in)
+  const backNow = useRef(back);
+  backNow.current = back;
+  // how many loads are on their way: the minute's timer starts none while one is (a read slower than a minute would otherwise never land)
+  const loading = useRef(0);
   const load = async () => {
     const mine = account;
     const no = ++loadNo.current;
+    const back = backNow.current;
     const live = () => cardFor.current === mine && loadNo.current === no;
+    loading.current++;
     try {
       // the ones this wallet started (anyone can start one paying to any address): filtered as the SDK pages back, so
       // others' can't crowd these out
@@ -641,13 +648,13 @@ function CashOut({ account, provider, isEmail, onDone }: { account: Address; pro
       if (spent.some((x) => x === null)) setReadErr(true);
       // every one not paid out yet is listed, before the paid-out ones
       setRows((before) => listWithdrawals(settleWithdrawals(list, spent, confirmed, before, keyOf)));
-    } catch { if (live()) { setReadErr(true); setRows((r) => r ?? []); } }
+    } catch { if (live()) { setReadErr(true); setRows((r) => r ?? []); } } finally { loading.current--; }
   };
   useEffect(() => { setRows(null); setReadErr(false); load(); }, [account, back]);
   // check again every minute while one is waiting
   const waiting = !!rows?.some((w) => w.state === 'waiting');
   // (`back` too: the load this timer calls must be the one that looks as far back as the list now shows)
-  useEffect(() => { if (!waiting) return; const t = setInterval(load, 60_000); return () => clearInterval(t); }, [waiting, account, back]);
+  useEffect(() => { if (!waiting) return; const t = setInterval(() => { if (loading.current === 0) load(); }, 60_000); return () => clearInterval(t); }, [waiting, account, back]);
 
   return (
     <div className="card">

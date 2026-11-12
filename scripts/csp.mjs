@@ -21,8 +21,28 @@ export function apiOrigin(configured) {
   if (configured === undefined || configured === null || configured === '') return DEFAULT_API;
   let u;
   try { u = new URL(String(configured)); } catch { throw new Error(`VITE_API_URL is not an address: ${JSON.stringify(configured)}`); }
-  if (u.protocol !== 'https:' || !u.hostname || u.username || u.password) throw new Error(`VITE_API_URL must be an https address (a mainnet build's content policy names its host): ${JSON.stringify(configured)}`);
+  // a plain host name only: nothing that would mean something else inside a policy (a wildcard, a quote, a space, a semicolon)
+  if (u.protocol !== 'https:' || u.username || u.password || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(u.hostname) || !/^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/.test(u.origin)) {
+    throw new Error(`VITE_API_URL must be an https address with a plain host name (a mainnet build's content policy names its host): ${JSON.stringify(configured)}`);
+  }
   return u.origin;
+}
+
+/**
+ * Stops a mainnet build whose app API is not the one the mainnet host's header (vercel.json) names. On that host a browser holds
+ * the page to the header AND to the build's own tag, so a build for another API would be cut off from it there: pictures, launch
+ * files and the check before signing would all be refused. To build for another API, add its origin to the mainnet-host rule in
+ * vercel.json (connect-src and img-src) in the same change, or serve the build from another host.
+ */
+export function checkHeaderNames(api, vercelJsonText) {
+  if (api === DEFAULT_API) return;
+  let rules;
+  try { rules = JSON.parse(vercelJsonText).headers ?? []; } catch { throw new Error('vercel.json could not be read to check the mainnet host’s content policy against VITE_API_URL'); }
+  const header = rules.filter((r) => Array.isArray(r.has) && r.has.some((c) => c.type === 'host')).flatMap((r) => r.headers ?? []).find((h) => h.key === 'Content-Security-Policy')?.value ?? '';
+  const names = (directive) => (header.split(';').map((x) => x.trim()).find((x) => x.startsWith(`${directive} `)) ?? '').split(/\s+/).includes(api);
+  if (!names('connect-src') || !names('img-src')) {
+    throw new Error(`VITE_API_URL is ${api}, but the content policy vercel.json sends on ${MAINNET_HOST} does not name it (connect-src and img-src): a build served there would be cut off from its own API. Add it to that rule in vercel.json, or leave VITE_API_URL unset.`);
+  }
 }
 
 const connect = (api) => [

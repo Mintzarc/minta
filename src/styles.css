@@ -533,8 +533,9 @@ td.sell { color: var(--sell); font-weight: 700; }
   .stats-card { grid-template-columns: minmax(0, 1fr); }
   .two { grid-template-columns: minmax(0, 1fr); }
   .page-head .btn { width: 100%; }
-  /* each button as wide as its longest word at least: three that do not fit side by side take a line each, and no word is broken */
-  .dialog-actions .btn { flex: 1 1 auto; min-width: min-content; }
+  /* buttons that do not fit side by side take a line each (the row wraps before anything shrinks), so no word is broken; one that is
+     wider than the row by itself (a very long amount) shrinks to the row and wraps there, never past the box */
+  .dialog-actions .btn { flex: 1 1 auto; min-width: 0; }
   .review-list div { display: grid; gap: 2px; }
   .review-list dd { text-align: left; }
 }

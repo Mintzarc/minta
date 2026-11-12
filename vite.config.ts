@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { apiOrigin, withMainnetPolicy } from './scripts/csp.mjs';
+import { readFileSync } from 'node:fs';
+import { apiOrigin, checkHeaderNames, withMainnetPolicy } from './scripts/csp.mjs';
 
 const shim = (name: string) => fileURLToPath(new URL(`./src/lib/shims/${name}.ts`, import.meta.url));
 
@@ -20,7 +21,13 @@ let apiFor: string | undefined;
 const forMainnet = () => builtFor === 'mainnet' || builtFor === undefined || builtFor === '';
 const mainnetPolicyInHtml: Plugin = {
   name: 'mainnet-policy-in-html', apply: 'build',
-  configResolved(config) { builtFor = config.env.VITE_NETWORK; if (forMainnet()) apiFor = apiOrigin(config.env.VITE_API_URL); },
+  configResolved(config) {
+    builtFor = config.env.VITE_NETWORK;
+    if (!forMainnet()) return;
+    apiFor = apiOrigin(config.env.VITE_API_URL);
+    // (the header vercel.json sends on the mainnet site's host must name the same API, or the build would be cut off from it there)
+    checkHeaderNames(apiFor, readFileSync(new URL('./vercel.json', import.meta.url), 'utf8'));
+  },
   transformIndexHtml: { order: 'pre', handler: (html) => (forMainnet() ? withMainnetPolicy(html, apiFor) : html) },
 };
 const siteUrlInHtml: Plugin = { name: 'site-url-in-html', transformIndexHtml: (html) => html.replaceAll('__SITE_URL__', siteUrl) };

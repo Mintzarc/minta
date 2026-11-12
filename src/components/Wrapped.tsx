@@ -29,7 +29,7 @@ export function WrappedUsdc({ account, again = 0, onDone }: { account: Address; 
     return last ? (
       <div className="card wrapped-usdc wrapped-done">
         <h2 className="h3">Wrapped USDC</h2>
-        <p className="status ok" role="status">{last.text} This wallet holds no wrapped USDC now. <a href={txUrl(last.hash)} target="_blank" rel="noopener noreferrer">See it on the explorer</a></p>
+        <p className="status ok" role="status">{last.text} This wallet holds no wrapped USDC now.{last.hash && <> <a href={txUrl(last.hash)} target="_blank" rel="noopener noreferrer">See it on the explorer</a></>}</p>
       </div>
     ) : null;
   }
@@ -40,7 +40,8 @@ export function WrappedUsdc({ account, again = 0, onDone }: { account: Address; 
       {email && <p className="small muted wrapped-email">An email wallet can’t send transactions on VYRE yet, so it can’t unwrap here.</p>}
       {!email && (
         <TxButton className="btn btn-line" label={`Unwrap ${exact(held)} WUSDC to USDC`} keepAs={`unwrap:${account.toLowerCase()}`}
-          onDone={() => { read(); onDone?.(); }}
+          // (a result confirmed later, by "Check it", has no words of its own kept yet: a plain line is kept for it)
+          onDone={() => { setLast((l) => l ?? { text: 'Your unwrap went through.', hash: '' }); read(); onDone?.(); }}
           run={async (say) => {
             const w = await onVyre();
             // the amount on the button is the amount sent: if the balance has moved since it was read, nothing is sent
