@@ -295,7 +295,12 @@ const stillHeld = (h: Held | null): Status => (h
  * shown up on VYRE, and the button stays Check it until it has (a read that fails, or no `arrived`, is no answer: it stays too).
  */
 /** The named actions (a button's `keepAs`) with a run still open: pressed, and not yet answered, confirmed or failed */
-const OPEN_RUNS = new Set<string>();
+const OPEN_RUNS = new Map<string, number>(); // name -> when the run started
+/** How a named action's last run closed, when its own button was not there to show it (drawn for another account by then, or taken
+ *  off the page): shown by the buttons drawn for that action from then on, until that action's next run starts */
+const CLOSED_UNSEEN = new Map<string, Status>();
+/** After this long with an earlier run still open, the button adds what to do if the wallet shows no request at all */
+const LONG_OPEN_MS = 3 * 60_000;
 /** Told the name of each named action whose run has just ended */
 const RUN_ENDED = new Set<(keepAs: string) => void>();
 /** What a button says when it is drawn for an action whose earlier run is still open (true at every stage of a run: the wallet's prompt, the wait for the chain, a check) */
@@ -306,14 +311,29 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   className?: string; onDone?: () => void; keepAs?: string; finalTo?: string; arrived?: (d: DepositWait) => Promise<boolean>;
 }) {
   const [held, keepHeld] = useState<Held | null>(() => readHeld(keepAs));
-  const [st, putSt] = useState<Status>(() => (keepAs && OPEN_RUNS.has(keepAs) ? STILL_WORKING : stillHeld(held)));
+  // what a button drawn for an action shows at first: its run is still open; or that run's closing words, not shown yet; or what is held
+  const firstFor = (name: string | undefined, h: Held | null): Status => {
+    if (name && OPEN_RUNS.has(name)) return STILL_WORKING;
+    const closed = name ? CLOSED_UNSEEN.get(name) : undefined;
+    // (kept until that action's next run starts: a button can be drawn for an action for a moment and taken away again, as when the
+    // account changes, and the words must still be there for the one that stays)
+    if (closed) return closed;
+    return stillHeld(h);
+  };
+  const [st, putSt] = useState<Status>(() => firstFor(keepAs, held));
   // A run belongs to the action (`keepAs`: the account, say) it was pressed for. If the button has become another action's since
   // (the account changed while it ran), the run's result is kept only in storage under its own name: it is never shown, held
   // or reported as done under the other action.
   const nowAs = useRef(keepAs);
   nowAs.current = keepAs;
   const mine = () => nowAs.current === keepAs;
-  const setSt = (s: Status) => { if (mine()) putSt(s); };
+  // (a closing status this button can't show, because it is another action's by now, is kept for the next button drawn for its own)
+  const shows = useRef(true);
+  useEffect(() => { shows.current = true; return () => { shows.current = false; }; }, []);
+  const setSt = (s: Status) => {
+    if (mine() && shows.current) { putSt(s); return; }
+    if (keepAs && s.kind !== 'busy') { if (s.kind === 'idle') CLOSED_UNSEEN.delete(keepAs); else CLOSED_UNSEEN.set(keepAs, s); }
+  };
   const setHeld = (h: Held | null) => { writeHeld(keepAs, h); if (mine()) keepHeld(h); };
   // another action under the same button (another account, say): what it holds, if anything
   const keptAs = useRef(keepAs);
@@ -323,37 +343,55 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     const h = readHeld(keepAs);
     keepHeld(h);
     // (back on an action whose run is still open in the wallet, after a change away and back: it says so, and does not look ready)
-    putSt(runs().has(keepAs ?? '') ? STILL_WORKING : stillHeld(h));
+    putSt(firstFor(keepAs, h));
   }, [keepAs]);
   // one run at a time, even if a second click lands before the button shows it's busy
   // (per action: another account's run, still open, does not make this account's press do nothing. A named action's runs are
   // kept outside this button, so a button drawn anew for the same action, after an account change away and back, still sees its
   // open run; a button with no name keeps its own.)
-  const own = useRef(new Set<string>());
+  const own = useRef(new Map<string, number>());
   const runs = () => (keepAs ? OPEN_RUNS : own.current);
-  const running = { get current() { return runs(); } };
   const me = keepAs ?? '';
-  // the run this very button started (its own closures show its result); another button drawn for the same action hears when it ends
-  const started = useRef(false);
+  // The runs this very button started, by action (its own closures show their results): one for each account that pressed it and
+  // has not been answered yet. Another button drawn for the same action hears when a run ends.
+  const started = useRef(new Set<string>());
   useEffect(() => {
     if (!keepAs) return;
     const ended = (k: string) => {
-      if (k !== keepAs || started.current) return;
+      // (not this action's; or this button started it and has shown, or kept, its result itself)
+      if (k !== keepAs || started.current.has(k)) return;
       const h = readHeld(keepAs);
       keepHeld(h);
-      putSt(stillHeld(h));
+      putSt(firstFor(keepAs, h));
     };
     RUN_ENDED.add(ended);
     return () => { RUN_ENDED.delete(ended); };
   }, [keepAs]);
-  // (told while this button still counts as the one that started it, so its own result is not written over)
-  const ending = () => { runs().delete(me); if (keepAs) for (const f of [...RUN_ENDED]) f(keepAs); started.current = false; };
+  /** A run of this action starts: it is open from now, and nothing of its earlier run's closing is kept */
+  const starting = (): boolean => {
+    if (runs().has(me)) return false;
+    runs().set(me, Date.now());
+    started.current.add(me);
+    if (keepAs) CLOSED_UNSEEN.delete(keepAs);
+    return true;
+  };
+  // (the listeners are told while this button still counts as the one that started the run, so its own result is not written over;
+  // only this run's own mark is taken away: another account's run, open on this same button, keeps its own)
+  const ending = () => { runs().delete(me); if (keepAs) for (const f of [...RUN_ENDED]) f(keepAs); started.current.delete(me); };
   const go = async () => {
-    if (running.current.has(me)) return;
-    running.current.add(me);
-    started.current = true;
+    if (!starting()) return;
     try { await (held ? check(held) : attempt()); } finally { ending(); }
   };
+  // an earlier run that has been open for minutes: the button also says what to do if the wallet shows no request (it frees nothing by itself)
+  const stillWorking = st === STILL_WORKING;
+  const [longOpen, setLongOpen] = useState(false);
+  useEffect(() => {
+    setLongOpen(false);
+    if (!stillWorking) return;
+    const since = runs().get(me) ?? Date.now();
+    const t = setTimeout(() => setLongOpen(true), Math.max(0, since + LONG_OPEN_MS - Date.now()));
+    return () => clearTimeout(t);
+  }, [stillWorking, keepAs]);
   const done = () => { if (!mine()) return; try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
   const check = async (h: Held) => {
     const at = { hash: h.hash, chainId: h.chainId };
@@ -404,9 +442,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   };
   // "start over" reads the chain once more first: only if it still has no such transaction is the button armed again
   const startOver = async (h: Held) => {
-    if (running.current.has(me)) return;
-    running.current.add(me);
-    started.current = true;
+    if (!starting()) return;
     setSt({ kind: 'busy', text: 'Checking…', hash: h.hash, chainId: h.chainId });
     try {
       try {
@@ -463,6 +499,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   return (
     <div className="tx">
       <button className={className} type="button" onClick={go} disabled={(!held && disabled) || st.kind === 'busy'}>{st.kind === 'busy' ? 'Working…' : held ? 'Check it' : label}</button>
+      {stillWorking && longOpen && <p className="small muted still-open">If your wallet shows no request, reload this page.</p>}
       {st.kind !== 'idle' && (
         <p className={`status ${st.kind}`} role="status" aria-live="polite">
           {st.text}{' '}

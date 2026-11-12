@@ -182,10 +182,23 @@ export function plainLook(s: string): string {
 // (accents and strokes drawn over a letter or a bar go before the bars do, or a struck-through bar would stay)
 // (upright bars, and letters of other scripts drawn as one: Tifinagh, runic, Latin epigraphic, N'Ko, Hebrew vav, Arabic alef)
 const BARS = '|ǀǁǃ∣¦ⵏᛁꟾߊוا';
-const unmarked = (s: string) => s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').trim().replace(/^\p{Lm}+|\p{Lm}+$/gu, '').normalize('NFKC').replace(HIDDEN, '')
-  .normalize('NFD').replace(/\p{M}/gu, '').trim().replace(new RegExp(`^[${BARS}\\p{Lm}]+|[${BARS}\\p{Lm}]+$`, 'gu'), '')
-  // (and a lower-case L at the very end, which draws as a bar after capitals: "USDCl")
-  .replace(/(?<=[^a-z])l+$/u, '');
+const unmarked = (s: string) => ends(s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').trim().replace(/^\p{Lm}+|\p{Lm}+$/gu, '').normalize('NFKC').replace(HIDDEN, '')
+  .normalize('NFD').replace(/\p{M}/gu, '').trim());
+
+// Taken off both ends, again and again until nothing more comes off: bars and bar-shaped letters; then letters that draw as a bar
+// beside capitals: a lower-case L at the end ("USDCl"), and a capital I (Latin, Greek, Cyrillic, the dotless and the palochka)
+// at either end of a word of capitals ("USDCI", "IUSDC").
+const BAR_ENDS = new RegExp(`^[${BARS}\\p{Lm}]+|[${BARS}\\p{Lm}]+$`, 'gu');
+const I_AT_END = new RegExp(`(?<=[\\p{Lu}${BARS}])[IӏӀΙıІ]+$`, 'u');
+const I_AT_START = new RegExp(`^[IӏӀΙıІ]+(?=[\\p{Lu}${BARS}])`, 'u');
+function ends(s: string): string {
+  for (let i = 0; i < 8; i++) {
+    const t = s.replace(BAR_ENDS, '').replace(/(?<=[^a-z])l+$/u, '').replace(I_AT_END, '').replace(I_AT_START, '');
+    if (t === s) break;
+    s = t;
+  }
+  return s;
+}
 
 /** The words of a name or ticker (split at anything that is not a letter, digit or accent), each reduced as plainLook reduces it */
 export function plainWords(s: string): string[] {

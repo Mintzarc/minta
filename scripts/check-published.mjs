@@ -69,10 +69,17 @@ export async function checkSiteHeader({ fetch = globalThis.fetch, read = readFil
 const LISTS = new Set(['connect-src', 'img-src', 'frame-src']);
 /** True when two policies have the same directives in the same order, each with the same value except the three host lists, which each must be there and name something */
 function sameButLists(a, b) {
-  const parts = (p) => p.split(';').map((x) => x.trim()).filter(Boolean).map((x) => [x.split(/\s+/)[0], x]);
+  const parts = (p) => p.split(';').map((x) => x.trim()).filter(Boolean).map((x) => x.split(/\s+/));
   const x = parts(a), y = parts(b);
   if (x.length !== y.length) return false;
-  return x.every(([name, whole], i) => name === y[i][0] && (LISTS.has(name) ? whole.split(/\s+/).length > 1 && !/\s(?:https:|\*|data:\s*$)(?:\s|$)/.test(` ${whole.replace(/^img-src /, '')} `.replace(' data: ', ' ')) : whole === y[i][1]));
+  return x.every((words, i) => {
+    const [name, ...values] = words;
+    // the same directives, by name, in the same order
+    if (name !== y[i][0]) return false;
+    if (!LISTS.has(name)) return words.join(' ') === y[i].join(' ');
+    // a list names something, and only things a narrow list may name: 'self', data: (pictures only), or one whole https or wss origin
+    return values.length > 0 && values.every((v) => v === "'self'" || (v === 'data:' && name === 'img-src') || /^(?:https|wss):\/\/[a-z0-9]([a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?$/.test(v));
+  });
 }
 
 /**

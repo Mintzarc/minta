@@ -77,6 +77,23 @@ test('the header check tells the narrow policy from the wide one still being sen
   for (const bad of [h.replace('https://api.vyrechain.com https://explorer', 'https: https://explorer'), h.replace('https://rpc.mainnet.arc.io', '*'), h.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"), h.replace("; object-src 'none'", ''), h.replace('frame-src https://verify.walletconnect.org', 'frame-src'), h.replace("img-src 'self' data: https://api.vyrechain.com", "img-src 'self' https: data:")]) {
     assert.equal((await checkSiteHeader({ fetch: answer(200, bad) })).state, 'wrong', bad.slice(60, 150));
   }
+  // in the three lists only 'self', data: (pictures only) and whole https or wss origins count as a narrow policy's own
+  for (const bad of [
+    h.replace('https://rpc.mainnet.arc.io', 'https://*.arc.io'), h.replace('https://rpc.mainnet.arc.io', 'http://rpc.mainnet.arc.io'), h.replace('https://rpc.mainnet.arc.io', 'rpc.mainnet.arc.io'),
+    h.replace('https://rpc.mainnet.arc.io', "'unsafe-inline'"), h.replace('https://rpc.mainnet.arc.io', 'blob:'), h.replace('https://rpc.mainnet.arc.io', 'wss:'), h.replace('https://rpc.mainnet.arc.io', 'https://rpc.mainnet.arc.io/path'),
+    h.replace("connect-src 'self'", "connect-src 'self' data:"), h.replace('frame-src https://verify.walletconnect.org', 'frame-src data:'), h.replace('frame-src https://verify.walletconnect.org', "frame-src 'none' https://x.example"),
+  ]) assert.equal((await checkSiteHeader({ fetch: answer(200, bad) })).state, 'wrong', bad.slice(100, 200));
+  // a list under another directive's name is not that list: the directives are compared by name, in order
+  for (const bad of [h.replace('img-src ', 'media-src ').replace("media-src 'self';", "img-src 'self';"), h.replace('frame-src ', 'child-src '), h.replace('connect-src ', 'frame-src ').replace(/frame-src https:\/\/verify\.walletconnect\.org$/, 'connect-src https://verify.walletconnect.org'), h.replace("; base-uri 'none'", "; base-uri 'self'")]) {
+    assert.equal((await checkSiteHeader({ fetch: answer(200, bad) })).state, 'wrong', bad.slice(0, 120));
+  }
+  // "the wide policy" is the one in the rule for every host but the mainnet site's (the rule with `missing`), nowhere else
+  const moved = JSON.parse(read('vercel.json').toString());
+  const wideRule = moved.headers.find((x) => x.missing);
+  const elsewhere = { ...moved, headers: [{ source: '/(.*)', headers: [{ key: 'Content-Security-Policy', value: "default-src 'none'" }] }, ...moved.headers.filter((x) => x !== wideRule), { source: '/other', headers: wideRule.headers }] };
+  const readMoved = (f) => (f === 'vercel.json' ? Buffer.from(JSON.stringify(elsewhere)) : read(f));
+  assert.equal((await checkSiteHeader({ fetch: answer(200, wide), read: readMoved })).state, 'wrong', 'the wide policy no longer in a rule with `missing`: not taken for "not live yet"');
+  assert.equal((await checkSiteHeader({ fetch: answer(200, "default-src 'none'"), read: readMoved })).state, 'wrong', 'nor is some other rule’s policy');
   // what the command does with each answer, before a deploy and (--live) after one
   const states = { narrow: { state: 'narrow' }, notLive: { state: 'not-live', message: 'M' }, unread: { state: 'unread', message: 'M' }, wrong: { state: 'wrong', message: 'M' } };
   for (const live of [false, true]) assert.deepEqual(Object.keys(decideSite(states.narrow, live)), ['ok'], 'the narrow policy passes either way');

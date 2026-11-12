@@ -265,7 +265,8 @@ bdi { unicode-bidi: isolate; }
 .quote { margin: 14px 0; padding: 12px 14px; border-radius: 10px; background: #07111a; border: 1px solid var(--line); display: grid; gap: 6px; }
 .slip { color: var(--muted); }
 .note { margin: 10px 0 14px; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(38,240,242,0.4); background: var(--accent-faint); }
-.tx .btn { width: 100%; }
+/* (the words of a transaction button wrap inside it: an amount can be 18 decimals long) */
+.tx .btn { width: 100%; white-space: normal; height: auto; min-height: 46px; padding-block: 8px; max-width: 100%; text-align: center; overflow-wrap: anywhere; line-height: 1.25; }
 .status { margin-top: 10px; font-size: 14px; overflow-wrap: anywhere; }
 .status.ok { color: var(--good); }
 .status.err { color: var(--bad); }

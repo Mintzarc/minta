@@ -205,7 +205,8 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
           window.__sends++; window.__asked.push(params && params[0]);
           if (window.__answer.hash) return window.__answer.hash;
           // held: the wallet has the request open until the test answers it (window.__release(hash))
-          if (window.__answer.hold) return new Promise((r) => { window.__release = r; });
+          // (every request held open is kept, oldest first, in window.__holds: each can be answered with ok(hash) or fail({ code, message }))
+          if (window.__answer.hold) return new Promise((r, j) => { window.__release = r; (window.__holds ||= []).push({ ok: r, fail: (e) => j(Object.assign(new Error(e.message), { code: e.code })) }); });
           throw Object.assign(new Error(window.__answer.message), { code: window.__answer.code });
         }
         return null;
@@ -551,6 +552,37 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     const HASH3 = '0x' + 'ab'.repeat(32);
     probe.mined.add(HASH3);
     await pg.evaluate((h) => window.__release(h), HASH3);
+    ok(await soon(async () => /Unwrapped 1 WUSDC to USDC\./.test(await card.innerText().catch(() => ''))), 'and the redrawn button shows how that request closed: ' + (await card.locator('.status').innerText().catch(() => 'no status')).slice(0, 60));
+    // the same when the request closes badly while the card is another account's: back on A, A's button says what the wallet answered
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; window.__holds = []; });
+    await card.locator('button').click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1), 'A’s next unwrap is open in the wallet');
+    await pg.evaluate((b) => window.__switch(b), B);
+    await soon(async () => /Unwrap 2 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => '')));
+    await pg.evaluate(() => window.__holds[0].fail({ code: -32603, message: 'Request timed out' }));
+    await pg.waitForTimeout(600);
+    ok(!/didn’t confirm|timed out/i.test(await card.innerText()), 'A’s answer is not shown under B');
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /Your wallet didn’t confirm this\. It said: “Request timed out”\. It may still have gone out/.test(await card.innerText().catch(() => ''))), 'back on A, the redrawn button says what the wallet answered (it may still have gone out): ' + (await card.locator('.status').innerText().catch(() => 'no status')).slice(0, 70));
+    // One button, two accounts, both with a request open (Move to Arc): the first account's ends first; the second's own answer stays on its button
+    for (const [answer, words] of [[{ code: 4001, message: 'User rejected the request.' }, /Cancelled in your wallet/], [{ code: -32603, message: 'Request timed out' }, /didn’t confirm this\. It said: “Request timed out”\. It may still have gone out/]]) {
+      await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; window.__holds = []; });
+      await moveCard.locator('input').fill('1');
+      await moveCard.locator('.tx > button').click();
+      await soon(async () => (await pg.evaluate(() => window.__sends)) === 1);
+      await pg.evaluate((b) => window.__switch(b), B);
+      await soon(async () => /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText()));
+      await moveCard.locator('.tx > button').click();
+      ok(await soon(async () => (await pg.evaluate(() => window.__holds.length)) === 2), 'A and then B each have a request open from the same button');
+      await pg.evaluate(() => window.__holds[0].fail({ code: 4001, message: 'User rejected the request.' })); // A's ends first
+      await pg.waitForTimeout(500);
+      await pg.evaluate((e) => window.__holds[1].fail(e), answer);
+      ok(await soon(async () => words.test(await moveCard.locator('.status').innerText().catch(() => ''))), `B’s own answer is shown on B’s button (${answer.code})`);
+      await pg.waitForTimeout(900);
+      ok(words.test(await moveCard.locator('.status').innerText().catch(() => '')), `and stays there (${(await moveCard.locator('.status').innerText().catch(() => 'no status')).slice(0, 60)})`);
+      await pg.evaluate((a) => window.__switch(a), A);
+      await soon(async () => /Cancelled in your wallet/.test(await moveCard.locator('.status').innerText().catch(() => '')));
+    }
     ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => '')) && await card.locator('button').isEnabled()), 'when that request ends, the button is ready again');
     // a phone: the unwrap button's words fit, and the page does not scroll sideways
     probe.wrappedOf[A] = 12345678901234567890n; // 12.34567890123456789
@@ -564,6 +596,19 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
         return { inside: t.left >= r.left - 0.5 && t.right <= r.right + 0.5 && r.right <= window.innerWidth + 0.5, sideways: document.documentElement.scrollWidth - window.innerWidth, at: `button ${Math.round(r.left)}..${Math.round(r.right)}, words ${Math.round(t.left)}..${Math.round(t.right)}` };
       });
       ok(fit.inside && fit.sideways <= 1, `at ${width} px the unwrap button’s words stay inside it and the page does not scroll sideways (${fit.at}, ${fit.sideways} px over)`);
+      // every transaction button of the Wallet page, with a long amount typed into each amount box
+      for (const box of await pg.locator('.card input[inputmode=decimal]').all()) await box.fill('123456789.123456789012345678').catch(() => {});
+      await pg.waitForTimeout(300);
+      const all = await pg.evaluate(() => {
+        const out = [];
+        for (const b of document.querySelectorAll('.tx > button')) {
+          const r = b.getBoundingClientRect(); if (!r.width) continue;
+          const range = document.createRange(); range.selectNodeContents(b); const t = range.getBoundingClientRect();
+          if (t.left < r.left - 0.5 || t.right > r.right + 0.5 || r.right > window.innerWidth + 0.5 || r.left < -0.5) out.push(`${(b.textContent || '').slice(0, 36)}: button ${Math.round(r.left)}..${Math.round(r.right)}, words ${Math.round(t.left)}..${Math.round(t.right)}`);
+        }
+        return { out, n: document.querySelectorAll('.tx > button').length, long: [...document.querySelectorAll('.tx > button')].filter((b) => /123,456,789\.123456789012345678/.test(b.textContent || '')).length, sideways: document.documentElement.scrollWidth - window.innerWidth };
+      });
+      ok(all.n >= 3 && all.long >= 1 && all.out.length === 0 && all.sideways <= 1, `at ${width} px every button of the Wallet page keeps its words inside it, a long amount included (${all.n} buttons, ${all.long} with the long amount)` + (all.out.length ? ': ' + all.out.join(' | ') : ''));
     }
     ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
@@ -801,6 +846,23 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.evaluate((a) => window.__switch(a), A);
     await pg.waitForTimeout(600);
     ok(await card.count() === 0, 'and back on the first account (which holds none now) the earlier result is not shown again');
+    // a request the wallet never answers: back on the account, the button says it is still working; minutes later it adds what to do
+    probe.wrappedOf[A] = 10n ** 18n;
+    await pg.goto('about:blank'); await pg.goto(base + `#/manage/${TOKEN}`);
+    ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))), 'the card again, with 1 WUSDC');
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; });
+    await card.locator('button').click();
+    await soon(async () => (await pg.evaluate(() => window.__sends)) === 1);
+    await pg.evaluate((b) => window.__switch(b), B);
+    await soon(async () => (await card.count()) === 0);
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /Still working on your earlier request/.test(await card.innerText().catch(() => ''))) && await card.locator('.still-open').count() === 0, 'back on the account: still working on the earlier request, and at first nothing more');
+    await pg.clock.fastForward(2 * 60_000);
+    await pg.waitForTimeout(400);
+    ok(await card.locator('.still-open').count() === 0, 'two minutes in: still nothing more');
+    await pg.clock.fastForward(70_000);
+    ok(await soon(async () => /If your wallet shows no request, reload this page\./.test(await card.locator('.still-open').innerText().catch(() => ''))), 'after a few minutes it adds: if the wallet shows no request, reload the page');
+    ok(await card.locator('button').isDisabled() && /Working…/.test(await card.locator('button').innerText()), 'and the button is not freed by itself');
     ok(errs.length === 0, 'nothing throws' + (errs.length ? ': ' + errs.join(' | ') : ''));
     await ctx.close();
   }

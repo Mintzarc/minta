@@ -944,7 +944,9 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
         if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
         const body = JSON.parse(route.request().postData() || 'null');
-        const one = (q) => ({ jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? receipts[String(q.params && q.params[0]).toLowerCase()] ?? null : null });
+        // (a receipt set to 'busy': the node fails that read)
+        const one = (q) => (q.method === 'eth_getTransactionReceipt' && receipts[String(q.params && q.params[0]).toLowerCase()] === 'busy' ? { jsonrpc: '2.0', id: q.id, error: { code: -32000, message: 'server busy' } }
+          : { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? receipts[String(q.params && q.params[0]).toLowerCase()] ?? null : null });
         await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)) }).catch(() => {});
       });
       const counter = (n) => pg.evaluate((k) => window[k] || 0, n);
@@ -1027,6 +1029,12 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       await btnOf('kept').click();
       await settleIn('kept', /isn’t confirmed yet/);
       ok(/Check it/.test(await btnOf('kept').innerText()) && await pg.locator('#kept button:has-text("start over")').count() === 1, 'the send time is remembered across reloads: five minutes after it, a check that finds nothing offers start over');
+      // start over on a button that has a name (its runs are known outside it): what start over found stays on the button
+      receipts[H3] = 'busy';
+      await pg.locator('#kept button:has-text("start over")').click();
+      await settleIn('kept', /nothing was started over/);
+      await pg.waitForTimeout(700);
+      ok(/nothing is known yet and nothing was started over/.test(await statusOf('kept')) && /Check it/.test(await btnOf('kept').innerText()), 'start over on a kept button while the chain can’t be read: its own words stay on the button (' + (await statusOf('kept')).slice(0, 60) + ')');
       receipts[H3] = rcpt(H3, '0x1', TO);
       await btnOf('kept').click();
       await settleIn('kept', /went through/);

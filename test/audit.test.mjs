@@ -363,7 +363,9 @@ test('the withdrawals list shows every one not paid out yet before the paid-out 
 
 test('a button’s run belongs to the action it was pressed for: after the account changes, its result is kept under its own name and shown under no other', () => {
   const ui = read('src/components/ui.tsx');
-  assert.match(ui, /const mine = \(\) => nowAs\.current === keepAs;\n\s*const setSt = \(s: Status\) => \{ if \(mine\(\)\) putSt\(s\); \};\n\s*const setHeld = \(h: Held \| null\) => \{ writeHeld\(keepAs, h\); if \(mine\(\)\) keepHeld\(h\); \};/);
+  assert.match(ui, /const mine = \(\) => nowAs\.current === keepAs;/);
+  assert.match(ui, /if \(mine\(\) && shows\.current\) \{ putSt\(s\); return; \}/, 'a status is drawn only on the button of its own action');
+  assert.match(ui, /const setHeld = \(h: Held \| null\) => \{ writeHeld\(keepAs, h\); if \(mine\(\)\) keepHeld\(h\); \};/);
   assert.match(ui, /const done = \(\) => \{ if \(!mine\(\)\) return; try \{ onDone\?\.\(\); \}/);
 });
 
@@ -594,6 +596,10 @@ test('look-alikes: a bar before punctuation, bar-shaped letters of other scripts
   }
   assert.equal(note('MINTA|!'), 'Not MINTA’s token');
   assert.equal(note('VYRE|.'), 'Not VYRE’s token');
+  // a capital I (in any of the scripts that have one) at either end of the capitals, taken off again and again with the bars
+  for (const s of ['USDCI', 'IUSDC', 'USDCӏ', 'USDCΙ', 'USDCı', 'USDCІ', 'USDCI|', 'USDC|I', 'IUSDCI', '|IUSDC|I|', 'USDCIl', 'USDCII']) assert.equal(note(s), 'Not USDC', JSON.stringify(s));
+  assert.equal(note('MINTAI'), 'Not MINTA’s token');
+  assert.equal(note('IVYRE'), 'Not VYRE’s token');
   // a slash (or other punctuation) inside a word of a longer name makes no protected word
   for (const s of ['Pay USD/C fast', 'Send US.DC now', 'My MIN-TA token', 'A VY/RE thing']) assert.equal(note('X', s), '', s);
   const honest = ['DOGE', 'PEPE', 'SHIB', 'WIF', 'BONK', 'FLOKI', 'MOG', 'TURBO', 'BRETT', 'POPCAT', 'MEW', 'NEIRO', 'GOAT', 'PNUT', 'FART', 'CHAD', 'GIGA', 'SPX', 'TOSHI', 'DEGEN',
@@ -601,6 +607,8 @@ test('look-alikes: a bar before punctuation, bar-shaped letters of other scripts
     'USDT', 'DAI', 'FRAX', 'TUSD', 'BUSD', 'LUSD', 'GUSD', 'PYUSD', 'USDE', 'USDS', 'EURC', 'EURS', 'XAUT', 'PAXG', 'WETH', 'WBTC', 'STETH', 'RETH', 'CBETH', 'WSTETH',
     'Sol', 'Opal', 'Pearl', 'Coral', 'Royal', 'Final', 'Moonl', 'Girl', 'Owl', 'Cool', 'xUSDC', 'lUSDC', 'aUSDC', 'cUSDC', 'USDCAT', 'USDCx', 'MINT', 'MINTY', 'MINTAX', 'MINTAGE',
     'VYBE', 'VIBE', 'WIRE', 'FYRE', 'LYRE', 'PYRE', 'TYRE', 'VYRES', 'CAT', 'DOG', 'FROG', 'MOON', 'ROCKET', 'LAMBO', 'HODL', 'WAGMI', 'GM', 'GN', 'ALPHA', 'OMEGA'];
+  // (and names with a capital I at an end, or made of bar-like letters, that are honest)
+  for (const s of ['MINI', 'INU', 'AI', 'IOTA', 'ICP', 'IMX', 'SUSHI', 'SHIBI', 'III', 'ILLI', 'I']) assert.equal(note(s), '', s);
   assert.equal(new Set(honest).size, 100);
   for (const s of honest) {
     assert.equal(note(s), '', `ticker ${s}`);
