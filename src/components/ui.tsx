@@ -294,12 +294,19 @@ const stillHeld = (h: Held | null): Status => (h
  * lib/deposit.ts) is checked for what's missing: once its transaction went through, `arrived` reads whether the whole amount has
  * shown up on VYRE, and the button stays Check it until it has (a read that fails, or no `arrived`, is no answer: it stays too).
  */
+/** The named actions (a button's `keepAs`) with a run still open: pressed, and not yet answered, confirmed or failed */
+const OPEN_RUNS = new Set<string>();
+/** Told the name of each named action whose run has just ended */
+const RUN_ENDED = new Set<(keepAs: string) => void>();
+/** What a button says when it is drawn for an action whose earlier run is still open (true at every stage of a run: the wallet's prompt, the wait for the chain, a check) */
+const STILL_WORKING: Status = { kind: 'busy', text: 'Still working on your earlier request…' };
+
 export function TxButton({ label, run, disabled, className = 'btn btn-accent', onDone, keepAs, finalTo, arrived }: {
   label: string; run: (say: (t: string) => void) => Promise<{ hash?: string; text?: string; chainId?: number } | void>; disabled?: boolean;
   className?: string; onDone?: () => void; keepAs?: string; finalTo?: string; arrived?: (d: DepositWait) => Promise<boolean>;
 }) {
   const [held, keepHeld] = useState<Held | null>(() => readHeld(keepAs));
-  const [st, putSt] = useState<Status>(() => stillHeld(held));
+  const [st, putSt] = useState<Status>(() => (keepAs && OPEN_RUNS.has(keepAs) ? STILL_WORKING : stillHeld(held)));
   // A run belongs to the action (`keepAs`: the account, say) it was pressed for. If the button has become another action's since
   // (the account changed while it ran), the run's result is kept only in storage under its own name: it is never shown, held
   // or reported as done under the other action.
@@ -316,16 +323,36 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
     const h = readHeld(keepAs);
     keepHeld(h);
     // (back on an action whose run is still open in the wallet, after a change away and back: it says so, and does not look ready)
-    putSt(running.current.has(keepAs ?? '') ? { kind: 'busy', text: 'Still waiting for your wallet…' } : stillHeld(h));
+    putSt(runs().has(keepAs ?? '') ? STILL_WORKING : stillHeld(h));
   }, [keepAs]);
   // one run at a time, even if a second click lands before the button shows it's busy
-  // (per action: another account's run, still open in the wallet, does not make this account's press do nothing)
-  const running = useRef(new Set<string>());
+  // (per action: another account's run, still open, does not make this account's press do nothing. A named action's runs are
+  // kept outside this button, so a button drawn anew for the same action, after an account change away and back, still sees its
+  // open run; a button with no name keeps its own.)
+  const own = useRef(new Set<string>());
+  const runs = () => (keepAs ? OPEN_RUNS : own.current);
+  const running = { get current() { return runs(); } };
   const me = keepAs ?? '';
+  // the run this very button started (its own closures show its result); another button drawn for the same action hears when it ends
+  const started = useRef(false);
+  useEffect(() => {
+    if (!keepAs) return;
+    const ended = (k: string) => {
+      if (k !== keepAs || started.current) return;
+      const h = readHeld(keepAs);
+      keepHeld(h);
+      putSt(stillHeld(h));
+    };
+    RUN_ENDED.add(ended);
+    return () => { RUN_ENDED.delete(ended); };
+  }, [keepAs]);
+  // (told while this button still counts as the one that started it, so its own result is not written over)
+  const ending = () => { runs().delete(me); if (keepAs) for (const f of [...RUN_ENDED]) f(keepAs); started.current = false; };
   const go = async () => {
     if (running.current.has(me)) return;
     running.current.add(me);
-    try { await (held ? check(held) : attempt()); } finally { running.current.delete(me); }
+    started.current = true;
+    try { await (held ? check(held) : attempt()); } finally { ending(); }
   };
   const done = () => { if (!mine()) return; try { onDone?.(); } catch { /* the transaction went through; a failed refresh after it isn't its failure */ } };
   const check = async (h: Held) => {
@@ -379,6 +406,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
   const startOver = async (h: Held) => {
     if (running.current.has(me)) return;
     running.current.add(me);
+    started.current = true;
     setSt({ kind: 'busy', text: 'Checking…', hash: h.hash, chainId: h.chainId });
     try {
       try {
@@ -392,7 +420,7 @@ export function TxButton({ label, run, disabled, className = 'btn btn-accent', o
       }
       // it is on the chain after all: read as any check would
       await check(h);
-    } finally { running.current.delete(me); }
+    } finally { ending(); }
   };
   const attempt = async () => {
     setSt({ kind: 'busy', text: 'Checking…' });

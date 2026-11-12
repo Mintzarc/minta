@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { checkPublished, checkSiteHeader, docsSdkFile } from '../scripts/check-published.mjs';
+import { checkPublished, checkSiteHeader, decideSite, docsSdkFile } from '../scripts/check-published.mjs';
 import { mainnetHeader } from '../scripts/csp.mjs';
 
 const root = new URL('../', import.meta.url);
@@ -66,6 +66,27 @@ test('the header check tells the narrow policy from the wide one still being sen
   assert.equal((await checkSiteHeader({ fetch: answer(503, mainnetHeader()) })).state, 'unread');
   assert.equal((await checkSiteHeader({ fetch: async () => { throw new TypeError('fetch failed'); } })).state, 'unread');
   // the command: narrow passes; "not live" is a loud note, and a failure with --live; wrong always fails
+  // a full narrow policy whose three host lists differ from this checkout's (an earlier or later version of them): not live yet, not wrong
+  const h = mainnetHeader();
+  for (const other of [h.replace('https://explorer.vyrechain.com ', ''), h.replace('https://api.vyrechain.com https://explorer', 'https://api.vyrechain.com https://mine.example.com https://explorer'), h.replace("img-src 'self' data: https://api.vyrechain.com", "img-src 'self' data: https://api.vyrechain.com https://mine.example.com"), h.replace('frame-src https://verify.walletconnect.org', 'frame-src https://verify.walletconnect.org https://other.example')]) {
+    const r = await checkSiteHeader({ fetch: answer(200, other) });
+    assert.equal(r.state, 'not-live', other.slice(60, 140));
+    assert.match(r.message, /other lists than this checkout’s/);
+  }
+  // but never one that is wider in kind, or differs anywhere else
+  for (const bad of [h.replace('https://api.vyrechain.com https://explorer', 'https: https://explorer'), h.replace('https://rpc.mainnet.arc.io', '*'), h.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"), h.replace("; object-src 'none'", ''), h.replace('frame-src https://verify.walletconnect.org', 'frame-src'), h.replace("img-src 'self' data: https://api.vyrechain.com", "img-src 'self' https: data:")]) {
+    assert.equal((await checkSiteHeader({ fetch: answer(200, bad) })).state, 'wrong', bad.slice(60, 150));
+  }
+  // what the command does with each answer, before a deploy and (--live) after one
+  const states = { narrow: { state: 'narrow' }, notLive: { state: 'not-live', message: 'M' }, unread: { state: 'unread', message: 'M' }, wrong: { state: 'wrong', message: 'M' } };
+  for (const live of [false, true]) assert.deepEqual(Object.keys(decideSite(states.narrow, live)), ['ok'], 'the narrow policy passes either way');
+  assert.deepEqual(decideSite(states.notLive, false), { note: 'NOT CHECKED AS LIVE: M' });
+  assert.deepEqual(decideSite(states.unread, false), { note: 'NOT CHECKED AS LIVE: M' });
+  assert.deepEqual(decideSite(states.wrong, false), { problem: 'M' }, 'no policy, or another one, fails before a deploy too');
+  for (const k of ['notLive', 'unread', 'wrong']) assert.deepEqual(decideSite(states[k], true), { problem: 'M' }, `${k} fails after a deploy`);
   const script = read('scripts/check-published.mjs').toString();
-  assert.match(script, /else if \(site\.state === 'wrong' \|\| live\) problems\.push\(site\.message\);\n\s*else console\.warn\(`NOT CHECKED AS LIVE: \$\{site\.message\}`\);/);
+  assert.match(script, /const live = process\.argv\.includes\('--live'\);\n\s*const site = await checkSiteHeader\(\);\n\s*const what = decideSite\(site, live\);\n\s*if \(what\.ok\) console\.log\(what\.ok\);\n\s*if \(what\.note\) console\.warn\(what\.note\);\n\s*if \(what\.problem\) problems\.push\(what\.problem\);/);
+  // the strict run has its own script, and the hand-off notes name it as the step after every deploy
+  assert.equal(JSON.parse(read('package.json').toString()).scripts['check:live'], 'node scripts/check-published.mjs --live');
+  assert.match(read('docs/HANDOFF.md').toString(), /After every deploy to the mainnet site's host, run `npm run check:live`/);
 });

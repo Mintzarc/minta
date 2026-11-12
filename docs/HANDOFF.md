@@ -5,7 +5,7 @@ network, and what is still unfinished. It holds no keys and no secrets, and none
 
 ## 1. When MINTA gets its own domain
 
-Before any build is published (the first one here, and every later one), run `npm run check:published`: the in-app docs tell
+After every deploy to the mainnet site's host, run `npm run check:live`: it reads the content policy that host really sends and fails unless it is the narrow one of this checkout (`scripts/csp.mjs`, sent by host in `vercel.json`); a host that still sends another policy, or cannot be read, fails there. Before any build is published (the first one here, and every later one), run `npm run check:published`: the in-app docs tell
 builders to install the SDK release vendored in `vendor/` from vyrechain.com (`SDK_FILE` in `src/pages/Docs.tsx`), and the check
 fails while that address doesn't serve the same file. A vendored release can be newer than what vyrechain.com serves yet; publish
 once it is there.

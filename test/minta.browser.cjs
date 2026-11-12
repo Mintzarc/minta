@@ -835,6 +835,7 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
       const receipt = (status) => ({ blockHash: '0x' + '11'.repeat(32), blockNumber: '0x10', contractAddress: null, cumulativeGasUsed: '0x5208', effectiveGasPrice: '0x989680', from: ME, gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256), status, to: TO, transactionHash: HASH, transactionIndex: '0x0', type: '0x2' });
       let answer = null;
       const { pg, ctx, errs } = await harness(reply(200, base0));
+      let letGo = null; // lets a held receipt read go (answer 'hold')
       const asks = [];
       await ctx.route((u) => u.href.startsWith(RPC), async (route) => {
         const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' };
@@ -843,12 +844,9 @@ const ok = (cond, what) => { if (!cond) { failed++; console.error('FAIL', what);
         const one = (q) => { asks.push(q.method); return q.method === 'eth_getTransactionReceipt' && answer === 'busy' ? { jsonrpc: '2.0', id: q.id, error: { code: -32000, message: 'server busy' } } : { jsonrpc: '2.0', id: q.id, result: q.method === 'eth_getTransactionReceipt' ? answer : null }; };
         // (answer 'hold': the receipt read waits until the test lets it go, then answers "no such transaction")
         if (answer === 'hold' && JSON.stringify(body).includes('eth_getTransactionReceipt')) await new Promise((r) => { letGo = r; });
-        const now = answer === 'hold' ? null : answer;
         const one2 = (q) => (answer === 'hold' ? { jsonrpc: '2.0', id: q.id, result: (asks.push(q.method), null) } : one(q));
-        void now;
         await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(Array.isArray(body) ? body.map(one2) : one2(body)) }).catch(() => {});
       });
-      let letGo = null;
       const btn = pg.locator('#unread .tx > button');
       const status = () => pg.locator('#unread .status').innerText().catch(() => '');
       const runs = () => pg.evaluate(() => window.__runs || 0);

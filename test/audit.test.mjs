@@ -585,3 +585,25 @@ test('the holders figure leaves out the first deployment’s contracts too; the 
   assert.match(privacy, /MINTA does not choose it, and the app’s security policy lets the page load that frame from, and send requests to, verify\.walletconnect\.org only\./);
   assert.doesNotMatch(privacy, /lets the frame load only from verify\.walletconnect\.org \(this page/);
 });
+
+test('look-alikes: a bar before punctuation, bar-shaped letters of other scripts, tabs and no-break spaces; and a hundred honest tickers carry no note', () => {
+  const note = (symbol, name = 'x') => lookalikeNote({ symbol, name, token: OTHER }, REAL, null);
+  for (const s of ['USDC|.e', 'USDC|-Token', 'USDC|.', 'USDC|!', '(USDC|)', 'USDC|/USDT', 'USDCⵏ', 'USDCᛁ', 'USDCꟾ', 'USDCߊ', 'USDCו', 'USDCا', 'USDCl', 'USDC\tToken', 'Real USDC', 'Real USDC|\tToken']) {
+    assert.equal(note(s), 'Not USDC', JSON.stringify(s));
+    assert.equal(note('X', s), 'Not USDC', `as a name: ${JSON.stringify(s)}`);
+  }
+  assert.equal(note('MINTA|!'), 'Not MINTA’s token');
+  assert.equal(note('VYRE|.'), 'Not VYRE’s token');
+  // a slash (or other punctuation) inside a word of a longer name makes no protected word
+  for (const s of ['Pay USD/C fast', 'Send US.DC now', 'My MIN-TA token', 'A VY/RE thing']) assert.equal(note('X', s), '', s);
+  const honest = ['DOGE', 'PEPE', 'SHIB', 'WIF', 'BONK', 'FLOKI', 'MOG', 'TURBO', 'BRETT', 'POPCAT', 'MEW', 'NEIRO', 'GOAT', 'PNUT', 'FART', 'CHAD', 'GIGA', 'SPX', 'TOSHI', 'DEGEN',
+    'BTC', 'ETH', 'SOL', 'ARB', 'OP', 'MATIC', 'AVAX', 'LINK', 'UNI', 'AAVE', 'MKR', 'CRV', 'LDO', 'SNX', 'COMP', 'YFI', 'SUSHI', 'CAKE', 'GMX', 'PENDLE',
+    'USDT', 'DAI', 'FRAX', 'TUSD', 'BUSD', 'LUSD', 'GUSD', 'PYUSD', 'USDE', 'USDS', 'EURC', 'EURS', 'XAUT', 'PAXG', 'WETH', 'WBTC', 'STETH', 'RETH', 'CBETH', 'WSTETH',
+    'Sol', 'Opal', 'Pearl', 'Coral', 'Royal', 'Final', 'Moonl', 'Girl', 'Owl', 'Cool', 'xUSDC', 'lUSDC', 'aUSDC', 'cUSDC', 'USDCAT', 'USDCx', 'MINT', 'MINTY', 'MINTAX', 'MINTAGE',
+    'VYBE', 'VIBE', 'WIRE', 'FYRE', 'LYRE', 'PYRE', 'TYRE', 'VYRES', 'CAT', 'DOG', 'FROG', 'MOON', 'ROCKET', 'LAMBO', 'HODL', 'WAGMI', 'GM', 'GN', 'ALPHA', 'OMEGA'];
+  assert.equal(new Set(honest).size, 100);
+  for (const s of honest) {
+    assert.equal(note(s), '', `ticker ${s}`);
+    assert.equal(note('X', `${s} Token`), '', `name "${s} Token"`);
+  }
+});

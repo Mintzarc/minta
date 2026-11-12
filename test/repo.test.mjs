@@ -205,6 +205,13 @@ test('a mainnet build configured with its own app API names that API’s origin 
   const elsewhere = JSON.parse(vercel);
   elsewhere.headers.unshift({ source: '/(.*)', has: [{ type: 'host', value: { eq: 'other.example' } }], headers: [{ key: 'Content-Security-Policy', value: "connect-src https://mine.example.com; img-src https://mine.example.com" }] });
   assert.throws(() => csp.checkHeaderNames('https://mine.example.com', JSON.stringify(elsewhere)), /does not name it/);
+  // (a host rule written as a plain string is read too)
+  const plain = JSON.parse(vercel);
+  plain.headers.find((h) => h.has).has[0].value = 'minta.vyrechain.com';
+  assert.throws(() => csp.checkHeaderNames('https://mine.example.com', JSON.stringify(plain)), /does not name it/);
+  const plainRule = plain.headers.find((h) => h.has).headers[0];
+  plainRule.value = plainRule.value.replaceAll('https://api.vyrechain.com', 'https://api.vyrechain.com https://mine.example.com');
+  csp.checkHeaderNames('https://mine.example.com', JSON.stringify(plain));
   assert.throws(() => csp.checkHeaderNames('https://mine.example.com', '{'), /could not be read/);
   const named = JSON.parse(vercel);
   const rule = named.headers.find((h) => h.has).headers[0];

@@ -180,9 +180,12 @@ export function plainLook(s: string): string {
 /** A name or ticker without the marks that can be hung on a word: trade-mark and other symbols, superscripts and the like, and upright bars at either end */
 // (the marks go first, or NFKC would spell them out, "™" as "TM"; then NFKC, so a full-width bar is a bar by the time bars are taken off)
 // (accents and strokes drawn over a letter or a bar go before the bars do, or a struck-through bar would stay)
-const BARS = '|ǀǁǃ∣¦';
+// (upright bars, and letters of other scripts drawn as one: Tifinagh, runic, Latin epigraphic, N'Ko, Hebrew vav, Arabic alef)
+const BARS = '|ǀǁǃ∣¦ⵏᛁꟾߊוا';
 const unmarked = (s: string) => s.replace(/[\p{So}\p{Sk}\p{No}]/gu, '').trim().replace(/^\p{Lm}+|\p{Lm}+$/gu, '').normalize('NFKC').replace(HIDDEN, '')
-  .normalize('NFD').replace(/\p{M}/gu, '').trim().replace(new RegExp(`^[${BARS}\\p{Lm}]+|[${BARS}\\p{Lm}]+$`, 'gu'), '');
+  .normalize('NFD').replace(/\p{M}/gu, '').trim().replace(new RegExp(`^[${BARS}\\p{Lm}]+|[${BARS}\\p{Lm}]+$`, 'gu'), '')
+  // (and a lower-case L at the very end, which draws as a bar after capitals: "USDCl")
+  .replace(/(?<=[^a-z])l+$/u, '');
 
 /** The words of a name or ticker (split at anything that is not a letter, digit or accent), each reduced as plainLook reduces it */
 export function plainWords(s: string): string[] {
@@ -196,8 +199,9 @@ export function plainWords(s: string): string[] {
 export function lookalikeNote(l: { symbol: string; name: string; token?: string | null }, realMinta?: string | null, realVyre?: string | null): string {
   // the whole ticker or name ("U S D C"), and each word of it ("USDC Token", "Real USDC", "USDC.e"); not a longer word ("USDCAT")
   // (each also without marks hung on it: "USDC™", "USDC²", and bars at either end, "USDC|", which would otherwise read as one more letter)
-  // ...and each word of it by itself the same way: "USDC| Token", "Real USDC| Token"
-  const looks = new Set([l.symbol, l.name].flatMap((s) => [s, unmarked(s), ...s.split(/\s+/u).map(unmarked)]).flatMap((s) => [plainLook(s), ...plainWords(s)]));
+  // ...and each word of it by itself the same way, a word ending at a space or at punctuation: "USDC| Token", "USDC|.e", "USDC|-Token"
+  // (not a word made by taking punctuation out: "Pay USD/C fast" names no protected word)
+  const looks = new Set([l.symbol, l.name].flatMap((s) => [s, unmarked(s), ...s.split(/[\s\p{P}]+/u).map(unmarked)]).flatMap((s) => [plainLook(s), ...plainWords(s)]));
   const is = (real?: string | null) => !!real && !!l.token && l.token.toLowerCase() === real.toLowerCase();
   if (['USDC', 'WUSDC', 'USDCOIN', 'WRAPPEDUSDC'].some((x) => looks.has(x))) return 'Not USDC';
   if (looks.has('MINTA')) return is(realMinta) ? '' : 'Not MINTA’s token';

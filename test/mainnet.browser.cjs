@@ -527,8 +527,8 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     ok(await soon(async () => /Cancelled in your wallet/.test(await moveCard.locator('.status').innerText().catch(() => ''))), 'and B’s own answer is shown under B');
     // back to A while A's request is still open in the wallet: A's button says so (it does not look ready, when a press would do nothing)
     await pg.evaluate((a) => window.__switch(a), A);
-    ok(await soon(async () => /Working…/.test(await moveCard.locator('.tx > button').innerText())) && await moveCard.locator('.tx > button').isDisabled() && /Still waiting for your wallet/.test(await moveCard.locator('.status').innerText().catch(() => '')),
-      'back on A with A’s request still open: the button is busy and says it is still waiting for the wallet (' + (await moveCard.locator('.status').innerText().catch(() => 'no status')).slice(0, 60) + ')');
+    ok(await soon(async () => /Working…/.test(await moveCard.locator('.tx > button').innerText())) && await moveCard.locator('.tx > button').isDisabled() && /Still working on your earlier request/.test(await moveCard.locator('.status').innerText().catch(() => '')),
+      'back on A with A’s request still open: the button is busy and says it is still working on the earlier request (' + (await moveCard.locator('.status').innerText().catch(() => 'no status')).slice(0, 60) + ')');
     await pg.evaluate((b) => window.__switch(b), B);
     ok(await soon(async () => /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText())), 'and B’s button is B’s own again');
     const HASH2 = '0x' + 'cc'.repeat(32);
@@ -536,9 +536,22 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     await pg.evaluate(([release, h]) => release(h), [releaseA, HASH2]);
     await pg.waitForTimeout(2500);
     const underB = await moveCard.locator('.status').innerText().catch(() => 'no status');
-    ok(!/withdrawal|Started|went through|couldn’t be read|Still waiting/i.test(underB) && /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText()), 'A’s result (whatever it was) is not shown under B: ' + underB.slice(0, 120));
+    ok(!/withdrawal|Started|went through|couldn’t be read|Still working/i.test(underB) && /Move 1 USDC to Arc/.test(await moveCard.locator('.tx > button').innerText()), 'A’s result (whatever it was) is not shown under B: ' + underB.slice(0, 120));
     await pg.evaluate((a) => window.__switch(a), A);
     await soon(async () => /Unwrap/.test(await card.locator('button').innerText().catch(() => '')));
+    // the unwrap card is drawn anew when the account changes: A's open unwrap is still known when A comes back
+    await pg.evaluate(() => { window.__answer = { hold: true }; window.__sends = 0; });
+    await card.locator('button').click();
+    ok(await soon(async () => (await pg.evaluate(() => window.__sends)) === 1), 'A’s unwrap is open in the wallet');
+    await pg.evaluate((b) => window.__switch(b), B);
+    ok(await soon(async () => /Unwrap 2 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => ''))) && await card.locator('button').isEnabled(), 'B’s card is B’s own, ready');
+    await pg.evaluate((a) => window.__switch(a), A);
+    ok(await soon(async () => /Working…/.test(await card.locator('button').innerText().catch(() => ''))) && await card.locator('button').isDisabled() && /Still working on your earlier request/.test(await card.innerText()),
+      'back on A: the unwrap button is busy and says it is still working on the earlier request (' + (await card.locator('button').innerText().catch(() => 'no button')) + ')');
+    const HASH3 = '0x' + 'ab'.repeat(32);
+    probe.mined.add(HASH3);
+    await pg.evaluate((h) => window.__release(h), HASH3);
+    ok(await soon(async () => /Unwrap 1 WUSDC to USDC/.test(await card.locator('button').innerText().catch(() => '')) && await card.locator('button').isEnabled()), 'when that request ends, the button is ready again');
     // a phone: the unwrap button's words fit, and the page does not scroll sideways
     probe.wrappedOf[A] = 12345678901234567890n; // 12.34567890123456789
     for (const width of [360, 320]) {
@@ -596,6 +609,14 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     const { pg, ctx, errs, probe } = await open('#/docs', true, { width: 1440, height: 900 }, { arg: A, script: standInWallet });
     const soon = async (cond) => { const t = Date.now(); while (Date.now() - t < 25000) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
     const rollup = sdk.getAddresses(3045).rollup;
+    /** Moves the page's clock on, `step` at a time (up to about three minutes), until `cond` holds: for things a timer of the page brings about */
+    const later = async (cond, step = 15_000) => {
+      for (let moved = 0; moved <= 180_000; moved += step) {
+        const t = Date.now(); while (Date.now() - t < 1500) { if (await cond()) return true; await new Promise((r) => setTimeout(r, 100)); }
+        await pg.clock.fastForward(step);
+      }
+      return cond();
+    };
     const dflt = (p) => {
       const arr = /^(.*)\[(\d*)\]$/.exec(p.type);
       if (arr) return arr[2] ? Array.from({ length: Number(arr[2]) }, () => dflt({ ...p, type: arr[1] })) : [];
@@ -664,14 +685,12 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     // a minute later (one is waiting, so the list reads again): 5 has been paid out; 6 is read this time
     spent['5'] = true; spent['6'] = false;
     const before = multicalls;
-    await pg.clock.fastForward(61_000);
-    ok(await soon(async () => /Paid out on Arc/.test(await rowOf(2).innerText())), 'a minute later the list reads again: the first is paid out');
+    ok(await later(async () => /Paid out on Arc/.test(await rowOf(2).innerText())), 'a minute later the list reads again: the first is paid out');
     ok(await soon(async () => /Waiting to be confirmed on Arc/.test(await rowOf(3).innerText())), 'and the second, read this time, is waiting');
     ok(multicalls > before && await soon(async () => (await moveCard.locator('.withdrawals-unread').count()) === 0), 'with nothing unread any more');
     // a later read in which the paid-out one's own answer fails: it stays paid out, the other settles
     spent['5'] = 'fail'; spent['6'] = true;
-    await pg.clock.fastForward(61_000);
-    ok(await soon(async () => /Paid out on Arc/.test(await rowOf(3).innerText())) && /Paid out on Arc/.test(await rowOf(2).innerText()), 'a row whose read fails later keeps the state it had (paid out), and the other settles');
+    ok(await later(async () => /Paid out on Arc/.test(await rowOf(3).innerText())) && /Paid out on Arc/.test(await rowOf(2).innerText()), 'a row whose read fails later keeps the state it had (paid out), and the other settles');
     // ---- a long chain: the list looks back about ten days of blocks, and "Look further back" widens it
     probe.onWithdrawRead = null;
     probe.head = '0x400000'; // past the look-back (3,500,000 blocks): the two withdrawals above, at block 0x20, are out of the first look
@@ -689,16 +708,21 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
       const pages = []; const held = [];
       probe.onWithdrawRead = ({ from, to }) => { pages.push({ from, to }); return new Promise((r) => held.push(r)); };
       const firstPages = () => pages.filter((r) => r.to === BigInt(probe.head)).length;
-      await pg.clock.fastForward(61_000); // the first tick: a read starts
-      ok(await soon(async () => held.length === 1) && firstPages() === 1, 'the minute’s read of the list starts (its first page is slow)');
+      // (the page's clock is moved on, a little at a time, until the timer's read has started: no wait on this machine's own clock decides it)
+      ok(await later(async () => held.length >= 1, 5_000) && held.length === 1 && firstPages() === 1, 'the minute’s read of the list starts (its first page is slow)');
       let passed = 0, crossed = false;
-      for (let i = 0; i < 12; i++) {
-        await pg.clock.fastForward(9_500); passed += 9_500; // under the request's own time limit, every page
-        await pg.waitForTimeout(250);
+      // Each page is answered (so none runs into the request's own time limit, which would ask for it again), and only then is the
+      // clock moved on: every step of the test waits for the page's next request, never for a length of time on this machine.
+      for (let i = 0; i < 14; i++) {
+        const go = held.shift(); if (!go) break;
+        const seen = pages.length;
+        go();
+        // the next page is asked for (or this was the last one)
+        const more = await (async () => { const t = Date.now(); while (Date.now() - t < 8000) { if (pages.length > seen) return true; await new Promise((r) => setTimeout(r, 50)); } return false; })();
+        if (!more) break;
+        await pg.clock.fastForward(9_500); passed += 9_500; // under the request's own time limit
+        await pg.waitForTimeout(200);
         if (passed > 60_500 && held.length > 0 && !crossed) { crossed = true; ok(firstPages() === 1, `the next tick came while that read was still on its way: no second read was started (${firstPages()} started, ${pages.length} pages read so far)`); }
-        const go = held.shift(); if (!go) break; go();
-        await soon(async () => held.length > 0 || pages.length >= 8).catch(() => {});
-        await pg.waitForTimeout(150);
       }
       ok(crossed, `the read did last past the next tick (${passed / 1000} s, ${pages.length} pages)`);
       for (const go of held.splice(0)) go();
@@ -715,8 +739,7 @@ const BANNED = /testnet|test usdc|test money|faucet|\b7357\b|sepolia|instant(?:l
     const reads = []; const slow = [];
     let holdShort = true;
     probe.onWithdrawRead = ({ from, to }) => { reads.push({ from, to }); return holdShort && from > 0n && to === BigInt(probe.head) ? new Promise((r) => slow.push(r)) : null; };
-    await pg.clock.fastForward(61_000);
-    ok(await soon(async () => slow.length === 1), 'a read for the short look-back is on its way (held)');
+    ok(await later(async () => slow.length >= 1, 5_000) && slow.length === 1, 'a read for the short look-back is on its way (held)');
     holdShort = false;
     await older.click();
     ok(await soon(async () => (await rows()) === 3), 'looking further back lists all three');

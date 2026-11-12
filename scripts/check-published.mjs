@@ -60,7 +60,29 @@ export async function checkSiteHeader({ fetch = globalThis.fetch, read = readFil
   const rules = JSON.parse(read('vercel.json').toString()).headers ?? [];
   const wide = rules.filter((x) => Array.isArray(x.missing)).flatMap((x) => x.headers ?? []).find((h) => h.key === 'Content-Security-Policy')?.value;
   if (got && got === wide) return { state: 'not-live', message: `${url} still sends the wide content policy: the rule that sends the narrow one on ${MAINNET_HOST} is not live there yet (or does not match that host). Check again after the deploy; with --live this is a failure.` };
+  // a full narrow policy that differs from this checkout's only in the three lists a change to scripts/csp.mjs edits (hosts added
+  // or taken away): the host has an earlier version of it, and this checkout's has not been deployed yet
+  if (got && sameButLists(got, mainnetHeader())) return { state: 'not-live', message: `${url} sends the narrow content policy with other lists than this checkout’s (connect-src, img-src or frame-src): this checkout’s policy is not live there yet. Check again after the deploy; with --live this is a failure.` };
   return { state: 'wrong', message: got ? `${url} sends a content policy that is neither the narrow one (scripts/csp.mjs) nor the wide one: ${got}` : `${url} sends no Content-Security-Policy header at all.` };
+}
+
+const LISTS = new Set(['connect-src', 'img-src', 'frame-src']);
+/** True when two policies have the same directives in the same order, each with the same value except the three host lists, which each must be there and name something */
+function sameButLists(a, b) {
+  const parts = (p) => p.split(';').map((x) => x.trim()).filter(Boolean).map((x) => [x.split(/\s+/)[0], x]);
+  const x = parts(a), y = parts(b);
+  if (x.length !== y.length) return false;
+  return x.every(([name, whole], i) => name === y[i][0] && (LISTS.has(name) ? whole.split(/\s+/).length > 1 && !/\s(?:https:|\*|data:\s*$)(?:\s|$)/.test(` ${whole.replace(/^img-src /, '')} `.replace(' data: ', ' ')) : whole === y[i][1]));
+}
+
+/**
+ * What the command does with the header check's answer: `ok` (a line to print), `note` (printed as a warning: not checked as live)
+ * or `problem` (the check fails). `live`: run after a deploy (--live), when the narrow policy must already be the host's header.
+ */
+export function decideSite(site, live) {
+  if (site.state === 'narrow') return { ok: `${MAINNET_HOST} sends the narrow content policy as its header.` };
+  if (site.state === 'wrong' || live) return { problem: site.message };
+  return { note: `NOT CHECKED AS LIVE: ${site.message}` };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -68,9 +90,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // (--live: run after a deploy, when the narrow policy must already be the mainnet host's header)
   const live = process.argv.includes('--live');
   const site = await checkSiteHeader();
-  if (site.state === 'narrow') console.log(`${MAINNET_HOST} sends the narrow content policy as its header.`);
-  else if (site.state === 'wrong' || live) problems.push(site.message);
-  else console.warn(`NOT CHECKED AS LIVE: ${site.message}`);
+  const what = decideSite(site, live);
+  if (what.ok) console.log(what.ok);
+  if (what.note) console.warn(what.note);
+  if (what.problem) problems.push(what.problem);
   for (const p of problems) console.error(p);
   console.log(problems.length ? 'Not ready to publish.' : 'The docs’ SDK install line answers with the vendored file.');
   process.exit(problems.length ? 1 : 0);

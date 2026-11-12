@@ -13,6 +13,7 @@
     "discovery": "node scripts/discovery.mjs",
     "test:browser": "node test/minta.browser.cjs && node test/mainnet.browser.cjs && node test/walletconnect.browser.cjs",
     "check:published": "node scripts/check-published.mjs",
+    "check:live": "node scripts/check-published.mjs --live",
     "preview": "vite preview"
   },
   "dependencies": {
